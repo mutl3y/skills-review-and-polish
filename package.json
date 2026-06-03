@@ -1,0 +1,363 @@
+{
+  "name": "skills-review-and-polish",
+  "displayName": "Skills Review and Polish",
+  "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems, and offers safe one-click fixes.",
+  "version": "0.0.1",
+  "publisher": "TBD",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "AI"
+  ],
+  "keywords": [
+    "ai",
+    "prompt",
+    "skill",
+    "instructions",
+    "agent",
+    "linter",
+    "prompt-engineering",
+    "copilot"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "Skills Review and Polish",
+      "properties": {
+        "skillsReviewAndPolish.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable the extension."
+        },
+        "skillsReviewAndPolish.provider": {
+          "type": "string",
+          "enum": [
+            "vscode-lm",
+            "openrouter",
+            "githubModels"
+          ],
+          "default": "vscode-lm",
+          "description": "LLM provider. 'vscode-lm' uses your Copilot subscription (no API key). External providers require a key set via the 'Set API Key' command (stored in SecretStorage)."
+        },
+        "skillsReviewAndPolish.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Analysis model **id**. Use the _Skills Review: Select Analysis Model_ command — the picker shows the friendly name with its id as description. The id uniquely identifies one model (e.g. `claude-sonnet-4.6`, `gpt-5.4`, `gemini-3-flash-preview`). Empty = auto-select best available model."
+        },
+        "skillsReviewAndPolish.modelDisplayName": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "_(Read-only — set automatically by the model picker.)_ Friendly name of the currently selected analysis model, shown here so you can see what `skillsReviewAndPolish.model` refers to without re-opening the picker."
+        },
+        "skillsReviewAndPolish.deepModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model for the contradictions/deep wave (needs stronger reasoning). Empty = same as analysis model."
+        },
+        "skillsReviewAndPolish.fixModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model for surgical fixes. A reasoning model is recommended. Empty = same as analysis model."
+        },
+        "skillsReviewAndPolish.analysisMode": {
+          "type": "string",
+          "enum": [
+            "single",
+            "multiWave"
+          ],
+          "default": "multiWave",
+          "description": "'multiWave' runs 6 focused passes (best quality). 'single' runs one combined prompt (cheaper/faster)."
+        },
+        "skillsReviewAndPolish.enabledWaves": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "contradictions",
+              "ambiguities",
+              "persona",
+              "structural",
+              "coverage",
+              "hygiene"
+            ]
+          },
+          "default": [
+            "contradictions",
+            "ambiguities",
+            "persona",
+            "structural",
+            "coverage",
+            "hygiene"
+          ],
+          "description": "Which analysis categories (waves) to run."
+        },
+        "skillsReviewAndPolish.scoreSamples": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Number of analyzer scans to median for keep/revert fix decisions. Collapses the ~±6 penalty noise floor. Use 1 for cheap scans, 3 for fixing."
+        },
+        "skillsReviewAndPolish.runOn": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "onSave",
+            "onType"
+          ],
+          "default": "manual",
+          "description": "When to run analysis automatically."
+        },
+        "skillsReviewAndPolish.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/SKILL.md",
+            "**/*.prompt.md",
+            "**/*.agent.md",
+            "**/*.instructions.md",
+            "**/AGENTS.md"
+          ],
+          "description": "Glob patterns for files treated as AI customizations."
+        },
+        "skillsReviewAndPolish.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**"
+          ],
+          "description": "Glob patterns to exclude from analysis."
+        },
+        "skillsReviewAndPolish.severityOverrides": {
+          "type": "object",
+          "default": {},
+          "description": "Per-diagnostic-code severity overrides (ESLint-style). Map a code to error|warning|info|hint|off. Example: { \"coverage-gap\": \"off\", \"contradiction\": \"error\" }."
+        },
+        "skillsReviewAndPolish.fixMode": {
+          "type": "string",
+          "enum": [
+            "diff",
+            "loop",
+            "chat"
+          ],
+          "default": "diff",
+          "description": "'diff' shows before/after for review; 'loop' auto-applies up to fixLoopMaxIterations; 'chat' hands off to Copilot Chat."
+        },
+        "skillsReviewAndPolish.fixStrategy": {
+          "type": "string",
+          "enum": [
+            "subtractive",
+            "additive",
+            "improved"
+          ],
+          "default": "subtractive",
+          "description": "'subtractive' tightens by removing vagueness; 'additive' appends a concrete clause (append-only); 'improved' is scope-capped."
+        },
+        "skillsReviewAndPolish.fixLoopMaxIterations": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Max fix-then-rescan iterations when fixMode is 'loop'."
+        },
+        "skillsReviewAndPolish.fix.semanticCheck": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run an extra semantic-equivalence judge on each fix (extra API call)."
+        },
+        "skillsReviewAndPolish.fix.selfCritique": {
+          "type": "boolean",
+          "default": false,
+          "description": "Audit each content-adding fix for fabricated facts (extra API call). Forced on for additive fixes."
+        },
+        "skillsReviewAndPolish.fix.referenceGrounding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use a sibling references/ directory to ground factual fragments when fixing."
+        },
+        "skillsReviewAndPolish.showScoreCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a CodeLens with the quality score and issue count at the top of customization files."
+        },
+        "skillsReviewAndPolish.experimental.inlineRewrites": {
+          "type": "boolean",
+          "default": false,
+          "description": "EXPERIMENTAL: preview surgical rewrites as inline ghost text on flagged lines."
+        },
+        "skillsReviewAndPolish.telemetry.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable anonymous usage telemetry."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "skillsReviewAndPolish.analyze",
+        "title": "Analyze Customization",
+        "category": "Skills Review and Polish",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "skillsReviewAndPolish.fixAll",
+        "title": "Fix All Issues",
+        "category": "Skills Review and Polish",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "skillsReviewAndPolish.rescan",
+        "title": "Re-scan Customization",
+        "category": "Skills Review and Polish",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "skillsReviewAndPolish.selectAnalysisModel",
+        "title": "Select Analysis Model",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.selectFixModel",
+        "title": "Select Fix Model",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.setApiKey",
+        "title": "Set API Key (external provider)",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.fixIssue",
+        "title": "Fix This Issue (surgical)",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.ignoreRule",
+        "title": "Ignore Rule",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.inspectAPIs",
+        "title": "Inspect VS Code LM APIs (Debug)",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.testModelSimplePrompt",
+        "title": "Test Model with Simple JSON Prompt (Debug)",
+        "category": "Skills Review and Polish"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "skills-review-and-polish_analyze",
+        "displayName": "Analyze Skill/Instructions",
+        "modelDescription": "Analyzes an AI skill or instructions document for contradictions, ambiguities, coverage gaps, persona inconsistencies, and structural/hygiene issues. Returns a JSON array of diagnostics with codes, messages, severity, and line ranges.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "analyze_skill",
+        "icon": "$(beaker)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The full text content of the skill/instructions document to analyze."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Optional absolute file path (used for domain hints and reference grounding)."
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      },
+      {
+        "name": "skills-review-and-polish_fix",
+        "displayName": "Fix Skill Issue (surgical)",
+        "modelDescription": "Surgically fixes a single identified issue in an AI skill or instructions document using safety-gated LLM rewriting. Returns the proposed fix text and risk flags for the caller to review.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "fix_skill_issue",
+        "icon": "$(wrench)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The full document text."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Optional absolute file path."
+            },
+            "diagnosticCode": {
+              "type": "string",
+              "description": "The issue code to fix (e.g. 'ambiguity-llm', 'contradiction', 'hygiene-redundant-instruction')."
+            },
+            "relevantText": {
+              "type": "string",
+              "description": "The exact verbatim text fragment to fix (the anchor)."
+            }
+          },
+          "required": [
+            "text",
+            "diagnosticCode",
+            "relevantText"
+          ]
+        }
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "skillsReviewAndPolish.analyze",
+          "group": "navigation",
+          "when": "skillsReviewAndPolish.isCustomization && !skillsReviewAndPolish.hasDiagnostics"
+        },
+        {
+          "command": "skillsReviewAndPolish.fixAll",
+          "group": "navigation",
+          "when": "skillsReviewAndPolish.isCustomization && skillsReviewAndPolish.hasDiagnostics"
+        },
+        {
+          "command": "skillsReviewAndPolish.rescan",
+          "group": "navigation",
+          "when": "skillsReviewAndPolish.isCustomization && skillsReviewAndPolish.hasDiagnostics"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "vitest run",
+    "test:e2e": "playwright test --config playwright.config.ts",
+    "clean": "rm -rf out",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.0.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.1.0"
+  }
+}
