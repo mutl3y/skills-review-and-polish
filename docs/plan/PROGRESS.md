@@ -6,7 +6,7 @@
 > 2. [ENGINE-REFERENCE.md](ENGINE-REFERENCE.md) — Analyzer/fixer architecture
 > 3. [LEARNINGS.md](LEARNINGS.md) — Hard-won lessons before changing prompts/scoring
 > 4. [../VSCODE-LM-STREAMING-FIX.md](../VSCODE-LM-STREAMING-FIX.md) — Recent vscode.lm fix
-> 5. [../../.instructions.md](../../.instructions.md) — Development standards
+> 5. [../DEVELOPMENT-STANDARDS.md](../DEVELOPMENT-STANDARDS.md) — Development standards
 
 ---
 
@@ -93,7 +93,7 @@ All compilation and test gates are clear.
 
 ### Documentation
 - Created [../VSCODE-LM-STREAMING-FIX.md](../VSCODE-LM-STREAMING-FIX.md) — Complete streaming fix guide
-- Created [../../.instructions.md](../../.instructions.md) — Development standards
+- Created [../DEVELOPMENT-STANDARDS.md](../DEVELOPMENT-STANDARDS.md) — Development standards
 - Created [../../.github/skills/markdown-style/SKILL.md](../../.github/skills/markdown-style/SKILL.md) — Markdown standards
 - Updated this file with accurate status
 

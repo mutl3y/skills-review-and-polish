@@ -28,7 +28,7 @@ return { text };
 
 **Why:** `response.text` applies internal filtering that corrupts JSON output. `response.stream` yields raw structured parts.
 
-**Evidence:** Documented in [docs/VSCODE-LM-STREAMING-FIX.md](docs/VSCODE-LM-STREAMING-FIX.md) — haiku, gpt-5-mini, gpt-4o-mini all failed with response.text corruption.
+**Evidence:** Documented in [VSCODE-LM-STREAMING-FIX.md](VSCODE-LM-STREAMING-FIX.md) — haiku, gpt-5-mini, gpt-4o-mini all failed with response.text corruption.
 
 ### Message Format (No System Role)
 
@@ -211,7 +211,7 @@ Remove any spaces at end of lines.
 
 ---
 
-**See [.github/skills/markdown-style/SKILL.md](.github/skills/markdown-style/SKILL.md) for complete markdown standards and validation checklist.**
+**See [../.github/skills/markdown-style/SKILL.md](../.github/skills/markdown-style/SKILL.md) for complete markdown standards and validation checklist.**
 
 ---
 
@@ -289,7 +289,7 @@ When discovering non-obvious patterns:
 
 ### Example
 
-See [docs/VSCODE-LM-STREAMING-FIX.md](docs/VSCODE-LM-STREAMING-FIX.md) for a complete example including:
+See [VSCODE-LM-STREAMING-FIX.md](VSCODE-LM-STREAMING-FIX.md) for a complete example including:
 - Problem description with reproduction
 - Root cause identification
 - Working solution with pattern
@@ -335,6 +335,6 @@ Use this before submitting PRs:
 
 ## Related Documentation
 
-- [docs/VSCODE-LM-STREAMING-FIX.md](docs/VSCODE-LM-STREAMING-FIX.md) — Complete streaming API guide with lessons learned
-- [docs/plan/LEARNINGS.md](docs/plan/LEARNINGS.md) — Earlier investigation notes
+- [VSCODE-LM-STREAMING-FIX.md](VSCODE-LM-STREAMING-FIX.md) — Complete streaming API guide with lessons learned
+- [plan/LEARNINGS.md](plan/LEARNINGS.md) — Earlier investigation notes
 - [README.md](README.md) — Project overview
