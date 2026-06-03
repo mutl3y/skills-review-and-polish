@@ -343,8 +343,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
-    "test": "vitest run",
-    "test:e2e": "playwright test --config playwright.config.ts",
+    "test": "vitest run --config tests/vitest.config.ts",
+    "test:e2e": "playwright test --config tests/playwright.config.ts",
     "clean": "rm -rf out",
     "vscode:prepublish": "npm run compile"
   },
