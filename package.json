@@ -356,8 +356,19 @@
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.0.0",
     "vitest": "^4.1.0"
+  },
+  "lint-staged": {
+    "src/**/*.ts": [
+      "eslint --fix",
+      "tsc --noEmit"
+    ],
+    "*.md": [
+      "eslint"
+    ]
   }
 }
