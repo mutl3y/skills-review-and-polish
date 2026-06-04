@@ -17,15 +17,15 @@ The repo currently contains **two overlapping implementations** of the same
 core idea — "lint and fix AI customizations" (skills / instructions / agents /
 prompts):
 
-| | **Extension engine** (`client/` + `src/` server) | **CLI engine** (`cli-analyzer.js` + `src/`) |
+||Extension engine (`client/` + `src/` server)|CLI engine (`cli-analyzer.js` + `src/`)|
 |---|---|---|
-| Shape | LSP client + Node language server | Standalone Node ESM CLI |
-| LLM access | `vscode.lm` (no API keys, uses Copilot sub) via an LSP proxy | External providers (GitHub Models, OpenRouter, Copilot API) + API keys |
-| Analysis | Server-side analysis, diagnostics published to editor | 6 specialized **multi-wave** passes, or single-prompt baseline |
-| Sampling | none | `SCORE_SAMPLES` median penalty scoring |
-| Fixing | `fixMode` = diff / loop / chat | Surgical fix with safety gates: delimiter guard, line-deletion guard, obligation-strength preservation, concept-swap detection, append-only verify, semantic check, self-critique, reference grounding |
-| UI | Diagnostics, status bar, diff view, title-bar buttons, Waza commands | Tables / JSON / Markdown, battle-test harness, HTML dashboard |
-| Maturity | Solid VS Code integration, **older/simpler** analysis | **Newest, richest** analysis + the hardened fixer |
+|Shape|LSP client + Node language server|Standalone Node ESM CLI|
+|LLM access|`vscode.lm` (no API keys, uses Copilot sub) via an LSP proxy|External providers (GitHub Models, OpenRouter, Copilot API) + API keys|
+|Analysis|Server-side analysis, diagnostics published to editor|6 specialized **multi-wave** passes, or single-prompt baseline|
+|Sampling|none|`SCORE_SAMPLES` median penalty scoring|
+|Fixing|`fixMode` = diff / loop / chat|Surgical fix with safety gates: delimiter guard, line-deletion guard, obligation-strength preservation, concept-swap detection, append-only verify, semantic check, self-critique, reference grounding|
+|UI|Diagnostics, status bar, diff view, title-bar buttons, Waza commands|Tables / JSON / Markdown, battle-test harness, HTML dashboard|
+|Maturity|Solid VS Code integration, **older/simpler** analysis|**Newest, richest** analysis + the hardened fixer|
 
 **The gap:** the best analysis + the safest fixer live in `cli-analyzer.js`, but
 the best *editor integration* lives in `client/`. The CLI also depends on API
@@ -42,7 +42,7 @@ get the advanced engine with **zero API keys**.
 ### What each can and cannot do
 
 | Capability | VS Code Extension | MCP Server |
-|---|---|---|
+| ---------- | ----------------- | ---------- |
 | Diagnostics (squiggles, Problems panel) | ✅ | ❌ |
 | Code actions / quick-fix lightbulbs | ✅ | ❌ |
 | CodeLens, hovers, status bar, tree views | ✅ | ❌ |
@@ -76,7 +76,7 @@ problem.
 5. **MCP server = optional later**, only if there's demand for non-VS-Code
    hosts. It would reuse the same core engine.
 
-```
+```text
                  ┌─────────────────────────────┐
                  │   core engine (shared lib)  │  ← from cli-analyzer.js
                  │  analyze() · surgicalFix()  │     provider-agnostic
@@ -103,6 +103,7 @@ problem.
     **SecretStorage** (never plain settings).
 - **Extension layer** (`vscode`-aware): diagnostics, code actions, CodeLens,
   hovers, status bar, tree view, commands, settings, language-model tools.
+
 ### Decision: run the engine **in-process** (drop the LSP server)
 
 The current code runs the analyzer in a separate `server.js` process over LSP.
@@ -125,7 +126,7 @@ hotspot ever appears, offload *that* piece to a `worker_thread` — no full LSP.
 ## 4. VS Code surfaces to hook into
 
 | Surface | Use | Priority |
-|---|---|---|
+| ------- | --- | -------- |
 | **Diagnostics** | Squiggles + Problems panel per finding (have it) | P0 |
 | **CodeActionProvider** (quick fix) | Lightbulb on each diagnostic: "Apply suggested rewrite", "Fix this contradiction", "Ignore this rule" | **P0 — biggest UX win** |
 | **Source action "Fix all"** | One-shot fix of all auto-fixable findings | P1 |
@@ -258,7 +259,7 @@ optional `@customizations` chat participant. Workspace health tree view.
 ## 8. Decisions (locked 2026-06-01)
 
 | # | Decision | Choice |
-|---|---|---|
+| - | -------- | ------ |
 | 1 | Architecture | **In-process** — drop LSP server + LLM proxy (see §3) |
 | 2 | Providers in v1 | **`vscode.lm` (default) + BYO-key external** (OpenRouter / GitHub Models) via SecretStorage |
 | 3 | Agentic surface | **In v1** — `languageModelTools` (+ optional `@customizations` chat participant) |
@@ -288,4 +289,5 @@ optional `@customizations` chat participant. Workspace health tree view.
    no longer the target runtime.)
 2. **Name:** display **"Skills Review and Polish"**, id `skills-review-and-polish`.
    Publisher TBD at publish time.
-```
+
+```text

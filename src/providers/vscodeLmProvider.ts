@@ -127,7 +127,7 @@ export class VsCodeLmProvider implements LlmProvider {
 
         this.log(`[selectModel] SUCCESS: found ${byId.length} instances of model id="${trimmed}"`);
         // ONLY accept 'copilot' vendor — never use 'copilotcli' (returns empty in extension host)
-        const preferred = byId.find((m) => m.vendor === 'copilot');
+        const preferred = this.findPreferredCopilotModel(byId);
         if (!preferred) {
           this.log(`[selectModel] ERROR: model "${trimmed}" only available with copilotcli vendor, which doesn't work in extension host. REJECTING.`);
           vscode.window.showErrorMessage(
@@ -159,7 +159,7 @@ export class VsCodeLmProvider implements LlmProvider {
 
         if (models.length > 0) {
           // ONLY accept 'copilot' vendor — never use 'copilotcli' (returns empty in extension host)
-          const preferred = models.find((m) => m.vendor === 'copilot');
+          const preferred = this.findPreferredCopilotModel(models);
           if (preferred) {
             this.log(`[selectModel] selected model: id="${preferred.id}" name="${preferred.name}" vendor="${preferred.vendor}" (multiplier ${multiplier}x)`);
             return preferred;
@@ -178,6 +178,45 @@ export class VsCodeLmProvider implements LlmProvider {
         'Or configure a specific model in Settings.',
     );
     return undefined;
+  }
+
+  private findPreferredCopilotModel(models: readonly vscode.LanguageModelChat[]): vscode.LanguageModelChat | undefined {
+    return models.find((model) => model.vendor === 'copilot');
+  }
+
+  private async collectStreamText(response: { stream: AsyncIterable<unknown>; text?: unknown }): Promise<{ text: string; error?: string }> {
+    let text = '';
+    let partNum = 0;
+
+    try {
+      for await (const part of response.stream) {
+        partNum++;
+        let partStr = '';
+        if (typeof part === 'string') {
+          partStr = part;
+        } else if (part && typeof part === 'object') {
+          partStr = 'value' in part ? String((part as any).value) : String(part);
+        } else {
+          partStr = String(part);
+        }
+
+        if (partNum <= 3) {
+          this.log(`[collectStreamText] PART[${partNum}] (first 3 logged): "${partStr.substring(0, 100)}"`);
+        }
+        text += partStr;
+      }
+    } catch (iterErr) {
+      const errMsg = iterErr instanceof Error ? iterErr.message : String(iterErr);
+      this.log(`[collectStreamText] ERROR during iteration: ${errMsg}, textSoFar=${text.length}c`);
+      return { text: '{}', error: `Failed to iterate response: ${errMsg}` };
+    }
+
+    if (!text) {
+      this.log(`[collectStreamText] ERROR: text is empty after iteration (${partNum} parts received)`);
+      return { text: '{}', error: 'Model returned empty text response' };
+    }
+
+    return { text };
   }
 
   private parsePricingFromModels(models: vscode.LanguageModelChat[]): Map<string, number> {
@@ -304,59 +343,16 @@ export class VsCodeLmProvider implements LlmProvider {
       }
 
       this.log(`[complete] iterating response.stream (structured parts)...`);
-      let text = '';
-      let partNum = 0;
-      try {
-        for await (const part of response.stream) {
-          partNum++;
-          // part could be LanguageModelTextPart | LanguageModelToolCallPart | LanguageModelDataPart | unknown
-          let partStr = '';
-          if (typeof part === 'string') {
-            partStr = part;
-          } else if (part && typeof part === 'object') {
-            // Check if it's a LanguageModelTextPart with .value property
-            if ('value' in part) {
-              partStr = String((part as any).value);
-            } else {
-              partStr = String(part);
-            }
-          } else {
-            partStr = String(part);
-          }
-          
-          if (partNum <= 3) {
-            this.log(`[complete] PART[${partNum}] (first 3 logged, stream): "${partStr.substring(0, 100)}"`);
-          }
-          text += partStr;
-        }
-      } catch (iterErr) {
-        const errMsg = iterErr instanceof Error ? iterErr.message : String(iterErr);
-        const errStack = iterErr instanceof Error ? iterErr.stack : '';
-        this.log(
-          `[complete] ERROR during iteration: ${errMsg}, ` +
-            `textSoFar=${text.length}c`,
-        );
-        this.log(`[complete] stack trace: ${errStack}`);
-        return {
-          text: '{}',
-          error: `Failed to iterate response: ${errMsg}`,
-        };
-      }
-
-      this.log(
-        `[complete] iteration complete: ${partNum} parts, ` +
-          `total text=${text.length} chars`,
-      );
-
-      if (!text) {
-        this.log(`[complete] ERROR: text is empty after iteration (${partNum} parts received)`);
-        return { text: '{}', error: 'Model returned empty text response' };
+      const streamed = await this.collectStreamText(response as { stream: AsyncIterable<unknown>; text?: unknown });
+      if (streamed.error) {
+        this.log(`[complete] ERROR: ${streamed.error}`);
+        return { text: streamed.text, error: streamed.error };
       }
 
       this.log(`[complete] RESPONSE CONTENT (first 500 chars):`);
-      this.log(`[complete] ${text.substring(0, 500)}`);
-      this.log(`[complete] SUCCESS: returning ${text.length} chars total`);
-      return { text };
+      this.log(`[complete] ${streamed.text.substring(0, 500)}`);
+      this.log(`[complete] SUCCESS: returning ${streamed.text.length} chars total`);
+      return { text: streamed.text };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const stack = err instanceof Error ? err.stack : '';

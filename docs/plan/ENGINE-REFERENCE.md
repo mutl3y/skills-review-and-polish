@@ -5,6 +5,7 @@
 > the engine into `src/core/` without access to the original repo or chat history.
 >
 > The actual source files are in `../../reference-engine/`:
+>
 > - `cli-analyzer.js` — surgical fixer + scoring + 3 providers + battle harness (the richest engine)
 > - `llm.ts` — the 6-wave analyzer (originally `src/analyzers/llm.ts`); already uses an `LLMProxyFn` seam
 > - `types.ts` — original type defs (imports `Range` from `vscode-languageserver` — must be made vscode-free; already done in `src/core/types.ts`)
@@ -21,7 +22,7 @@ composition-conflicts pass. Each wave has a static system prompt (provider promp
 caching → ~50% token discount after first call). Run with `Promise.allSettled`.
 
 | Wave | System Prompt const | Model Tier | JSON field | Output code | Purpose |
-|------|--------------------|-----------|-----------|-------------|---------|
+| ---- | ------------------- | --------- | ----------- | ----------- | ------- |
 | Contradictions | `SYSTEM_PROMPT_CONTRADICTION` | **deep** | `.contradictions[]` | `contradiction` | Direct conflicts, domain-inference, numeric overlaps, enable/disable conflicts |
 | Ambiguities | `SYSTEM_PROMPT_AMBIGUITY` | standard | `.ambiguity_issues[]` | `ambiguity-llm` | Material-difference vagueness, weak obligation (try/should/might), delegated decisions |
 | Persona | `SYSTEM_PROMPT_PERSONA` | standard | `.persona_issues[]` | `persona-inconsistency` | Role/authority/style/decisiveness conflicts (BOTH sides must be explicit) |
@@ -41,22 +42,26 @@ extension, replace `proxyFn` with the `LlmProvider.complete()` interface
 (`src/core/types.ts`). `modelTier: 'deep'` maps to the `deepModel` setting.
 
 ### Cognitive sub-types (from structural wave)
+
 `cognitive-nested-conditions`, `cognitive-priority-conflict`,
 `cognitive-delegated-decision`, `cognitive-constraint-overload`,
 `cognitive-sequencing`, `cognitive-deep-decision-tree`.
 
 ### Hygiene sub-types
+
 `hygiene-redundant-instruction`, `hygiene-non-actionable-preamble`,
 `hygiene-vague-directive`, `hygiene-missing-agent`, `hygiene-dead-instruction`,
 `hygiene-unordered-process`, `hygiene-over-specification`,
 `hygiene-circular-definition`.
 
 ### Consolidation (deterministic, NOT an LLM call)
+
 1. Same-code duplicates: same code + same instruction (≤80 normalized chars) → keep first.
 2. Contradiction subsumption: a `contradiction` sharing ≥4 6-char word stems with a `cognitive-priority-conflict`/`cognitive-constraint-overload` drops the subordinate.
 3. Primary-wave subsumption: cognitive sub-types sharing ≥4 stems with hygiene/ambiguity findings on the same pattern are dropped.
 
 ### Infrastructure codes (NOT scored as issues)
+
 `llm-error`, `llm-parse-error`, `llm-disabled`, `llm-loop-detected`,
 `contradiction-related`, `high-complexity`.
 
@@ -65,7 +70,8 @@ extension, replace `proxyFn` with the `LlmProvider.complete()` interface
 ## 2. Quality Scoring (`cli-analyzer.js`)
 
 Deterministic formula:
-```
+
+```text
 score = 100 - issuePenalty - lengthPenalty
 ```
 
@@ -78,6 +84,7 @@ score = 100 - issuePenalty - lengthPenalty
 **Pillars:** Contradictions, Clarity (ambiguity/persona/obligation), Completeness (coverage/dead), Structure (cognitive/waste/over-spec).
 
 ### Median-of-N penalty (the keep/revert decision) — CRITICAL
+
 `medianTotalPenalty(filePath)` runs `SCORE_SAMPLES` (default **3**) independent
 analyzer scans and takes the **median** total penalty. This collapses the ±6
 noise floor (see Learnings). Keep a fix only if penalty improves by more than
@@ -92,6 +99,7 @@ Per-diagnostic find-and-replace (NOT whole-file rewrite). Only
 coverage need human judgment).
 
 **Flow per diagnostic:**
+
 1. Locate anchor; protect YAML frontmatter (`frontmatterRange()` skips `---...---`).
 2. Build context: `surroundingContext()` read-only window + `skillDomainHint()` + optional `loadReferenceGrounding()` (sibling `references/` dir).
 3. Call fix LLM with deterministic system prompt (temp 0, top_p 0; `decodingParams()`).
@@ -106,6 +114,7 @@ coverage need human judgment).
 6. **Median-of-N keep/revert** via `medianTotalPenalty` before/after; revert if not improved beyond margin.
 
 **Fix strategies:**
+
 - **subtractive** (default): tighten by removing vagueness; result ≤ original length.
 - **additive** (`FIX_AMBIGUITY_ADDITIVE`, ambiguity-llm only): APPEND-ONLY — reproduce original verbatim, INSERT one concrete clause; enforced by subsequence check (`appendOnlyBreak()` — original tokens must be a subsequence of fixed tokens). Forces self-critique.
 - **improved**: scope-capped; blocks fixes to infra codes.
@@ -122,8 +131,9 @@ extension's **default** provider is `vscode.lm` (no keys). The CLI providers are
 the model for the optional `openrouter`/`githubModels` providers later.
 
 ### Env var → setting mapping (CLI flag → extension setting)
+
 | CLI env | Extension setting |
-|---------|-------------------|
+| ------- | ---------------- |
 | `CLI_MODEL` | `skillsReviewAndPolish.model` |
 | `CLI_DEEP_MODEL` | `skillsReviewAndPolish.deepModel` |
 | `CLI_FIX_MODEL` | `skillsReviewAndPolish.fixModel` |
@@ -139,6 +149,7 @@ the model for the optional `openrouter`/`githubModels` providers later.
 ---
 
 ## 5. AnalysisResult shape (the contract)
+
 ```jsonc
 {
   "code": "contradiction",
@@ -150,11 +161,13 @@ the model for the optional `openrouter`/`githubModels` providers later.
   "relevantText": "exact fragment from doc"
 }
 ```
+
 This maps 1:1 to `AnalysisResult` in `src/core/types.ts` and to a `vscode.Diagnostic`.
 
 ---
 
 ## 6. Why these choices (rationale)
+
 - **Multi-wave** beats single prompt: 86% vs 82% Jaccard; coverage detection 60% vs 33%. Each focused call reduces FP/FN. Static prompts → caching. Parallel → comparable latency.
 - **Deep model for contradictions** only: contradictions need cross-reference + domain reasoning; other waves are focused enough for a standard model.
 - **Deterministic consolidation** (not LLM): auditable, reproducible, no probabilistic dedup variance.

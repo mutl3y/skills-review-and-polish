@@ -1,8 +1,12 @@
 # HANDOVER — Skills Review and Polish
 
-> **Read this first.** This is a self-handover from a previous session. The chat
-> that designed this is gone. Everything you need is in this folder. Start here,
-> then read the three sibling docs in this order:
+> **Historical note:** This document is a pre-build handover from the earlier
+> implementation phase. It is useful for context, but it is not the current
+> release plan or a live build artifact.
+>
+> Read it only if you need the original design history. For current release
+> readiness, start with [../RELEASE-READINESS.md](../RELEASE-READINESS.md) and
+> [PROGRESS.md](PROGRESS.md).
 >
 > 1. `NEW-EXTENSION-DESIGN.md` — the full design + the 6 locked decisions
 > 2. `ENGINE-REFERENCE.md` — how the analyzer/fixer engine works (to port it)
@@ -44,7 +48,7 @@ the chosen `family` to settings. Don't try to make the enum dynamic.
 
 ---
 
-## Current status (what's already done in THIS folder)
+## Historical status (pre-build context)
 
 - **Scaffold complete and should compile:**
   - `package.json` — full manifest: settings, commands, editor-title menus, activation.
@@ -65,7 +69,7 @@ hovers, tree view, or languageModelTools yet. No `node_modules` (run `npm instal
 
 ---
 
-## The phased plan
+## Historical phased plan
 
 ### Phase 1 — Extract the core engine (vscode-free)
 

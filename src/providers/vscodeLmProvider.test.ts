@@ -356,6 +356,47 @@ describe('VsCodeLmProvider.selectModel()', () => {
         expect.stringContaining('reconfigure in Settings'),
       );
     });
+
+    it('rejects a configured model when only the CLI vendor is available', async () => {
+      selectChatModels.mockImplementation((opts) => {
+        if (!opts) {
+          return Promise.resolve(allModels);
+        }
+        if (opts?.id === 'claude-haiku-4.5') {
+          return Promise.resolve([{ id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', vendor: 'copilotcli' } as any]);
+        }
+        return Promise.resolve([]);
+      });
+
+      const result = await (provider as any).selectModel('claude-haiku-4.5');
+
+      expect(result).toBeUndefined();
+      expect(showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('copilotcli vendor'),
+      );
+    });
+  });
+
+  describe('provider helper boundaries', () => {
+    it('finds the preferred copilot model when both copilot and copilotcli are present', () => {
+      const copilotModel = { id: 'a', vendor: 'copilot' } as any;
+      const cliModel = { id: 'b', vendor: 'copilotcli' } as any;
+
+      const result = (provider as any).findPreferredCopilotModel([cliModel, copilotModel]);
+
+      expect(result).toBe(copilotModel);
+    });
+
+    it('collects stream text from structured parts and reports iteration failures', async () => {
+      const streamed = (provider as any).collectStreamText({
+        stream: (async function* () {
+          yield { value: '{"ok":' };
+          yield 'true}';
+        })(),
+      });
+
+      await expect(streamed).resolves.toEqual({ text: '{"ok":true}' });
+    });
   });
 
   describe('cost multiplier enforcement', () => {
@@ -559,6 +600,150 @@ describe('VsCodeLmProvider.selectModel()', () => {
       // Verify we got clean output from response.stream, not corruption from response.text
       expect(result.text).toBe('{"clean": true}');
       expect(result.text).not.toContain('CORRUPTED');
+    });
+
+    it('returns an error when response.stream iteration fails', async () => {
+      const mockModel = { ...safeTierModels[2] } as any;
+      mockModel.sendRequest = vi.fn().mockResolvedValue({
+        text: 'ignored',
+        stream: (async function* () {
+          throw new Error('stream boom');
+        })(),
+      });
+
+      selectChatModels.mockImplementation((opts) => {
+        if (!opts) return Promise.resolve(allModels);
+        if (opts?.family === 'claude-sonnet-4.5') return Promise.resolve([mockModel]);
+        if (opts?.id === 'claude-sonnet-4.5') return Promise.resolve([mockModel]);
+        return Promise.resolve([]);
+      });
+
+      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5', () => {});
+      const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
+
+      expect(result.error).toContain('Failed to iterate response: stream boom');
+    });
+
+    it('returns an error when the streamed text is empty', async () => {
+      const mockModel = { ...safeTierModels[0] } as any;
+      mockModel.sendRequest = vi.fn().mockResolvedValue({
+        text: 'ignored',
+        stream: (async function* () {
+          yield '';
+        })(),
+      });
+
+      selectChatModels.mockImplementation((opts) => {
+        if (!opts) return Promise.resolve(allModels);
+        if (opts?.family === 'gpt-5-mini') return Promise.resolve([mockModel]);
+        if (opts?.id === 'gpt-5-mini') return Promise.resolve([mockModel]);
+        return Promise.resolve([]);
+      });
+
+      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini', () => {});
+      const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
+
+      expect(result.error).toBe('Model returned empty text response');
+    });
+
+    it('returns an error when the model response object is empty', async () => {
+      const mockModel = { ...safeTierModels[2], id: 'claude-sonnet-4.5' } as any;
+      mockModel.sendRequest = vi.fn().mockResolvedValue({});
+
+      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5', () => {});
+      (testProvider as any).cachedStandard = mockModel;
+
+      const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
+
+      expect(result).toEqual({ text: '{}', error: 'Model returned empty response object' });
+    });
+
+    it('returns an error when the model request itself fails', async () => {
+      const mockModel = { ...safeTierModels[2], id: 'claude-sonnet-4.5' } as any;
+      mockModel.sendRequest = vi.fn().mockRejectedValue(new Error('network down'));
+
+      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5', () => {});
+      (testProvider as any).cachedStandard = mockModel;
+
+      const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
+
+      expect(result).toEqual({ text: '{}', error: 'vscode.lm request failed: network down' });
+    });
+
+    it('uses a cached model without reselecting when complete() runs', async () => {
+      const mockModel = { ...safeTierModels[1], id: 'claude-haiku-4.5' } as any;
+      mockModel.sendRequest = vi.fn().mockResolvedValue({
+        text: 'cached-response',
+        stream: (async function* () {
+          yield 'cached-response';
+        })(),
+      });
+
+      const testProvider = new VsCodeLmProvider('claude-haiku-4.5', 'claude-haiku-4.5', () => {});
+      (testProvider as any).cachedStandard = mockModel;
+
+      const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
+
+      expect(result).toEqual({ text: 'cached-response' });
+      expect(selectChatModels).not.toHaveBeenCalled();
+      testProvider.invalidate();
+      expect((testProvider as any).cachedStandard).toBeUndefined();
+      expect((testProvider as any).cachedDeep).toBeUndefined();
+    });
+
+    it('uses the deep cache path when requested', async () => {
+      const mockModel = { ...safeTierModels[2], id: 'claude-sonnet-4.5', vendor: 'copilot', family: 'claude' } as any;
+      mockModel.sendRequest = vi.fn().mockResolvedValue({
+        text: 'deep-response',
+        stream: (async function* () {
+          yield 'deep-response';
+        })(),
+      });
+
+      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'claude-sonnet-4.5', () => {});
+      (testProvider as any).cachedDeep = mockModel;
+
+      const result = await testProvider.complete({
+        systemPrompt: 'Test',
+        prompt: 'Test',
+        modelTier: 'deep',
+      });
+
+      expect(result).toEqual({ text: 'deep-response' });
+      expect(selectChatModels).not.toHaveBeenCalled();
+    });
+
+    it('reports testSimplePrompt failures when the model request throws', async () => {
+      const mockModel = { ...safeTierModels[1], id: 'claude-haiku-4.5' } as any;
+      mockModel.sendRequest = vi.fn().mockRejectedValue(new Error('network down'));
+
+      const testProvider = new VsCodeLmProvider('claude-haiku-4.5', 'claude-haiku-4.5', () => {});
+      (testProvider as any).cachedStandard = mockModel;
+
+      const result = await testProvider.testSimplePrompt();
+
+      expect(result.success).toBe(false);
+      expect(result.response).toContain('network down');
+      expect(result.modelUsed).toBe('claude-haiku-4.5');
+    });
+
+    it('reports testSimplePrompt success for valid JSON responses', async () => {
+      const mockModel = { ...safeTierModels[0], id: 'gpt-5-mini' } as any;
+      mockModel.sendRequest = vi.fn().mockResolvedValue({
+        text: '{"ok":true}',
+        stream: (async function* () {
+          yield '{"ok":true}';
+        })(),
+      });
+
+      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini', () => {});
+      (testProvider as any).cachedStandard = mockModel;
+
+      const result = await testProvider.testSimplePrompt();
+
+      expect(result.success).toBe(true);
+      expect(result.modelUsed).toBe('gpt-5-mini');
+      expect(result.response).toContain('{"ok":true}');
     });
   });
 

@@ -81,12 +81,12 @@ Three tests ensure this fix doesn't regress:
 
 After switching to `response.stream`:
 
-| Model            | Tier | Multiplier | Status     | Tested              |
-| --- | --- | --- | --- | --- |
-| gpt-5-mini       | safe | 0x         | ✅ Working | Yes (regression test) |
-| claude-haiku-4.5 | safe | 0.33x      | ✅ Working | Yes (regression test) |
-| claude-sonnet-4.5| safe | 1x         | ✅ Working | Yes (regression test) |
-| gpt-4o-mini      | safe | 0x         | ✅ Working | Yes (manual test) |
+|Model|Tier|Multiplier|Status|Tested|
+|---|---|---|---|---|
+|gpt-5-mini|safe|0x|✅ Working|Yes (regression test)|
+|claude-haiku-4.5|safe|0.33x|✅ Working|Yes (regression test)|
+|claude-sonnet-4.5|safe|1x|✅ Working|Yes (regression test)|
+|gpt-4o-mini|safe|0x|✅ Working|Yes (manual test)|
 
 **All 6 analysis waves** now produce valid JSON with correct issue detection. Safe-tier models (≤1x multiplier) are used exclusively to maintain cost guardrails.
 
@@ -228,12 +228,14 @@ return { text };  // Return object, not string
 ## Files Modified
 
 **Core Implementation:**
+
 - `src/providers/vscodeLmProvider.ts` — Changed `response.text` → `response.stream` in `complete()` method (lines 280–310)
   - Handles both string and LanguageModelTextPart objects
   - First 3 parts logged for debugging
   - Validates response has `.text` property before streaming
 
 **Regression Tests (Locked In):**
+
 - `src/providers/vscodeLmProvider.test.ts` — Added 3 streaming response tests (lines 465–562)
   - Test 1: String parts concatenation (uses gpt-5-mini 0x)
   - Test 2: LanguageModelTextPart object handling (uses claude-haiku-4.5 0.33x)
@@ -242,6 +244,7 @@ return { text };  // Return object, not string
   - Mock setup handles all three `selectChatModels()` call patterns
 
 **Test Infrastructure:**
+
 - Cost guardrail comment added to test file documenting constraint: "All model-based tests only use safe-tier models (≤1x multiplier)"
 
 ## Related Documentation

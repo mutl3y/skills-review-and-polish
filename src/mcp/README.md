@@ -1,6 +1,14 @@
-# MCP Server Seam (Phase 7)
+# MCP Server Seam
 
-This directory holds the stub/documentation for wrapping the `skills-review-and-polish` engine as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server.
+This directory contains the headless MCP seam for wrapping the `skills-review-and-polish` engine as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server.
+
+## What the MCP seam exposes
+
+The server currently exposes two tools:
+- `analyze`: returns diagnostic findings for a full document string and optional file path.
+- `fix`: applies the surgical fixer to one flagged issue using the same engine/provider path as the extension.
+
+The server uses the same core engine that powers the VS Code extension, which keeps the analysis behavior consistent across hosts.
 
 ## Why this works cleanly
 
@@ -10,98 +18,136 @@ The `src/core/` module is **vscode-free by design** — `src/core/types.ts` has 
 2. An `LlmProvider` implementation that calls an external API (already done in `src/providers/externalProvider.ts`)
 3. Two MCP tools mirroring the VS Code `languageModelTools`: `analyze` and `fix`
 
-## Minimal stub
+The headless MCP seam now prefers GitHub Models via `GITHUB_TOKEN`, matching the CLI analyzer path. OpenRouter remains available as a fallback when that token is not set.
 
-```typescript
-// src/mcp/server.ts (stub — not compiled with the extension)
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Engine } from '../core/index.js';
-import { OpenRouterProvider } from '../providers/externalProvider.js';
+## Setup and runtime requirements
 
-const provider = new OpenRouterProvider({
-  apiKey: process.env.OPENROUTER_API_KEY ?? '',
-  model: process.env.ANALYSIS_MODEL ?? 'openai/gpt-4o-mini',
-});
-const engine = new Engine(provider);
+1. Install dependencies in the repo root:
+   ```sh
+   npm install
+   ```
+2. Build the MCP entry point:
+   ```sh
+   npm run compile
+   ```
+3. Start the stdio server:
+   ```sh
+   npm run mcp
+   ```
+4. Connect it from an MCP client using the `command` / `args` / `env` block shown below.
 
-const server = new Server(
-  { name: 'skills-review-and-polish', version: '0.0.1' },
-  { capabilities: { tools: {} } },
-);
+### Provider selection
 
-server.setRequestHandler('tools/list', async () => ({
-  tools: [
-    {
-      name: 'analyze',
-      description: 'Analyze an AI skill/instructions document for quality issues.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          text: { type: 'string', description: 'Document content' },
-          filePath: { type: 'string', description: 'Optional file path for context' },
-        },
-        required: ['text'],
-      },
-    },
-    {
-      name: 'fix',
-      description: 'Surgically fix a single issue in a skill/instructions document.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          text: { type: 'string' },
-          filePath: { type: 'string' },
-          diagnosticCode: { type: 'string' },
-          relevantText: { type: 'string' },
-        },
-        required: ['text', 'diagnosticCode', 'relevantText'],
-      },
-    },
-  ],
-}));
+The MCP seam prefers GitHub Models via `GITHUB_TOKEN` because that matches the CLI analyzer path in the companion repo. If `GITHUB_TOKEN` is not set, it falls back to `OPENROUTER_API_KEY`.
 
-server.setRequestHandler('tools/call', async (req) => {
-  const { name, arguments: args } = req.params;
-  if (name === 'analyze') {
-    const results = await engine.analyze({ text: args.text, filePath: args.filePath });
-    return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+Recommended env for the headless seam:
+```json
+{
+  "env": {
+    "GITHUB_TOKEN": "<your-github-token>",
+    "ANALYSIS_MODEL": "gpt-4o-mini"
   }
-  if (name === 'fix') {
-    const { SurgicalFixer } = await import('../core/fixer.js');
-    const fixer = new SurgicalFixer(provider);
-    const result = await fixer.fixIssue(args.text, args.filePath ?? '', {
-      code: args.diagnosticCode,
-      message: args.relevantText,
-      severity: 'warning',
-      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-      analyzer: 'mcp',
-      relevantText: args.relevantText,
-    });
-    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-  }
-  throw new Error(`Unknown tool: ${name}`);
-});
+}
+```
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+Fallback env (if you want to use OpenRouter instead):
+```json
+{
+  "env": {
+    "OPENROUTER_API_KEY": "<your-openrouter-key>",
+    "ANALYSIS_MODEL": "openai/gpt-4o-mini"
+  }
+}
+```
+
+## Example MCP client config
+
+```json
+{
+  "mcpServers": {
+    "skills-review": {
+      "command": "node",
+      "args": ["/workspace/skills-review-and-polish/out/mcp/server.js"],
+      "env": {
+        "GITHUB_TOKEN": "<your-github-token>",
+        "ANALYSIS_MODEL": "gpt-4o-mini"
+      }
+    }
+  }
+}
 ```
 
 ## To activate
 
-1. `npm install @modelcontextprotocol/sdk`
-2. Move `src/mcp/server.ts` out of `tsconfig` exclude list (or build separately)
-3. Add to your MCP client config:
+1. Run `npm install` in the repo root.
+2. Build the server with `npm run compile`.
+3. Start it with `npm run mcp`, or point your MCP client directly at `node ./out/mcp/server.js`.
+4. Add the env vars shown above to your client configuration.
    ```json
    {
      "mcpServers": {
        "skills-review": {
          "command": "node",
          "args": ["./out/mcp/server.js"],
-         "env": { "OPENROUTER_API_KEY": "<your-key>" }
+         "env": {
+           "GITHUB_TOKEN": "<your-github-token>",
+           "ANALYSIS_MODEL": "gpt-4o-mini"
+         }
        }
      }
    }
    ```
 
-The MCP seam is intentionally a stub — the VS Code language model tools (Phase 5) are the primary agentic surface. The MCP path is for headless CI/review pipeline use-cases.
+The MCP seam is now wired as a real stdio server entry point. The VS Code language model tools remain the primary in-editor surface, while the MCP path gives headless CI / review-pipeline use-cases a direct engine interface.
+
+## Verification notes
+
+You can verify the seam with any MCP client by calling the `analyze` tool on a sample `SKILL.md` or prompt file. The tool returns JSON diagnostics from the same `Engine` path used by the extension, which makes this a real end-to-end proof path for automation and remote tooling.
+
+### Proof run example
+
+A minimal proof run looks like this:
+
+```sh
+cd /workspace/skills-review-and-polish
+npm run compile
+ANALYSIS_MODEL=gpt-4o-mini node --input-type=module <<'EOF'
+import fs from 'node:fs';
+import path from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createMcpServer } from './out/mcp/server.js';
+import { Engine } from './out/core/index.js';
+import { GitHubModelsProvider } from './out/providers/externalProvider.js';
+import { DEFAULT_ENGINE_CONFIG } from './out/core/types.js';
+
+const skillPath = path.resolve('tests/fixtures/primary/test-ambiguities/SKILL.md');
+const text = fs.readFileSync(skillPath, 'utf8');
+
+const buildEngine = async () =>
+  new Engine(
+    new GitHubModelsProvider({
+      apiKey: process.env.GITHUB_TOKEN ?? '',
+      model: process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini',
+    }),
+    { ...DEFAULT_ENGINE_CONFIG, analysisMode: 'single' },
+  );
+
+const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+const server = createMcpServer({ buildEngine });
+await server.server.connect(serverTransport);
+const client = new Client({ name: 'proof-client', version: '1.0.0' });
+await client.connect(clientTransport);
+
+const result = await client.callTool({
+  name: 'analyze',
+  arguments: { text, filePath: skillPath },
+});
+
+console.log(String(result.content?.[0]?.text ?? ''));
+await client.close();
+await server.server.close();
+EOF
+```
+
+This produces a real MCP `analyze` response from the server and is the simplest way to validate the seam end to end.

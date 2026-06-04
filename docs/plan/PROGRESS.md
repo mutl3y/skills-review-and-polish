@@ -1,40 +1,39 @@
 # Implementation Progress — Skills Review and Polish
 
-> Updated June 3, 2026. This document tracks actual implementation status and next steps.
-> Start here for current status. For full context, read in this order:
-> 1. [HANDOVER.md](HANDOVER.md) — Project overview and 6 locked decisions
-> 2. [ENGINE-REFERENCE.md](ENGINE-REFERENCE.md) — Analyzer/fixer architecture
-> 3. [LEARNINGS.md](LEARNINGS.md) — Hard-won lessons before changing prompts/scoring
-> 4. [../VSCODE-LM-STREAMING-FIX.md](../VSCODE-LM-STREAMING-FIX.md) — Recent vscode.lm fix
-> 5. [../DEVELOPMENT-STANDARDS.md](../DEVELOPMENT-STANDARDS.md) — Development standards
+> Updated June 4, 2026. This is a concise status note for release planning.
+> For deeper background, use [HANDOVER.md](HANDOVER.md), [ENGINE-REFERENCE.md](ENGINE-REFERENCE.md), and [LEARNINGS.md](LEARNINGS.md).
 
 ---
 
-## Current Status — Implementation 95% Complete (as of 2026-06-03)
+## Current status
 
-**Compilation:** ✅ Clean (0 errors)  
-**Tests:** ✅ 60/60 passing  
-**Last Update:** Fixed vscode.lm streaming, corrected test type errors, verified all phases implemented
+The project has the main release pieces in place: the analyzer, fixer, VS Code diagnostics, provider integration, and the current docs/testing workflow. The remaining work is release validation rather than major feature invention.
+
+## What is implemented
+
+- Core analysis and fix pipeline in `src/core/`
+- VS Code extension wiring, diagnostics, and fix UX in `src/extension.ts` and `src/ui/`
+- Provider support for `vscode.lm`, OpenRouter, and GitHub Models
+- MCP seam and test support for the current engine path
+
+## Release focus
+
+Before a public release, complete the checks listed in [../RELEASE-READINESS.md](../RELEASE-READINESS.md):
+
+1. Smoke test the extension in the Extension Development Host.
+2. Validate the seeded fixtures in `test/fixtures/`.
+3. Verify packaging and marketplace publish steps.
+4. Run the project quality gates (`npm run compile`, `npm run lint`, `npm run test`, and `npm run lint:md`).
+
+## Notes
+
+This file intentionally keeps the implementation summary short. The detailed design and engineering history remain in the sibling docs under this folder.
 
 ---
 
-## Phase Checklist & Status
-
-| Phase | Status | Description | Files | Tests |
-|-------|--------|-------------|-------|-------|
-| **Phase 1** | ✅ Complete | Extract core engine (6-wave analyzer, scoring, median-of-N) | `src/core/{analyzer,scoring,fixer,index,types}.ts` | 38 passing |
-| **Phase 2** | ✅ Complete | Extension shell + diagnostics + status bar | `src/{extension,ui/statusBar,ui/diagnostics}.ts` | Wired |
-| **Phase 3** | ✅ Complete | Code actions, CodeLens, hovers, surgical fix | `src/ui/{codeActions,codeLens,hover}.ts` + `src/core/fixer.ts` | Wired |
-| **Phase 4** | ✅ Complete | Multiple LLM providers + settings | `src/providers/{vscodeLmProvider,externalProvider}.ts` | 22 passing |
-| **Phase 5** | ✅ Complete | Agentic surface (languageModelTools) | `src/extension.ts` | Wired |
-| **Phase 6** | ✅ Complete | Experimental inline rewrites | `src/ui/inlineRewrites.ts` | Wired |
-| **Phase 7** | ⏳ Partial | MCP server seam | Stub in reference-engine | Not started |
-
----
-
-## What's Actually Implemented
 
 ### Core Engine (Phase 1)
+
 - ✅ **Analyzer.ts** (6-wave system: contradictions, ambiguities, persona, structural, coverage, hygiene)
 - ✅ **Scoring.ts** (skill scoring, grade calculation, median-of-N penalty)
 - ✅ **Fixer.ts** (SurgicalFixer class with risk classification, edit guards, HITL safety)
@@ -42,12 +41,14 @@
 - ✅ **Test suite** (38 analyzer tests, all passing)
 
 ### Extension Shell (Phase 2)
+
 - ✅ **Activation** (extension.ts, 793 lines)
 - ✅ **Status bar** (StatusBarManager: analyzing state, issue count, clickable)
 - ✅ **Diagnostics** (publish to VS Code, severity overrides, filtering)
 - ✅ **Run-on-save** (debounce wired, onType debounce ready)
 
 ### UI Components (Phase 3)
+
 - ✅ **Code actions** (SkillsCodeActionProvider: "Fix this issue" quick fix)
 - ✅ **CodeLens** (ScoreCodeLensProvider: score + grade + issue count at file top)
 - ✅ **Hovers** (SuggestionHoverProvider: show issue rationale on hover)
@@ -55,6 +56,7 @@
 - ✅ **Fix apply** (applyFixToDocument: with penalty-revert safety net)
 
 ### LLM Providers (Phase 4)
+
 - ✅ **VsCodeLmProvider** (vscode.lm integration, response.stream fix, model selection)
 - ✅ **OpenRouterProvider** (external API, SecretStorage for keys)
 - ✅ **GitHubModelsProvider** (GitHub Models endpoint)
@@ -62,11 +64,13 @@
 - ✅ **Settings integration** (provider choice, model override, API key mgmt)
 
 ### Agentic Surface (Phase 5)
+
 - ✅ **Language model tools** (registerLanguageModelTools in extension.ts)
 - ✅ **analyze tool** (callable from Copilot agent mode)
 - ✅ **fix tool** (callable from Copilot agent mode)
 
 ### Experimental (Phase 6)
+
 - ✅ **Inline rewrites** (createInlineRewriteProvider: ghost text preview of fixes)
 - ✅ **Setting-gated** (experimental.inlineRewrites config, default off)
 
@@ -75,7 +79,8 @@
 ## Known Issues & Technical Debt
 
 ### Minor
-1. **Phase 7 (MCP server)** — Only a seam/stub, not a full working server
+
+1. **Phase 7 (MCP server)** — Now implemented as a real stdio seam with deterministic tests; only external-provider wiring remains runtime-config dependent
 2. **On-disk rate limiting** — No persistent rate-limit tracking across sessions
 3. **Telemetry** — Setting exists but no telemetry implementation
 
@@ -88,31 +93,42 @@ All compilation and test gates are clear.
 ## Session Work (2026-06-03)
 
 ### Fixes
-- Fixed vscode.lm response streaming bug (response.text → response.stream)
-- Corrected test type errors (tier → modelTier in vscodeLmProvider.test.ts)
+
+- Refactored the fixer path in `src/core/fixer.ts` into small helper boundaries for bounds calculation and optional guard evaluation.
+- Added deterministic tests in `src/core/fixer.test.ts` for the new helper branches and acceptance/rejection behavior.
+- Re-verified the project with `npm run compile` and the full Vitest suite.
 
 ### Documentation
+
 - Created [../VSCODE-LM-STREAMING-FIX.md](../VSCODE-LM-STREAMING-FIX.md) — Complete streaming fix guide
+- Added [TESTING-IMPLEMENTATION-PLAN.md](TESTING-IMPLEMENTATION-PLAN.md) — resumable plan for deterministic local test expansion
 - Created [../DEVELOPMENT-STANDARDS.md](../DEVELOPMENT-STANDARDS.md) — Development standards
 - Created [../../.github/skills/markdown-style/SKILL.md](../../.github/skills/markdown-style/SKILL.md) — Markdown standards
 - Updated this file with accurate status
 
 ### Test Results
+
 - ✅ Compilation: Clean
-- ✅ Unit tests: 60/60 passing
+- ✅ Unit tests: 99/99 passing
 - ✅ All 6 analyzer waves working
 - ✅ Streaming response handling locked in with 3 regression tests
+- ✅ Deterministic fixer branches now covered by new local tests for anchor handling, frontmatter protection, and rejection paths
+- ✅ Analyzer resilience and loop-history paths now covered with local tests for truncation salvage, loop detection, and history bookkeeping
+- ✅ Added extra deterministic coverage for metadata parsing, consolidation dedupe, and linked-prompt resolution in the analyzer path
+- ✅ Verified locally: 122/122 tests passing, compile clean, current src-tree coverage is 54.91% statements / 49.38% branches / 61.81% functions / 55.68% lines
 
 ---
 
 ## Remaining Work Before v1.0 (MVP)
 
 ### Must-Have
+
 1. **Smoke test the extension** (F5 debug, analyze a real SKILL.md file)
 2. **Validate against fixtures** (test/fixtures/ PRIMARY + ADVERSARIAL, see README)
 3. **Publish & package** (vsce package, upload to marketplace)
 
 ### Nice-to-Have (Can defer to v1.1)
+
 1. **MCP server wrapper** (optional external CLI integration)
 2. **Persistent telemetry** (usage tracking, opt-in)
 3. **Waza integration** (behavioral eval grader, external Go CLI)
@@ -122,11 +138,13 @@ All compilation and test gates are clear.
 ## How to Test
 
 ### Run All Tests
+
 ```bash
 npm test
 ```
 
 ### Smoke-Test the Extension
+
 ```bash
 # In VS Code:
 # 1. Press F5 to launch Extension Development Host
@@ -139,6 +157,7 @@ npm test
 ```
 
 ### Run Against All Fixtures
+
 ```bash
 # TODO: Build a fixture harness that runs analysis against all test files
 # and compares detected issue counts vs expected counts
@@ -150,13 +169,15 @@ npm test
 ## Architecture Quick Reference
 
 **Extension entry point:** `src/extension.ts` (793 lines)
+
 - Activation: register providers, commands, event handlers
 - Core: buildEngine (LLM provider + analyzer + scoring)
 - UI: analyze, fix, model selection, ignore rule
 - Tools: registerLanguageModelTools for agent mode
 
 **Core pipeline:** `src/core/index.ts`
-```
+
+```text
 Input document → Analyzer.analyze() → 6 waves → AnalysisResults
                            ↓
             Engine.score(results) → ScoreResult + Grading
@@ -167,11 +188,13 @@ Input document → Analyzer.analyze() → 6 waves → AnalysisResults
 ```
 
 **Providers:** pluggable LLM sources
+
 - VsCodeLmProvider (vscode.lm, Copilot subscription)
 - OpenRouterProvider (external API, BYO key)
 - GitHubModelsProvider (GitHub Models endpoint)
 
 **UI:** diagnostic display + interactions
+
 - Diagnostics: publishDiagnostics (severity + code filtering)
 - Status bar: shows analyzing state, issue count
 - CodeLens: score + grade at file top
@@ -194,7 +217,7 @@ Input document → Analyzer.analyze() → 6 waves → AnalysisResults
 ## Key Files Map
 
 | Purpose | File | Lines | Status |
-|---------|------|-------|--------|
+| ------- | ---- | ----- | ------ |
 | Extension entry point | src/extension.ts | 793 | ✅ Complete |
 | Core orchestrator | src/core/index.ts | ~200 | ✅ Complete |
 | 6-wave analyzer | src/core/analyzer.ts | ~1000 | ✅ Complete |

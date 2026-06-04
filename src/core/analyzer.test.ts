@@ -10,6 +10,9 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { Analyzer } from './analyzer';
 import type { LlmProvider, LlmRequest, LlmResponse } from './types';
 
@@ -464,7 +467,117 @@ describe('wave isolation', () => {
 
 // ─── Analysis history / loop detection ──────────────────────────────────────
 
-describe('analysis history', () => {
+describe('analysis history and resilience', () => {
+  it('parses skill metadata and extracts domain keywords from frontmatter', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+
+    const meta = (analyzer as any).parseSkillMetadata(
+      '---\nname: Security Helper\ndescription: "API security deployment testing"\n---\nUse it carefully.',
+    );
+
+    expect(meta.isSkill).toBe(true);
+    expect(meta.name).toBe('Security Helper');
+    expect(meta.useCaseKeywords).toContain('api');
+    expect(meta.useCaseKeywords).toContain('security');
+    expect(meta.useCaseKeywords).toContain('testing');
+  });
+
+  it('returns no loop when history is empty or overlap is too low', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+
+    expect((analyzer as any).detectLoops('new.md', []).isLoop).toBe(false);
+
+    (analyzer as any).analysisHistory.set('doc.md', {
+      uri: 'doc.md',
+      recommendations: [{ timestamp: 1, issueCode: 'ambiguity-llm', relevantText: 'Use it carefully', issueHash: 'x', severity: 'warning', suggestion: 'Tighten it' }],
+      lastFingerprint: 'fp',
+      skillMetadata: { useCaseKeywords: [], isSkill: false },
+    });
+
+    expect((analyzer as any).detectLoops('doc.md', [{ timestamp: 2, issueCode: 'hygiene-over-specification', relevantText: 'Never use this', issueHash: 'y', severity: 'info', suggestion: 'Remove it' }]).isLoop).toBe(false);
+  });
+
+  it('deduplicates repeated findings during the consolidation pass', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+
+    const deduped = (analyzer as any).runConsolidationPass([
+      { code: 'ambiguity-llm', message: 'same finding', severity: 'warning', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, analyzer: 'test' },
+      { code: 'ambiguity-llm', message: 'same finding', severity: 'warning', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, analyzer: 'test' },
+      { code: 'contradiction', message: 'different finding', severity: 'warning', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, analyzer: 'test' },
+    ]);
+
+    expect(deduped.filter((r: any) => r.code === 'ambiguity-llm')).toHaveLength(1);
+  });
+
+  it('reads linked prompt files and ignores unreadable references', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
+    const linkedFile = path.join(dir, 'linked.prompt.md');
+    fs.writeFileSync(linkedFile, 'Linked instructions body', 'utf8');
+
+    const linked = (analyzer as any).readLinkedPromptFiles(`[Local](./linked.prompt.md)\n[Missing](./missing.prompt.md)`, path.join(dir, 'main.prompt.md'));
+
+    expect(linked).toHaveLength(1);
+    expect(linked[0].target).toBe('./linked.prompt.md');
+    expect(linked[0].content).toContain('Linked instructions body');
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  it('recovers truncated JSON arrays via salvageTruncatedJSON', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+
+    const truncated = '```json\n{"ambiguity_issues": [{"text":"one"},{"text":"two"}';
+    const recovered = (analyzer as any).salvageTruncatedJSON(truncated);
+
+    expect(recovered).toEqual({ ambiguity_issues: [{ text: 'one' }, { text: 'two' }] });
+  });
+
+  it('flags repeated recommendations as a loop using stored history', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+
+    (analyzer as any).analysisHistory.set('doc.md', {
+      uri: 'doc.md',
+      recommendations: [
+        {
+          timestamp: 1,
+          issueCode: 'ambiguity-llm',
+          relevantText: 'Use it carefully',
+          issueHash: 'abc123',
+          severity: 'warning',
+          suggestion: 'Tighten it',
+        },
+      ],
+      lastFingerprint: 'fp',
+      skillMetadata: { useCaseKeywords: [], isSkill: false },
+    });
+
+    const loop = (analyzer as any).detectLoops('doc.md', [
+      {
+        timestamp: 2,
+        issueCode: 'ambiguity-llm',
+        relevantText: 'Use it carefully',
+        issueHash: 'abc123',
+        severity: 'warning',
+        suggestion: 'Tighten it',
+      },
+    ]);
+
+    expect(loop.isLoop).toBe(true);
+    expect(loop.explanation).toContain('match');
+  });
+
+  it('updates stored history fingerprints across analyzes', async () => {
+    const analyzer = makeAnalyzer(async () => ({ text: EMPTY_RESPONSE }));
+
+    await analyzer.analyze({ text: 'Be concise.', filePath: '/tmp/doc.md' });
+
+    const history = (analyzer as any).analysisHistory.get('/tmp/doc.md');
+
+    expect(history).toBeDefined();
+    expect(history.recommendations.length).toBeGreaterThanOrEqual(0);
+    expect(typeof history.lastFingerprint).toBe('string');
+  });
+
   it('second analyze call on same doc does not throw', async () => {
     const analyzer = makeAnalyzer(async () => ({ text: EMPTY_RESPONSE }));
 

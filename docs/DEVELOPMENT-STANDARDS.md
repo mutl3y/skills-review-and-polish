@@ -146,6 +146,7 @@ expect(result).toBe(expectedString);
 ```
 
 **Key points:**
+
 - Extend parent config (not self-reference)
 - Override `rootDir` to allow files outside `src/`
 - Include only files in this directory (not `../e2e/**/*`)
@@ -157,6 +158,7 @@ expect(result).toBe(expectedString);
 ### Required Blank Lines
 
 1. **Around lists (MD032)**
+
    ```markdown
    Paragraph above
 
@@ -167,6 +169,7 @@ expect(result).toBe(expectedString);
    ```
 
 2. **Around headings (MD022)**
+
    ```markdown
    Previous paragraph
 
@@ -176,7 +179,8 @@ expect(result).toBe(expectedString);
    ```
 
 3. **Around code blocks (MD031)**
-   ```markdown
+
+   ````markdown
    Paragraph above
 
    ```typescript
@@ -184,7 +188,7 @@ expect(result).toBe(expectedString);
    ```
 
    Paragraph below
-   ```
+   ````
 
 ### Table Formatting (MD060)
 
@@ -245,6 +249,7 @@ Before pushing code:
 **Location:** `src/providers/vscodeLmProvider.ts`
 
 Key methods:
+
 - `selectModel(modelId)` — Model selection with cost guardrails
 - `complete(request)` — Core LLM request handler
 - `parsePricingFromModels()` — Extract pricing from model metadata
@@ -256,6 +261,7 @@ Always use the `response.stream` pattern in `complete()`.
 **Location:** `src/providers/vscodeLmProvider.test.ts`
 
 Test structure:
+
 1. Mock setup in `beforeEach` — set up safe-tier models
 2. Test model selection — validate guardrails work
 3. Test streaming response handling — locked-in regression tests
@@ -266,6 +272,7 @@ Test structure:
 **Location:** `e2e/model-picker.test.ts`
 
 Pattern:
+
 1. VS Code authentication setup
 2. Wait for extension activation
 3. Test UI behavior (command palette, picker, etc.)
@@ -290,6 +297,7 @@ When discovering non-obvious patterns:
 ### Example
 
 See [VSCODE-LM-STREAMING-FIX.md](VSCODE-LM-STREAMING-FIX.md) for a complete example including:
+
 - Problem description with reproduction
 - Root cause identification
 - Working solution with pattern

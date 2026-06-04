@@ -383,6 +383,35 @@ export function appendOnlyBreak(before: string, after: string): string | null {
   return null;
 }
 
+export function computeFixBounds(targetText: string, code: string, additive = false): {
+  upperBound: number;
+  lowerBound: number;
+} {
+  const isAdditiveFix = additive && code === 'ambiguity-llm';
+  const upperMul = code === 'ambiguity-llm' ? (isAdditiveFix ? 1.6 : 1.1) : 1.5;
+  const upperBound = isAdditiveFix
+    ? Math.max(targetText.length * upperMul, targetText.length + 80)
+    : targetText.length * upperMul;
+  const lowerBound = targetText.length * 0.5;
+  return { upperBound, lowerBound };
+}
+
+export function shouldRunOptionalFixGate(
+  code: string,
+  targetText: string,
+  fixed: string,
+  additive: boolean,
+  options: SurgicalFixOptions,
+): { selfCritique: boolean; semanticCheck: boolean } {
+  const isAdditiveFix = additive && code === 'ambiguity-llm';
+  const hasMeaningfulChange = editAddsAuditableContent(targetText, fixed);
+
+  return {
+    selfCritique: isAdditiveFix || ((options.selfCritique ?? false) && hasMeaningfulChange),
+    semanticCheck: Boolean(options.semanticCheck),
+  };
+}
+
 /**
  * Classify a proposed surgical edit and return human-readable risk flags.
  */
@@ -641,41 +670,13 @@ export class SurgicalFixer {
       };
     }
 
-    // Locate anchor text
-    const rawAnchor = diagnostic.relevantText ?? this.extractAnchorFromMessage(diagnostic.message, code);
-    if (!rawAnchor) {
-      return { accepted: false, fixed: '', risks: [], rejectReason: 'no anchor text' };
+    const resolved = this.resolveAnchorText(text, diagnostic, code);
+    if (resolved.rejectReason) {
+      return { accepted: false, fixed: '', risks: [], rejectReason: resolved.rejectReason };
     }
-
-    let targetText: string | null = null;
-    if (text.includes(rawAnchor)) {
-      targetText = rawAnchor;
-    } else {
-      targetText = expandToParagraph(text, rawAnchor);
-      if (!targetText) {
-        const line = diagnostic.range?.start?.line ?? -1;
-        if (line >= 0) targetText = extractParagraphAtLine(text, line);
-      }
-    }
+    const targetText = resolved.targetText;
     if (!targetText) {
       return { accepted: false, fixed: '', risks: [], rejectReason: 'anchor not found' };
-    }
-    if (targetText.length > MAX_SURGICAL_ANCHOR_CHARS) {
-      return {
-        accepted: false,
-        fixed: '',
-        risks: [],
-        rejectReason: `anchor too large (${targetText.length} chars)`,
-      };
-    }
-
-    // Frontmatter protection
-    const fm = frontmatterRange(text);
-    if (fm) {
-      const at = text.indexOf(targetText);
-      if (at !== -1 && at < fm[1]) {
-        return { accepted: false, fixed: '', risks: [], rejectReason: 'anchor overlaps frontmatter' };
-      }
     }
 
     const additive = (options.additive ?? false) && code === 'ambiguity-llm';
@@ -711,44 +712,14 @@ export class SurgicalFixer {
       };
     }
 
-    // Length bounds
-    const isAdditiveFix = additive && code === 'ambiguity-llm';
-    const upperMul = code === 'ambiguity-llm' ? (isAdditiveFix ? 1.6 : 1.1) : 1.5;
-    const upperBound = isAdditiveFix
-      ? Math.max(targetText.length * upperMul, targetText.length + 80)
-      : targetText.length * upperMul;
-    const lowerBound = targetText.length * 0.5;
-
-    if (code === 'hygiene-redundant-instruction' && fixed === '') {
-      // Intended deletion — skip length checks
-    } else if (fixed === targetText) {
-      return { accepted: false, fixed: '', risks: [], rejectReason: 'identical output' };
-    } else if (fixed.length >= upperBound) {
-      return {
-        accepted: false,
-        fixed: '',
-        risks: [],
-        rejectReason: `expansion (${fixed.length} chars vs ${targetText.length})`,
-      };
-    } else if (fixed.length < lowerBound) {
-      return {
-        accepted: false,
-        fixed: '',
-        risks: [],
-        rejectReason: `shrinkage (${fixed.length} chars vs ${targetText.length})`,
-      };
-    }
-
-    // Deterministic meaning-preservation guard
-    const guardReason = meaningPreservationReject(code, targetText, fixed, additive);
-    if (guardReason) {
-      return { accepted: false, fixed: '', risks: [], rejectReason: `meaning-guard: ${guardReason}` };
+    const rejectReason = this.rejectCandidate(code, targetText, fixed, additive);
+    if (rejectReason) {
+      return { accepted: false, fixed: '', risks: [], rejectReason };
     }
 
     // Optional self-critique (factual drift)
-    const shouldCritique =
-      (isAdditiveFix) || ((options.selfCritique ?? false) && editAddsAuditableContent(targetText, fixed));
-    if (shouldCritique) {
+    const gates = shouldRunOptionalFixGate(code, targetText, fixed, additive, options);
+    if (gates.selfCritique) {
       const critiqueReason = await fixIntroducesFact(targetText, fixed, this.provider);
       if (critiqueReason) {
         return {
@@ -761,7 +732,7 @@ export class SurgicalFixer {
     }
 
     // Optional semantic judge
-    if (options.semanticCheck) {
+    if (gates.semanticCheck) {
       const ok = await fixPreservesMeaning(targetText, fixed, this.provider);
       if (!ok) {
         return {
@@ -775,6 +746,46 @@ export class SurgicalFixer {
 
     const risks = classifyEditRisk(code, targetText, fixed);
     return { accepted: true, fixed, risks };
+  }
+
+  private resolveAnchorText(text: string, diagnostic: AnalysisResult, code: string): { targetText: string | null; rejectReason: string | null } {
+    const rawAnchor = diagnostic.relevantText ?? this.extractAnchorFromMessage(diagnostic.message, code);
+    if (!rawAnchor) return { targetText: null, rejectReason: 'no anchor text' };
+
+    let targetText = text.includes(rawAnchor) ? rawAnchor : expandToParagraph(text, rawAnchor);
+    if (!targetText) {
+      const line = diagnostic.range?.start?.line ?? -1;
+      if (line >= 0) targetText = extractParagraphAtLine(text, line);
+    }
+
+    if (!targetText) return { targetText: null, rejectReason: 'anchor not found' };
+    if (targetText.length > MAX_SURGICAL_ANCHOR_CHARS) {
+      return { targetText: null, rejectReason: `anchor too large (${targetText.length} chars)` };
+    }
+
+    const fm = frontmatterRange(text);
+    if (fm) {
+      const at = text.indexOf(targetText);
+      if (at !== -1 && at < fm[1]) {
+        return { targetText: null, rejectReason: 'anchor overlaps frontmatter' };
+      }
+    }
+
+    return { targetText, rejectReason: null };
+  }
+
+  private rejectCandidate(code: string, targetText: string, fixed: string, additive: boolean): string | null {
+    const { upperBound, lowerBound } = computeFixBounds(targetText, code, additive);
+
+    if (code === 'hygiene-redundant-instruction' && fixed === '') {
+      return null;
+    }
+    if (fixed === targetText) return 'identical output';
+    if (fixed.length >= upperBound) return `expansion (${fixed.length} chars vs ${targetText.length})`;
+    if (fixed.length < lowerBound) return `shrinkage (${fixed.length} chars vs ${targetText.length})`;
+
+    const guardReason = meaningPreservationReject(code, targetText, fixed, additive);
+    return guardReason ? `meaning-guard: ${guardReason}` : null;
   }
 
   /**

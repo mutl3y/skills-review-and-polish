@@ -3,6 +3,7 @@
 ## Quick Reference
 
 ### Public API (Recommended)
+
 ```typescript
 const models = await vscode.lm.getLanguageModels('copilot');
 for (const model of models) {
@@ -16,6 +17,7 @@ for (const model of models) {
 ```
 
 ### Pricing Fields Available
+
 ```typescript
 model.multiplierNumeric       // 0, 0.33, 1, 57, 27, etc.
 model.inputCost               // Per million tokens
@@ -40,11 +42,13 @@ endpoints.forEach(ep => {
 ## Safe-Tier Models for Testing
 
 Always use these in tests (multiplier ≤ 1x):
+
 - **gpt-5-mini** (0x) — Safe
 - **claude-haiku-4.5** (0.33x) — Safe
 - **claude-sonnet-4.5** (1x) — Safe
 
 Never use in tests (multiplier > 1x):
+
 - gpt-5 (57x)
 - claude-opus (27x)
 - gpt-4.1 (3x)
@@ -52,6 +56,7 @@ Never use in tests (multiplier > 1x):
 ## Data Source
 
 Multipliers come from the Copilot `/models` API endpoint:
+
 ```json
 {
   "billing": {

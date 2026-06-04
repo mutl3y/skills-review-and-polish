@@ -5,15 +5,18 @@ This project uses Git hooks to enforce code quality before committing and pushin
 ## Pre-Commit Checks
 
 Before each commit, **lint-staged** automatically:
+
 - ✅ Runs ESLint on staged TypeScript files (with auto-fix)
 - ✅ Type-checks with TypeScript
 - ✅ Lints markdown files
 
 **Blocked if:**
+
 - Linting errors remain
 - Type errors detected
 
 **Example:**
+
 ```bash
 $ git commit -m "Fix multiplier access"
 husky - pre-commit hook
@@ -26,14 +29,17 @@ husky - pre-commit hook
 ## Pre-Push Checks
 
 Before pushing to remote, the full test suite runs:
+
 - ✅ All 60 Vitest tests must pass
 - ✅ No type errors
 
 **Blocked if:**
+
 - Any test fails
 - Compilation fails
 
 **Example:**
+
 ```bash
 $ git push
 🔍 Running full test suite before push...

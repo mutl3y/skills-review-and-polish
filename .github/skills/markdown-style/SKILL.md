@@ -12,7 +12,16 @@ useCase: Ensures all markdown files in the project pass linting and follow consi
 
 # Markdown Style Guide
 
-This guide ensures all markdown files pass linting.
+This file is the repo authoring contract for Markdown in the docs folder.
+Use it whenever you create or edit Markdown in this repository.
+
+Before you finish, run:
+
+```bash
+npm run lint:md
+```
+
+Fix every markdownlint error that the command reports before you stop.
 
 ## Required Blank Lines
 

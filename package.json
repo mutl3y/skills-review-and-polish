@@ -201,6 +201,15 @@
           "type": "boolean",
           "default": true,
           "description": "Enable anonymous usage telemetry."
+        },
+        "skillsReviewAndPolish.logLevel": {
+          "type": "string",
+          "enum": [
+            "info",
+            "debug"
+          ],
+          "default": "info",
+          "description": "Set the verbosity for extension logging. 'debug' enables detailed LM prompt/response traces and the debug log file."
         }
       }
     },
@@ -343,8 +352,10 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
+    "lint:md": "markdownlint-cli2 'docs/**/*.md'",
     "test": "vitest run --config tests/vitest.config.ts",
     "test:e2e": "playwright test --config tests/playwright.config.ts",
+    "mcp": "node out/mcp/server.js",
     "clean": "rm -rf out",
     "vscode:prepublish": "npm run compile"
   },
@@ -353,11 +364,13 @@
     "@playwright/test": "^1.60.0",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.90.0",
+    "@vitest/coverage-v8": "^4.1.8",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.7",
+    "markdownlint-cli2": "^0.22.1",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.0.0",
     "vitest": "^4.1.0"
@@ -370,5 +383,8 @@
     "*.md": [
       "eslint"
     ]
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }

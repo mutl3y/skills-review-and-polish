@@ -6,15 +6,24 @@ Uses your **GitHub Copilot** subscription via the VS Code Language Model API —
 
 ## Status
 
-✅ **v0.0.1** — Feature-complete (95% implementation)
+✅ **v0.0.1** — Public beta candidate (feature-complete core, release gates still required)
 - Core 6-wave analyzer ✅
 - Surgical fixer with safety gates ✅
 - VS Code UI (diagnostics, code actions, CodeLens, hovers) ✅
 - Agentic tools exposure ✅
 - Multi-provider support (vscode.lm, OpenRouter, GitHub Models) ✅
-- Git hooks for quality enforcement ✅
+- Git hooks and docs lint enforcement ✅
 
-See [CHANGELOG.md](CHANGELOG.md) for version history and [docs/plan/PROGRESS.md](docs/plan/PROGRESS.md) for detailed implementation status.
+See [CHANGELOG.md](CHANGELOG.md) for version history, [docs/RELEASE-READINESS.md](docs/RELEASE-READINESS.md) for the current release gate, and [docs/plan/PROGRESS.md](docs/plan/PROGRESS.md) for detailed implementation status.
+
+### Release readiness
+
+Before publishing a public build, complete the release checklist in [docs/RELEASE-READINESS.md](docs/RELEASE-READINESS.md):
+
+1. Run `npm run compile` and `npm test`.
+2. Run `npm run lint` and `npm run lint:md`.
+3. Smoke-test the extension in VS Code and validate the seeded fixtures.
+4. Verify packaging and marketplace publish steps.
 
 ## Features
 
@@ -33,6 +42,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [docs/plan/PROGRESS.md]
 ### Integration
 - **VS Code UI**: Code actions ("Fix this issue"), CodeLens badges, hover tooltips, status bar
 - **Agentic tools**: Analyze/fix callable from Copilot agent mode
+- **MCP seam**: Headless stdio server for CI, automation, and external MCP clients
 - **Markdown linting**: ESLint plugin for documentation quality checks
 - **Git hooks**: Pre-commit linting, pre-push tests (via husky + lint-staged)
 
@@ -61,6 +71,7 @@ Open VS Code Settings and search for "Skills Review":
 - `model` — Override default model selection
 - `analysisMode` — `multiWave` (6 focused passes) or `single` (combined prompt)
 - `runOn` — `manual` / `onSave` / `onType`
+- `logLevel` — `info` (default) or `debug` for verbose LM prompt/response tracing and the debug log file
 
 ## Development
 
@@ -69,6 +80,7 @@ Open VS Code Settings and search for "Skills Review":
 npm install            # Install dependencies
 npm run compile        # TypeScript compilation
 npm run lint           # ESLint check
+npm run lint:md        # Markdown lint for docs/
 npm run test           # Run 60/60 unit tests
 npm run watch          # Watch mode
 npm run test:e2e       # Playwright E2E tests (model picker)
@@ -141,6 +153,44 @@ By default, the extension uses your **Copilot subscription** (no cost, no setup)
 4. Change provider in Settings
 
 **Cost Control**: Extension enforces "safe-tier" models by default (multiplier ≤1x). See [docs/MULTIPLIER-ACCESS.md](docs/MULTIPLIER-ACCESS.md) for cost multiplier reference.
+
+### MCP Server Setup
+The repository also ships a headless MCP seam in [src/mcp/server.ts](src/mcp/server.ts) so the engine can be used from external MCP clients and automation pipelines.
+
+How it works:
+- The MCP server exposes two tools: `analyze` and `fix`.
+- It uses the same core engine as the VS Code extension, so the analysis logic is shared.
+- The default provider path prefers `GITHUB_TOKEN` + GitHub Models, matching the CLI analyzer flow.
+- If no GitHub token is present, it falls back to `OPENROUTER_API_KEY`.
+
+Quick start:
+1. Install dependencies: `npm install`
+2. Build the server entry point: `npm run compile`
+3. Run the MCP server: `npm run mcp`
+4. Point your MCP client at the compiled server binary (`node ./out/mcp/server.js`) with the env vars below.
+
+Example MCP client config:
+```json
+{
+  "mcpServers": {
+    "skills-review": {
+      "command": "node",
+      "args": ["/workspace/skills-review-and-polish/out/mcp/server.js"],
+      "env": {
+        "GITHUB_TOKEN": "<your-github-token>",
+        "ANALYSIS_MODEL": "gpt-4o-mini"
+      }
+    }
+  }
+}
+```
+
+Notes:
+- `GITHUB_TOKEN` is the preferred path for this repo because it matches the CLI analyzer.
+- `ANALYSIS_MODEL` is optional; if omitted, the server defaults to `gpt-4o-mini` for GitHub Models and `openai/gpt-4o-mini` for OpenRouter.
+- For a real proof run, the server can be invoked through an MCP client and the `analyze` tool against any `SKILL.md` / prompt file.
+
+See [src/mcp/README.md](src/mcp/README.md) for the full protocol and wiring notes.
 
 ## Contributing
 
