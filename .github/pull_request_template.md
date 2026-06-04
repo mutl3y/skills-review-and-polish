@@ -1,32 +1,43 @@
-## What
+# Pull Request
+
 Brief description of the change.
 
 ## Why
+
 Context and motivation:
+
 - Related issue(s): Fixes #123
 - Problem statement or enhancement goal
 - Why this approach was chosen
 
 ## How
+
 Technical details:
+
 - Algorithm or approach taken
 - Files modified
 - Key design decisions
 
 ## Testing
+
 How to verify this works:
+
 ```bash
 npm test                           # All tests pass (60/60)
 npm run compile                    # No TypeScript errors
 npm run lint                       # Lint clean
 ```
 
-Manual testing steps (if applicable):
+## Manual Testing
+
+Steps (if applicable):
+
 1. ...
 2. ...
 3. ...
 
 ## Checklist
+
 - [ ] Tests added/updated for new or changed logic
 - [ ] No breaking changes (or documented if intentional)
 - [ ] Documentation updated (README, docs/, comments)
@@ -35,10 +46,14 @@ Manual testing steps (if applicable):
 - [ ] Type-safe (TypeScript strict mode)
 - [ ] Considered error cases and edge conditions
 
-## Screenshots (if UI change)
+## Screenshots
+
+If UI change:
+
 Before/after or visual demonstration of changes.
 
 ## Related
+
 - Links to discussions, reference implementations, or related PRs
 - External resources if applicable
 

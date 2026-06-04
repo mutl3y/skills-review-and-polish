@@ -22,6 +22,19 @@ function walkFixtureSkillFiles(root: string): string[] {
   return results.sort();
 }
 
+function extractFixtureMetadata(file: string) {
+  const contents = fs.readFileSync(file, 'utf8');
+  const expectedCount = contents.match(/\*\*Test metadata:\*\*\s*(\d+)/i)?.[1];
+  const expectedCategory = contents.match(/Expected analyzer category:\s*`([^`]+)`/i)?.[1]
+    ?? contents.match(/Expected categories:\s*`([^`]+)`/i)?.[1];
+
+  return {
+    expectedCount: expectedCount ? Number(expectedCount) : null,
+    expectedCategory: expectedCategory ?? null,
+    contents,
+  };
+}
+
 describe('fixture validation gate', () => {
   it('keeps the seeded corpus wired for the release gate', () => {
     const fixtureRoot = path.resolve(__dirname, '..', 'tests', 'fixtures');
@@ -56,5 +69,29 @@ describe('fixture validation gate', () => {
     expect(contents).toContain('ADVERSARIAL / HARD set');
     expect(contents).toContain('Suggested validation harness');
     expect(contents).toContain('test-contradictions-direct');
+  });
+
+  it('keeps the primary fixture metadata aligned with the documented expected counts', () => {
+    const fixtureRoot = path.resolve(__dirname, '..', 'tests', 'fixtures', 'primary');
+    const fixtureFiles = walkFixtureSkillFiles(fixtureRoot);
+    const expectedPrimaryFixtures = [
+      ['test-contradictions-direct/SKILL.md', 15, 'contradiction'],
+      ['test-contradictions-subtle/SKILL.md', 12, 'contradiction'],
+      ['test-ambiguities/SKILL.md', 20, 'ambiguity'],
+      ['test-cognitive-structural/SKILL.md', 13, 'cognitive_load'],
+      ['test-coverage-gaps/SKILL.md', 15, 'coverage gaps'],
+      ['test-instruction-quality/SKILL.md', 13, 'ambiguity'],
+    ] as const;
+
+    for (const [relativePath, expectedCount, expectedCategory] of expectedPrimaryFixtures) {
+      const file = path.join(fixtureRoot, relativePath);
+      const metadata = extractFixtureMetadata(file);
+
+      expect(metadata.expectedCount).not.toBeNull();
+      expect(metadata.expectedCount).toBeGreaterThanOrEqual(expectedCount);
+      expect(metadata.contents.toLowerCase()).toContain(expectedCategory.toLowerCase());
+    }
+
+    expect(fixtureFiles.length).toBeGreaterThanOrEqual(expectedPrimaryFixtures.length);
   });
 });

@@ -5,6 +5,7 @@ This directory contains the headless MCP seam for wrapping the `skills-review-an
 ## What the MCP seam exposes
 
 The server currently exposes two tools:
+
 - `analyze`: returns diagnostic findings for a full document string and optional file path.
 - `fix`: applies the surgical fixer to one flagged issue using the same engine/provider path as the extension.
 
@@ -23,17 +24,23 @@ The headless MCP seam now prefers GitHub Models via `GITHUB_TOKEN`, matching the
 ## Setup and runtime requirements
 
 1. Install dependencies in the repo root:
+
    ```sh
    npm install
    ```
+
 2. Build the MCP entry point:
+
    ```sh
    npm run compile
    ```
+
 3. Start the stdio server:
+
    ```sh
    npm run mcp
    ```
+
 4. Connect it from an MCP client using the `command` / `args` / `env` block shown below.
 
 ### Provider selection
@@ -41,6 +48,7 @@ The headless MCP seam now prefers GitHub Models via `GITHUB_TOKEN`, matching the
 The MCP seam prefers GitHub Models via `GITHUB_TOKEN` because that matches the CLI analyzer path in the companion repo. If `GITHUB_TOKEN` is not set, it falls back to `OPENROUTER_API_KEY`.
 
 Recommended env for the headless seam:
+
 ```json
 {
   "env": {
@@ -51,6 +59,7 @@ Recommended env for the headless seam:
 ```
 
 Fallback env (if you want to use OpenRouter instead):
+
 ```json
 {
   "env": {
@@ -83,6 +92,7 @@ Fallback env (if you want to use OpenRouter instead):
 2. Build the server with `npm run compile`.
 3. Start it with `npm run mcp`, or point your MCP client directly at `node ./out/mcp/server.js`.
 4. Add the env vars shown above to your client configuration.
+
    ```json
    {
      "mcpServers": {

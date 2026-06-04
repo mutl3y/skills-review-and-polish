@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
+    "module": "Node16",
     "lib": ["ES2020"],
     "types": ["node"],
     "outDir": "./out",
@@ -12,7 +12,9 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "sourceMap": true,
-    "declaration": false
+    "declaration": false,
+    "moduleResolution": "node16",
+    "downlevelIteration": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "out", "reference-engine", "**/__tests__/**"]

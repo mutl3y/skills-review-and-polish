@@ -607,6 +607,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
       mockModel.sendRequest = vi.fn().mockResolvedValue({
         text: 'ignored',
         stream: (async function* () {
+          yield 'partial';
           throw new Error('stream boom');
         })(),
       });

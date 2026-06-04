@@ -3,7 +3,11 @@
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems, and offers safe one-click fixes.",
   "version": "0.0.1",
-  "publisher": "TBD",
+  "publisher": "mutl3y",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mutl3y/skills-review-and-polish.git"
+  },
   "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
@@ -352,9 +356,11 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
-    "lint:md": "markdownlint-cli2 'docs/**/*.md'",
+    "lint:md": "markdownlint-cli2 '.github/**/*.md' 'docs/**/*.md' 'src/**/*.md' 'README.md'",
     "test": "vitest run --config tests/vitest.config.ts",
+    "test:fixtures": "vitest run --config tests/vitest.config.ts src/fixture-validation.test.ts",
     "test:e2e": "playwright test --config tests/playwright.config.ts",
+    "package:vsce": "npx @vscode/vsce package",
     "mcp": "node out/mcp/server.js",
     "clean": "rm -rf out",
     "vscode:prepublish": "npm run compile"

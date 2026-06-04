@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as vscode from 'vscode';
 import { activate } from './extension';
 
 const DEFAULT_CONFIG = {
@@ -24,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   showWarningMessage: vi.fn(),
   showInformationMessage: vi.fn(),
   showErrorMessage: vi.fn(),
+  showQuickPick: vi.fn(),
+  showInputBox: vi.fn(),
   registerCodeActionsProvider: vi.fn(),
   registerCodeLensProvider: vi.fn(),
   registerHoverProvider: vi.fn(),
@@ -45,6 +48,8 @@ vi.mock('vscode', () => ({
     showWarningMessage: mocks.showWarningMessage,
     showInformationMessage: mocks.showInformationMessage,
     showErrorMessage: mocks.showErrorMessage,
+    showQuickPick: mocks.showQuickPick,
+    showInputBox: mocks.showInputBox,
     createStatusBarItem: vi.fn(() => ({ show: vi.fn(), dispose: vi.fn(), name: '', command: '', tooltip: '', text: '' })),
   },
   workspace: {
@@ -52,6 +57,7 @@ vi.mock('vscode', () => ({
     onDidSaveTextDocument: mocks.onDidSaveTextDocument,
     onDidChangeTextDocument: mocks.onDidChangeTextDocument,
     getConfiguration: vi.fn(() => ({ get: vi.fn(), update: vi.fn() })),
+    applyEdit: vi.fn(),
   },
   languages: {
     createDiagnosticCollection: mocks.createDiagnosticCollection,
@@ -62,6 +68,7 @@ vi.mock('vscode', () => ({
   commands: { registerCommand: mocks.registerCommand, executeCommand: mocks.executeCommand },
   ProgressLocation: { Window: 1, Notification: 2 },
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2, Hint: 3 },
+  ConfigurationTarget: { Global: 1, Workspace: 2 },
   CodeActionKind: { QuickFix: 'quickfix', Source: 'source' },
   EventEmitter: class { event = vi.fn(); fire = vi.fn(); dispose = vi.fn(); },
   Uri: { parse: vi.fn((value: string) => ({ path: value })) },
@@ -97,6 +104,8 @@ describe('extension activation wiring', () => {
     mocks.showWarningMessage.mockReset();
     mocks.showInformationMessage.mockReset();
     mocks.showErrorMessage.mockReset();
+    mocks.showQuickPick.mockReset();
+    mocks.showInputBox.mockReset();
   });
 
   it('registers the main extension commands on activation', () => {
@@ -150,5 +159,42 @@ describe('extension activation wiring', () => {
     await selectModelCommand();
 
     expect(mocks.showWarningMessage).toHaveBeenCalledWith('No language models available. Sign in to GitHub Copilot.');
+  });
+
+  it('saves a validated model selection and reports the result', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const config = { update };
+    mocks.selectChatModels
+      .mockResolvedValueOnce([
+        { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6', vendor: 'copilot', pricing: '1x' },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6', vendor: 'copilot' },
+      ]);
+    mocks.showQuickPick.mockResolvedValue({ modelId: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6' });
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(config as any);
+
+    activate({ subscriptions: [] } as any);
+
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel')?.[1];
+    await selectModelCommand();
+
+    expect(update).toHaveBeenCalledWith('model', 'claude-sonnet-4.6', expect.anything());
+    expect(update).toHaveBeenCalledWith('modelDisplayName', 'Claude Sonnet 4.6', expect.anything());
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('Analysis model set to'));
+  });
+
+  it('stores an API key from the prompt flow', async () => {
+    const store = vi.fn().mockResolvedValue(undefined);
+    mocks.showInputBox.mockResolvedValue('secret-token');
+
+    activate({ subscriptions: [], secrets: { store } } as any);
+
+    const setApiKeyCommand = mocks.registerCommand.mock.calls.find(([name]) => name === 'skillsReviewAndPolish.setApiKey')?.[1];
+    await setApiKeyCommand();
+
+    expect(mocks.showInputBox).toHaveBeenCalledWith(expect.objectContaining({ password: true }));
+    expect(store).toHaveBeenCalledWith('skillsReviewAndPolish.apiKey', 'secret-token');
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith('Skills Review: API key saved to SecretStorage.');
   });
 });
