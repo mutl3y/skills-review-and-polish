@@ -1,0 +1,12 @@
+{
+  "globs": ["docs/**/*.md"],
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD022": true,
+    "MD031": true,
+    "MD032": true,
+    "MD040": true,
+    "MD060": true
+  }
+}

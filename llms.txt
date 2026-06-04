@@ -1,0 +1,46 @@
+# Skills Review and Polish
+
+> Repo for analyzing and fixing AI customization docs like
+> `SKILL.md`, `*.instructions.md`, `*.prompt.md`, `*.agent.md`,
+> and `AGENTS.md`.
+
+This entry point summarizes the main docs, engine code, and MCP
+automation path.
+
+## Documentation
+
+- [README.md](README.md): Start here for project overview and setup.
+- [docs/DEVELOPMENT-STANDARDS.md](docs/DEVELOPMENT-STANDARDS.md):
+  Coding standards and safety guidance.
+- [docs/GIT-WORKFLOW.md](docs/GIT-WORKFLOW.md): Git hooks and test flow.
+- [docs/MULTIPLIER-ACCESS.md](docs/MULTIPLIER-ACCESS.md): Cost multiplier
+  notes for safe-tier model use.
+- [docs/VSCODE-LM-STREAMING-FIX.md](docs/VSCODE-LM-STREAMING-FIX.md):
+  VS Code LM streaming notes.
+- [docs/plan/PROGRESS.md](docs/plan/PROGRESS.md): Current status and plan.
+- [docs/plan/ENGINE-REFERENCE.md](docs/plan/ENGINE-REFERENCE.md):
+  Architecture and analyzer reference.
+
+## Architecture and Core Code
+
+- [src/core/index.ts](src/core/index.ts): Engine orchestration.
+- [src/core/types.ts](src/core/types.ts): Shared types and config.
+- [src/extension.ts](src/extension.ts): VS Code activation and commands.
+- [src/providers/vscodeLmProvider.ts](src/providers/vscodeLmProvider.ts):
+  Copilot-backed provider path.
+- [src/providers/externalProvider.ts](src/providers/externalProvider.ts):
+  OpenRouter and GitHub Models providers.
+- [src/ui/diagnostics.ts](src/ui/diagnostics.ts): Diagnostic publishing.
+
+## MCP and Automation
+
+- [src/mcp/README.md](src/mcp/README.md): MCP setup and proof-run notes.
+- [src/mcp/server.ts](src/mcp/server.ts): Headless MCP server entry point.
+
+## Examples and Fixtures
+
+- [tests/fixtures/README.md](tests/fixtures/README.md): Fixture overview.
+- [tests/fixtures/primary/test-ambiguities/SKILL.md](tests/fixtures/primary/test-ambiguities/SKILL.md):
+  Ambiguity-analysis example.
+- [tests/fixtures/primary/test-contradictions-direct/SKILL.md](tests/fixtures/primary/test-contradictions-direct/SKILL.md):
+  Contradiction-analysis example.
