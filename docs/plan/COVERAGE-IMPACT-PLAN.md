@@ -4,12 +4,12 @@
 
 ## Progress update (June 4, 2026)
 
-The two release-gate checks now have real local coverage in the deterministic suite:
+The two release-gate checks now have real local coverage in the deterministic suite, and the extension-shell callback path has been expanded to cover the real command-warning branches:
 
 - Smoke-validation path: activation wiring now explicitly covers the disabled-extension branch in [src/extension-shell.test.ts](../../src/extension-shell.test.ts), and the extension activation path now exits early when `skillsReviewAndPolish.enable` is false in [src/extension.ts](../../src/extension.ts).
 - Fixture-validation path: a seeded-corpus regression test now verifies the fixture inventory and metadata contract in [src/fixture-validation.test.ts](../../src/fixture-validation.test.ts).
 
-These two additions are the first concrete gates for the release-readiness checklist and should be kept as part of the standard test run.
+These additions are the first concrete release gates and the next practical extension-shell coverage lift; current verification on the repo baseline is 15/15 test files passing, 165/165 tests passing, with coverage at 69.00% statements / 59.63% branches / 76.08% functions / 70.39% lines.
 
 Prioritize the next tests by real coverage value, not by UI churn. The current deterministic suite is already strong in the core analyzer/fixer/provider path, so the highest-return work is now the extension shell and UI layer that users actually interact with.
 
