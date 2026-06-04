@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as os from 'os';
 import { Engine, AnalysisResult } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
@@ -33,13 +34,16 @@ let logFilePath: string | undefined;
 
 /** Append a timestamped line to both the VS Code output channel and the log file. */
 function log(level: 'info' | 'warn' | 'error' | 'debug', message: string): void {
+  const cfg = readConfig();
+  if (level === 'debug' && cfg.logLevel !== 'debug') return;
+
   const ts = new Date().toISOString();
   const line = `${ts} [${level.toUpperCase().padEnd(5)}] ${message}`;
   if (level === 'error') out?.error(message);
   else if (level === 'warn') out?.warn(message);
   else if (level === 'debug') out?.debug(message);
   else out?.info(message);
-  if (logFilePath) {
+  if (level === 'debug' && cfg.logLevel === 'debug' && logFilePath) {
     try { fs.appendFileSync(logFilePath, line + '\n'); } catch { /* ignore */ }
   }
 }
@@ -59,18 +63,29 @@ const fixPreviewContent = new Map<string, string>();
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
+  const cfg = readConfig();
+
+  if (!cfg.enable) {
+    log('info', 'Extension disabled by configuration; skipping activation wiring.');
+    return;
+  }
+
   out = vscode.window.createOutputChannel('Skills Review', { log: true });
   diagnostics = createDiagnosticCollection();
   statusBar = new StatusBarManager();
   codeLensProvider = new ScoreCodeLensProvider();
 
-  // Set up on-disk log file — use /tmp so it works even when the Extension
-  // Development Host opens without a workspace folder.
-  logFilePath = require('os').tmpdir() + '/skills-review-debug.log';
-  try { fs.writeFileSync(logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
+  if (cfg.logLevel === 'debug') {
+    // Set up on-disk log file — use /tmp so it works even when the Extension
+    // Development Host opens without a workspace folder.
+    logFilePath = os.tmpdir() + '/skills-review-debug.log';
+    try { fs.writeFileSync(logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
+  }
 
   context.subscriptions.push(out, diagnostics, statusBar, codeLensProvider);
-  log('info', `Extension activated — log file: ${logFilePath ?? '(none)'}`);
+  log('info', cfg.logLevel === 'debug'
+    ? `Extension activated — log level: ${cfg.logLevel}, log file: ${logFilePath ?? '(none)'}`
+    : `Extension activated — log level: ${cfg.logLevel}`);
 
   // Document selector for all AI customization file patterns
   const docSelector: vscode.DocumentFilter[] = [{ language: 'markdown' }];
@@ -216,7 +231,11 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
         `Skills Review: provider is "${cfg.provider}" but no API key is stored. ` +
           'Run "Skills Review: Set API Key" first, or switch provider to "vscode-lm".',
       );
-      const vscodeLmProvider = new VsCodeLmProvider(cfg.model, cfg.deepModel || cfg.model, (msg) => log('debug', msg));
+      const vscodeLmProvider = new VsCodeLmProvider(
+        cfg.model,
+        cfg.deepModel || cfg.model,
+        cfg.logLevel === 'debug' ? (msg) => log('debug', msg) : undefined,
+      );
       currentVsCodeLmProvider = vscodeLmProvider;
       return new Engine(vscodeLmProvider, cfg);
     }
@@ -231,7 +250,11 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
   }
 
   log('info', 'buildEngine: using vscode-lm');
-  const vscodeLmProvider = new VsCodeLmProvider(cfg.model, cfg.deepModel || cfg.model, (msg) => log('debug', msg));
+  const vscodeLmProvider = new VsCodeLmProvider(
+    cfg.model,
+    cfg.deepModel || cfg.model,
+    cfg.logLevel === 'debug' ? (msg) => log('debug', msg) : undefined,
+  );
   currentVsCodeLmProvider = vscodeLmProvider;
   return new Engine(vscodeLmProvider, cfg);
 }
@@ -684,7 +707,11 @@ async function testModelSimplePrompt(): Promise<void> {
   // If no provider cached, create one using current config
   if (!provider) {
     log('info', 'testModelSimplePrompt: creating provider on-the-fly for test');
-    provider = new VsCodeLmProvider(cfg.model, cfg.deepModel || cfg.model, (msg) => log('debug', msg));
+    provider = new VsCodeLmProvider(
+      cfg.model,
+      cfg.deepModel || cfg.model,
+      cfg.logLevel === 'debug' ? (msg) => log('debug', msg) : undefined,
+    );
   }
 
   vscode.window.showInformationMessage('Testing current model with simple JSON prompt... (check Debug Console)');
@@ -734,15 +761,24 @@ interface FixToolInput {
   relevantText: string;
 }
 
-function registerLanguageModelTools(context: vscode.ExtensionContext): void {
+export function registerLanguageModelTools(
+  context: vscode.ExtensionContext,
+  deps: {
+    buildEngine?: () => Promise<Engine>;
+    readConfig?: () => ReturnType<typeof readConfig>;
+  } = {},
+): void {
   if (typeof vscode.lm.registerTool !== 'function') return;
+
+  const buildEngineFn = deps.buildEngine ?? buildEngine;
+  const readConfigFn = deps.readConfig ?? readConfig;
 
   context.subscriptions.push(
     vscode.lm.registerTool<AnalyzeToolInput>('skills-review-and-polish_analyze', {
       async invoke(options, _token) {
         const { text, filePath } = options.input;
         try {
-          const engine = await buildEngine();
+          const engine = await buildEngineFn();
           const results = await engine.analyze({ text, filePath });
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
@@ -761,8 +797,8 @@ function registerLanguageModelTools(context: vscode.ExtensionContext): void {
       async invoke(options, _token) {
         const { text, filePath = '', diagnosticCode, relevantText } = options.input;
         try {
-          const cfg = readConfig();
-          const engine = await buildEngine();
+          const cfg = readConfigFn();
+          const engine = await buildEngineFn();
           const syntheticDiag: AnalysisResult = {
             code: diagnosticCode,
             message: relevantText,
