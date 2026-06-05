@@ -52,6 +52,4 @@ yarn-error.log*
 *.tmp
 .debug-llm-analyzer.log
 AGENTS.md
-# Reference engine (not part of build)
-reference-engine/
 test-results
