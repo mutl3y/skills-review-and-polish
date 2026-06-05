@@ -250,7 +250,6 @@ return { text };  // Return object, not string
 ## Related Documentation
 
 - `docs/plan/LEARNINGS.md` — Earlier investigation notes about model quality (haiku vs gpt-4o-mini)
-- `reference-engine/extension.legacy.ts` — Reference implementation with correct vscode.lm pattern
 - `src/providers/vscodeLmProvider.ts` — Production implementation (complete method)
 - `src/providers/vscodeLmProvider.test.ts` — Regression test suite (60/60 passing)
 

@@ -1,7 +1,7 @@
 /**
- * Analyzer unit tests — ported from reference-engine/llm.test.ts.
+ * Analyzer unit tests.
  *
- * Key changes from the original:
+ * Key test scenarios:
  *  - `LLMAnalyzer` + `setProxyFn(fn)` → `Analyzer` constructed with `LlmProvider`.
  *  - `TextDocument.create(...)` → plain `{ text: '...' }` (AnalyzerInput).
  *  - `findTextRange(doc, text)` → `findTextRange(text, searchText)` (string-based).

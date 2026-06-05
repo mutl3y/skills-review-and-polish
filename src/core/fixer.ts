@@ -1,6 +1,7 @@
 /**
- * Surgical fixer — ports the fragment-level fix pipeline from
- * reference-engine/cli-analyzer.js into a VS Code–safe TypeScript module.
+ * Surgical fixer — fragment-level fix pipeline for VS Code.
+ *
+ * Implementation details:
  *
  * Design constraints (from LEARNINGS.md):
  * - Never auto-apply without HITL confirmation — the extension calls this and

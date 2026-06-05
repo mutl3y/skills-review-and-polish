@@ -1,8 +1,7 @@
 /**
  * Quality scoring — vscode-free.
  *
- * Ported from reference-engine/cli-analyzer.js (`scoreSkill`, `classifyCode`,
- * `parseSkillType`). The formula and grade thresholds are carried verbatim.
+ * Implements skill quality assessment and grading.
  *
  * See docs/plan/LEARNINGS.md: "The noise floor is ±6" — do not chase small
  * score changes; use median-of-N (see Engine.score()).

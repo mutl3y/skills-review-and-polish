@@ -1,7 +1,7 @@
 /**
  * Multi-wave LLM analyzer — vscode-free.
  *
- * Ported from reference-engine/llm.ts. Key changes vs. the original:
+ * Key implementation details:
  *  - `TextDocument` replaced with `AnalyzerInput` (plain string + optional filePath).
  *  - `LLMProxyFn` replaced with `LlmProvider.complete()`.
  *  - `vscode-languageserver-textdocument` and `vscode` imports removed.

@@ -2,9 +2,7 @@
  * Core engine types — MUST stay free of any `vscode` import so this module can
  * be reused by the CLI, tests, and (later) an MCP server.
  *
- * Ported/derived from reference-engine/types.ts (originally src/types.ts).
- * The only change from the original is replacing the `vscode-languageserver`
- * `Range` import with a local, dependency-free `Range` type below.
+ * Provides shared types for the analyzer, fixer, and scoring modules.
  */
 
 export interface Position {

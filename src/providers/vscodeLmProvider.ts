@@ -9,7 +9,7 @@ import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
  *  - `selectChatModels` may return [] until the user is signed into Copilot or
  *    grants consent on first request — surface a friendly message in that case.
  *  - Prefer vendor 'copilot' over 'copilotcli' (the CLI vendor doesn't work in
- *    the extension host). See reference-engine/extension.legacy.ts selectModel().
+ *    the extension host).
  *  - Use a generous max_tokens (16384) to avoid mid-JSON truncation — this was a
  *    real noise source in the original engine.
  *  - modelTier 'deep' should map to `deepModel` setting when configured.

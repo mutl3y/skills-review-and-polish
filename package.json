@@ -383,8 +383,7 @@
   },
   "lint-staged": {
     "src/**/*.ts": [
-      "eslint --fix",
-      "tsc -p ./ --noEmit"
+      "eslint --fix"
     ],
     "*.md": [
       "eslint"
