@@ -2,7 +2,10 @@
 .vscode-test/**
 src/**
 test/**
+tests/**
 docs/**
+coverage/**
+test-results/**
 **/*.ts
 **/*.map
 .gitignore
@@ -10,3 +13,4 @@ tsconfig.json
 vitest.config.ts
 eslint.config.mjs
 **/__tests__/**
+*.vsix

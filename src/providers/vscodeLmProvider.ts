@@ -1,5 +1,21 @@
 import * as vscode from 'vscode';
 import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
+import { createLogger, Logger } from '../core/logger';
+
+/** Runtime field added by Copilot model provider — not in @types/vscode yet. */
+interface PricedLanguageModelChat extends vscode.LanguageModelChat {
+  pricing?: string;
+}
+
+/** Runtime stream part shape — may carry a `.value` property (not in @types/vscode). */
+interface StreamPartWithValue {
+  value?: unknown;
+}
+
+/** Runtime error property that may appear on a sendRequest response object. */
+interface ErrorProneResponse {
+  error?: string;
+}
 
 /**
  * Default provider — wraps VS Code's Language Model API (`vscode.lm`).
@@ -17,19 +33,12 @@ import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
 export class VsCodeLmProvider implements LlmProvider {
   private cachedStandard?: vscode.LanguageModelChat;
   private cachedDeep?: vscode.LanguageModelChat;
+  private readonly log: Logger = createLogger('provider');
 
   constructor(
     private readonly standardModelId: string,
     private readonly deepModelId: string,
-    private readonly logFn?: (msg: string) => void,
   ) {}
-
-  private log(msg: string): void {
-    if (this.logFn) {
-      this.logFn(msg);
-
-    }
-  }
 
   invalidate(): void {
     this.cachedStandard = undefined;
@@ -37,21 +46,11 @@ export class VsCodeLmProvider implements LlmProvider {
   }
 
   private async selectModel(modelId: string): Promise<vscode.LanguageModelChat | undefined> {
-    this.log(`[selectModel] START: modelId="${modelId}"`);
-    
-    // Get all available models from VS Code API
     const allModels = await vscode.lm.selectChatModels();
-    this.log(`[selectModel] allModels returned: ${allModels.length} models`);
-    allModels.forEach((m, i) => {
-      const pricing = (m as any).pricing;
-      this.log(
-        `[selectModel]   [${i}] id="${m.id}", name="${m.name}", ` +
-          `vendor="${m.vendor}", pricing="${pricing || 'MISSING'}"`,
-      );
-    });
+    this.log.debug('models available', { count: allModels.length, ids: allModels.map(m => m.id).join(', ') });
 
     if (allModels.length === 0) {
-      this.log(`[selectModel] ERROR: No models available`);
+      this.log.info('no models available');
       vscode.window.showErrorMessage(
         'No language models available. Please sign in to GitHub Copilot or configure a specific model in Settings.',
       );
@@ -59,65 +58,32 @@ export class VsCodeLmProvider implements LlmProvider {
     }
 
     // Parse pricing from live models (format: "27x", "9x", "1x", "0.33x", etc.)
-    this.log(`[selectModel] parsing pricing from ${allModels.length} models...`);
+    // Only Copilot vendor models have this pricing field.
     const modelToMultiplier = this.parsePricingFromModels(allModels);
-    this.log(`[selectModel] parsePricingFromModels returned ${modelToMultiplier.size} entries:`);
-    modelToMultiplier.forEach((mult, id) => {
-      this.log(`[selectModel]   "${id}" -> ${mult}x`);
-    });
+    this.log.debug('pricing parsed', { modelsWithPricing: modelToMultiplier.size });
 
-    // GUARD: Can't proceed without pricing data — don't silently fall back to expensive models
-    if (modelToMultiplier.size === 0) {
-      this.log(`[selectModel] ERROR: No pricing data parsed from any model`);
-      vscode.window.showErrorMessage(
-        'Cannot retrieve model pricing information. Refusing to auto-select models for safety. ' +
-          'Please check your Copilot connection and try again.',
-      );
-      return undefined;
-    }
-
-    // Safe tier: models with multiplier ≤ 1x
+    // Models without pricing data (OpenRouter, etc.) are treated as safe for selection.
+    // The pricing guard only applies to Copilot models where we know the cost.
     const safeTierIds = new Set(
       Array.from(modelToMultiplier.entries())
         .filter(([_, mult]) => mult <= 1)
         .map(([id, _]) => id),
     );
-    this.log(`[selectModel] safe tier (≤1x): ${safeTierIds.size} models`);
-    safeTierIds.forEach((id) => {
-      const mult = modelToMultiplier.get(id);
-      this.log(`[selectModel]   safe: "${id}" (${mult}x)`);
-    });
+    this.log.debug('safe tier', { count: safeTierIds.size, ids: [...safeTierIds].join(', ') });
 
     const trimmed = modelId.trim();
-    this.log(`[selectModel] trimmed modelId="${trimmed}"`);
 
     if (trimmed) {
-      this.log(`[selectModel] user requested specific model: "${trimmed}"`);
-      // User explicitly requested a model — validate it exists and is in safe tier
-      this.log(`[selectModel] calling selectChatModels({id: "${trimmed}"})`);  
+      this.log.debug('user requested specific model', { modelId: trimmed });
       const byId = await vscode.lm.selectChatModels({ id: trimmed });
-      this.log(`[selectModel] selectChatModels({id}) returned ${byId.length} models`);
-      byId.forEach((m, i) => {
-        this.log(`[selectModel]   [${i}] id="${m.id}", name="${m.name}", vendor="${m.vendor}"`);
-      });
+      this.log.debug('selectChatModels({id}) result', { count: byId.length });
 
       if (byId.length > 0) {
-        this.log(`[selectModel] found model by ID, checking pricing...`);
-        // Verify model has valid pricing info
-        if (!modelToMultiplier.has(trimmed)) {
-          this.log(`[selectModel] ERROR: ${trimmed} has no pricing data in modelToMultiplier`);
-          vscode.window.showErrorMessage(
-            `Model "${trimmed}" does not have valid pricing information. ` +
-              `This model may no longer be available. Please reconfigure in Settings.`,
-          );
-          return undefined;
-        }
-
-        // STOP if requested model is expensive — don't silently fall back
+        // Pricing guard only applies to Copilot models with known pricing.
+        // Models without pricing data (OpenRouter, etc.) pass through — the user explicitly chose them.
         const multiplier = modelToMultiplier.get(trimmed);
-        this.log(`[selectModel] multiplier=${multiplier}x, safeTierIds.has=${safeTierIds.has(trimmed)}`);
-        if (!safeTierIds.has(trimmed)) {
-          this.log(`[selectModel] ERROR: model is expensive (${multiplier}x > 1x), REJECTING`);
+        if (multiplier !== undefined && !safeTierIds.has(trimmed)) {
+          this.log.info('model rejected: expensive', { modelId: trimmed, multiplier });
           vscode.window.showErrorMessage(
             `Model "${trimmed}" is not in the safe tier (multiplier ${multiplier}x > 1x). ` +
               `Please select a model ≤1x in Settings.`,
@@ -125,53 +91,40 @@ export class VsCodeLmProvider implements LlmProvider {
           return undefined;
         }
 
-        this.log(`[selectModel] SUCCESS: found ${byId.length} instances of model id="${trimmed}"`);
-        // ONLY accept 'copilot' vendor — never use 'copilotcli' (returns empty in extension host)
+        this.log.debug('found model instances', { modelId: trimmed, count: byId.length });
         const preferred = this.findPreferredCopilotModel(byId);
         if (!preferred) {
-          this.log(`[selectModel] ERROR: model "${trimmed}" only available with copilotcli vendor, which doesn't work in extension host. REJECTING.`);
+          this.log.info('model rejected: copilotcli vendor only', { modelId: trimmed });
           vscode.window.showErrorMessage(
             `Model "${trimmed}" is only available via GitHub Copilot CLI (copilotcli vendor), which does not work in VS Code extensions. ` +
               `Please ensure the Copilot extension is installed and you are signed in to GitHub Copilot (copilot vendor).`,
           );
           return undefined;
         }
-        this.log(`[selectModel] SUCCESS: returning model id="${trimmed}" vendor="${preferred.vendor}" name="${preferred.name}"`);
+        this.log.debug('model selected', { modelId: trimmed, vendor: preferred.vendor, name: preferred.name });
         return preferred;
       }
 
       // Model ID not found at all — stop, don't fall back
-      this.log(`[selectModel] ERROR: selectChatModels({id}) returned empty, STOPPING`);
+      this.log.info('model not found', { modelId: trimmed });
       vscode.window.showErrorMessage(`Requested model "${trimmed}" is not available. Please reconfigure in Settings.`);
       return undefined;
     }
 
     // Auto-select: only try models from safe tier (multiplier ≤ 1x)
-    this.log(`[selectModel] auto-selecting from safe tier (${safeTierIds.size} models)...`);
-    for (const [modelId, multiplier] of modelToMultiplier.entries()) {
-      if (multiplier <= 1) {
-        this.log(`[selectModel] trying safe model "${modelId}" (${multiplier}x)...`);
-        const models = await vscode.lm.selectChatModels({ family: modelId });
-        this.log(`[selectModel]   selectChatModels({family: "${modelId}"}) returned ${models.length} models`);
-        models.forEach((m, i) => {
-          this.log(`[selectModel]     [${i}] id="${m.id}", name="${m.name}", vendor="${m.vendor}"`);
-        });
-
-        if (models.length > 0) {
-          // ONLY accept 'copilot' vendor — never use 'copilotcli' (returns empty in extension host)
-          const preferred = this.findPreferredCopilotModel(models);
-          if (preferred) {
-            this.log(`[selectModel] selected model: id="${preferred.id}" name="${preferred.name}" vendor="${preferred.vendor}" (multiplier ${multiplier}x)`);
-            return preferred;
-          }
-          // No copilot vendor available for this family, try next model
-          this.log(`[selectModel]   skipping "${modelId}" — only copilotcli vendor available (won't work in extension host)`);
-        }
+    // Single selectChatModels() call — filter in-memory to avoid N+1 async calls
+    const safeModels = allModels.filter((m) => {
+      const multiplier = modelToMultiplier.get(m.id);
+      return multiplier !== undefined && multiplier <= 1;
+    });
+    for (const model of safeModels) {
+      if (model.vendor === 'copilot') {
+        this.log.debug('auto-selected model', { modelId: model.id, multiplier: modelToMultiplier.get(model.id) });
+        return model;
       }
     }
 
-    // No safe model found with copilot vendor — stop instead of falling back to expensive models or copilotcli
-    this.log(`[selectModel] ERROR: no safe model with copilot vendor found after iterating all safe tier models`);
+    this.log.info('no safe model with copilot vendor found');
     vscode.window.showErrorMessage(
       'No low-cost model available (≤1x multiplier) with GitHub Copilot vendor. ' +
         'Please ensure the GitHub Copilot extension is installed and you are signed in to GitHub Copilot. ' +
@@ -195,24 +148,24 @@ export class VsCodeLmProvider implements LlmProvider {
         if (typeof part === 'string') {
           partStr = part;
         } else if (part && typeof part === 'object') {
-          partStr = 'value' in part ? String((part as any).value) : String(part);
+          partStr = 'value' in part ? String((part as StreamPartWithValue).value) : String(part);
         } else {
           partStr = String(part);
         }
 
         if (partNum <= 3) {
-          this.log(`[collectStreamText] PART[${partNum}] (first 3 logged): "${partStr.substring(0, 100)}"`);
+          this.log.trace('stream part received', { partNum, preview: partStr.substring(0, 100) });
         }
         text += partStr;
       }
     } catch (iterErr) {
       const errMsg = iterErr instanceof Error ? iterErr.message : String(iterErr);
-      this.log(`[collectStreamText] ERROR during iteration: ${errMsg}, textSoFar=${text.length}c`);
+      this.log.info('stream iteration error', { error: errMsg, textSoFar: text.length });
       return { text: '{}', error: `Failed to iterate response: ${errMsg}` };
     }
 
     if (!text) {
-      this.log(`[collectStreamText] ERROR: text is empty after iteration (${partNum} parts received)`);
+      this.log.info('empty response after iteration', { partsReceived: partNum });
       return { text: '{}', error: 'Model returned empty text response' };
     }
 
@@ -220,36 +173,25 @@ export class VsCodeLmProvider implements LlmProvider {
   }
 
   private parsePricingFromModels(models: vscode.LanguageModelChat[]): Map<string, number> {
-    this.log(`[parsePricingFromModels] START with ${models.length} models`);
     const multipliers = new Map<string, number>();
     for (const model of models) {
-      // Access pricing field via any cast (field exists at runtime but not in type definitions)
-      const pricing = (model as any).pricing;
-      this.log(
-        `[parsePricingFromModels] model id="${model.id}": ` +
-          `pricing field type=${typeof pricing}, value="${pricing}"`,
-      );
-
+      const pricing = (model as PricedLanguageModelChat).pricing;
       if (pricing && typeof pricing === 'string') {
-        // Parse pricing format: "27x", "9x", "1x", "0.33x", etc.
         const match = pricing.match(/^([\d.]+)x$/);
-        this.log(`[parsePricingFromModels]   regex match: ${match ? JSON.stringify(match) : 'NO MATCH'}`);
-
         if (match) {
-          const multiplier = parseFloat(match[1]);
-          this.log(`[parsePricingFromModels]   parsed multiplier: ${multiplier}`);
-          multipliers.set(model.id, multiplier);
-        } else {
-          this.log(`[parsePricingFromModels]   SKIPPED: pricing format doesn't match /^([\\d.]+)x$/`);
+          multipliers.set(model.id, parseFloat(match[1]));
         }
-      } else {
-        this.log(
-          `[parsePricingFromModels]   SKIPPED: ` +
-            `pricing is falsy=${!pricing} or not string=${typeof pricing !== 'string'}`,
-        );
       }
     }
-    this.log(`[parsePricingFromModels] END: collected ${multipliers.size} entries`);
+    this.log.debug('pricing parsed from models', { withPricing: multipliers.size, total: models.length });
+    // Only log models without pricing at trace level to avoid noise
+    const withoutPricing = models.filter(m => !multipliers.has(m.id));
+    if (withoutPricing.length > 0) {
+      this.log.trace('models without Copilot pricing (will be treated as safe for selection)', {
+        count: withoutPricing.length,
+        ids: withoutPricing.map(m => `${m.id} (${m.vendor})`).join(', '),
+      });
+    }
     return multipliers;
   }
 
@@ -258,66 +200,34 @@ export class VsCodeLmProvider implements LlmProvider {
     const tier = isDeep ? 'deep' : 'standard';
     const modelIdRequested = isDeep ? this.deepModelId || this.standardModelId : this.standardModelId;
 
-    this.log(
-      `[complete] START: tier="${tier}", modelIdRequested="${modelIdRequested}", ` +
-        `prompt=${request.prompt.length}c, system=${request.systemPrompt.length}c`,
-    );
+    this.log.debug('complete: starting', { tier, promptLen: request.prompt.length, systemLen: request.systemPrompt.length });
 
     let model = isDeep ? this.cachedDeep : this.cachedStandard;
     if (!model) {
-      this.log(`[complete] no cached model for tier="${tier}", calling selectModel("${modelIdRequested}")`);
       model = await this.selectModel(modelIdRequested);
-      this.log(`[complete] selectModel returned: ${model ? `id="${model.id}"` : 'undefined'}`);
       if (isDeep) {
         this.cachedDeep = model;
       } else {
         this.cachedStandard = model;
       }
-    } else {
-      this.log(`[complete] using cached model for tier="${tier}": id="${model.id}"`);
     }
 
     if (!model) {
-      this.log(`[complete] ERROR: model is undefined, returning error response`);
+      this.log.info('complete: no model available', { tier });
       return { text: '{}', error: 'No language models available — sign in to GitHub Copilot.' };
     }
 
-    // Log the selected model on first use (cached after that).
-    const modelLabel = `${model.vendor}/${model.family} (${model.name})`;
-    this.log(
-      `[complete] model ready: id="${model.id}", vendor="${model.vendor}", ` +
-        `family="${model.family}", name="${model.name}"`,
-    );
+    this.log.debug('complete: using model', { vendor: model.vendor, family: model.family, name: model.name });
 
     const cts = new vscode.CancellationTokenSource();
     const timeout = setTimeout(() => cts.cancel(), 90_000);
+
+    // vscode.lm doesn't support System message type, so combine into User message
+    const combinedPrompt = `${request.systemPrompt}\n\n${request.prompt}`;
+    const messages = [vscode.LanguageModelChatMessage.User(combinedPrompt)];
+
     try {
-      // Log the input prompts separately
-      this.log(`[complete] INPUT VALIDATION:`);
-      this.log(`[complete]   systemPrompt length: ${request.systemPrompt.length}c`);
-      this.log(`[complete]   systemPrompt preview: ${request.systemPrompt.substring(0, 300)}`);
-      this.log(`[complete]   prompt length: ${request.prompt.length}c`);
-      this.log(`[complete]   prompt preview: ${request.prompt.substring(0, 300)}`);
-
-      // vscode.lm doesn't support System message type, so combine into User message
-      // Format: system instructions first, then user content
-      const combinedPrompt = `${request.systemPrompt}\n\n${request.prompt}`;
-      this.log(`[complete] combined prompt: ${combinedPrompt.length} chars (system=${request.systemPrompt.length}c + user=${request.prompt.length}c)`);
-      
-      // Basic validation: check if prompt contains obvious JSON structures
-      const hasJsonBrackets = combinedPrompt.includes('{') || combinedPrompt.includes('[');
-      const hasJsonKeywords = combinedPrompt.includes('"') && combinedPrompt.includes(':');
-      this.log(`[complete] prompt structure: hasJsonBrackets=${hasJsonBrackets}, hasJsonKeywords=${hasJsonKeywords}`);
-      
-      const messages = [vscode.LanguageModelChatMessage.User(combinedPrompt)];
-
-      this.log(`[complete] constructed messages[0] role=User, content length=${(messages[0] as any).content?.length ?? 'N/A'}`);
-      this.log(`[complete] message[0] preview: ${String(combinedPrompt).substring(0, 200)}`);
-      this.log(
-        `[complete] calling model.sendRequest(): ` +
-          `model="${model.id}", messages.length=${messages.length}, ` +
-          `maxTokens=16384, timeout=90s`,
-      );
+      this.log.debug('complete: sending request', { combinedLen: combinedPrompt.length });
       const response = await model.sendRequest(
         messages,
         { 
@@ -328,39 +238,70 @@ export class VsCodeLmProvider implements LlmProvider {
         cts.token,
       );
 
-      this.log(
-        `[complete] sendRequest returned: response type=${typeof response}, ` +
-          `has .text=${!!response.text}, text type=${typeof response.text}`,
-      );
-
       // Handle async iterable response
       if (!response.text) {
-        this.log(
-          `[complete] ERROR: response.text is falsy: ${response.text}, ` +
-            `response keys=${Object.keys(response).join(',')}`,
-        );
+        this.log.info('complete: response.text is falsy');
         return { text: '{}', error: 'Model returned empty response object' };
       }
 
-      this.log(`[complete] iterating response.stream (structured parts)...`);
       const streamed = await this.collectStreamText(response as { stream: AsyncIterable<unknown>; text?: unknown });
       if (streamed.error) {
-        this.log(`[complete] ERROR: ${streamed.error}`);
+        this.log.info('complete: stream error', { error: streamed.error });
         return { text: streamed.text, error: streamed.error };
       }
 
-      this.log(`[complete] RESPONSE CONTENT (first 500 chars):`);
-      this.log(`[complete] ${streamed.text.substring(0, 500)}`);
-      this.log(`[complete] SUCCESS: returning ${streamed.text.length} chars total`);
+      this.log.debug('complete: success', { textLen: streamed.text.length });
       return { text: streamed.text };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : '';
-      this.log(`[complete] ERROR: outer catch: ${message}`);
-      this.log(`[complete] stack: ${stack}`);
-      return { text: '{}', error: `vscode.lm request failed: ${message}` };
+      this.log.info('complete: request failed, invalidating cache and retrying', { error: message });
+
+      // Dispose the stale model reference before releasing it — VS Code language
+      // model objects may hold native resources that need explicit cleanup.
+      try {   (model as any).dispose?.(); } catch { /* best-effort */ }
+
+      // Invalidate the cached model — it may be stale or disconnected
+      if (isDeep) {
+        this.cachedDeep = undefined;
+      } else {
+        this.cachedStandard = undefined;
+      }
+
+      // Retry once with a fresh model selection
+      try {
+        const freshModel = await this.selectModel(modelIdRequested);
+        if (!freshModel) {
+          return { text: '{}', error: `Retry failed: no model available after cache invalidation. Original: ${message}` };
+        }
+
+        this.log.debug('complete: retrying with fresh model', { vendor: freshModel.vendor, name: freshModel.name });
+        const retryCts = new vscode.CancellationTokenSource();
+        const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
+        try {
+          const retryResponse = await freshModel.sendRequest(
+            messages,
+            { modelOptions: { max_tokens: 16384 } },
+            retryCts.token,
+          );
+          if (!retryResponse.text) {
+            return { text: '{}', error: 'Retry: model returned empty response object' };
+          }
+          const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
+          if (retryStreamed.error) {
+            return { text: retryStreamed.text, error: `Retry failed: ${retryStreamed.error}` };
+          }
+          this.log.debug('complete: retry success', { textLen: retryStreamed.text.length });
+          return { text: retryStreamed.text };
+        } finally {
+          clearTimeout(retryTimeout);
+          retryCts.dispose();
+        }
+      } catch (retryErr) {
+        const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        this.log.info('complete: retry also failed', { error: retryMsg });
+        return { text: '{}', error: `vscode.lm request failed (after retry): ${retryMsg}` };
+      }
     } finally {
-      this.log(`[complete] finally: clearing timeout and disposing CTS`);
       clearTimeout(timeout);
       cts.dispose();
     }
@@ -380,7 +321,7 @@ export class VsCodeLmProvider implements LlmProvider {
     const simpleUserPrompt = 'Respond with exactly this JSON object: {"test": "hello", "status": "ok"}';
     const combinedPrompt = `${simpleSystemPrompt}\n\n${simpleUserPrompt}`;
 
-    this.log(`[testSimplePrompt] Testing model id="${model.id}" vendor="${model.vendor}" family="${model.family}" name="${model.name}" with minimal prompt (${combinedPrompt.length}c)`);
+    this.log.debug('testSimplePrompt: starting', { modelId: model.id, vendor: model.vendor });
 
     const cts = new vscode.CancellationTokenSource();
     const timeout = setTimeout(() => cts.cancel(), 30_000);
@@ -392,36 +333,30 @@ export class VsCodeLmProvider implements LlmProvider {
         cts.token,
       );
 
-      // Check if response has an error before trying to iterate
-      if ((response as any).error) {
-        const errMsg = (response as any).error;
-        this.log(`[testSimplePrompt] Response error before iteration: ${errMsg}`);
+      if ((response as ErrorProneResponse).error) {
+        const errMsg = (response as ErrorProneResponse).error!;
+        this.log.info('testSimplePrompt: error', { error: errMsg });
         throw new Error(errMsg);
       }
 
       let text = '';
       try {
-        this.log(`[testSimplePrompt] Starting response iteration...`);
         for await (const part of response.text) {
           if (part) text += part;
         }
       } catch (iterErr) {
         const iterMsg = iterErr instanceof Error ? iterErr.message : String(iterErr);
-        this.log(`[testSimplePrompt] Error during response iteration: ${iterMsg}`);
-        this.log(`[testSimplePrompt] Partial response collected so far (${text.length}c): ${text.substring(0, 500)}`);
+        this.log.info('testSimplePrompt: iteration error', { error: iterMsg, textLen: text.length });
         throw iterErr;
       }
 
-      this.log(`[testSimplePrompt] Response (full ${text.length}c): ${text.substring(0, 500)}`);
-
-      // Check if response looks like valid JSON
       const isValidJSON = text.includes('{') && text.includes('}') && !text.includes('_') && !text.match(/[^\x20-\x7E\n\r]/);
-      this.log(`[testSimplePrompt] isValidJSON: ${isValidJSON}`);
+      this.log.debug('testSimplePrompt: result', { textLen: text.length, validJSON: isValidJSON });
 
       return { success: isValidJSON, response: text.substring(0, 200), modelUsed: model.id };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.log(`[testSimplePrompt] CATCH: Error: ${msg}`);
+      this.log.info('testSimplePrompt: failed', { error: msg });
       return { success: false, response: msg, modelUsed: model.id };
     } finally {
       clearTimeout(timeout);

@@ -66,9 +66,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
     (vi.mocked(vscode.lm).selectChatModels as any) = selectChatModels;
     (vi.mocked(vscode.window).showErrorMessage as any) = showErrorMessage;
 
-    provider = new VsCodeLmProvider('gpt-5-mini', 'claude-sonnet-4.5', () => {
-      // no-op logger for tests
-    });
+    provider = new VsCodeLmProvider('gpt-5-mini', 'claude-sonnet-4.5');
   });
 
   afterEach(() => {
@@ -127,23 +125,14 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
   describe('auto-selection (no modelId configured)', () => {
     it('selects from safe tier when models available', async () => {
-      // First call (no args) returns all models with pricing
-      // Subsequent calls with family filter return specific models
-      selectChatModels.mockImplementation((opts) => {
-        if (!opts) {
-          // Initial call to get all models
-          return Promise.resolve(allModels);
-        }
-        if (opts?.family === 'claude-sonnet-4.5') {
-          return Promise.resolve([safeTierModels[2]]);
-        }
-        return Promise.resolve([]);
-      });
+      // Single selectChatModels() call returns all models; filter in-memory
+      selectChatModels.mockResolvedValue(allModels);
 
       const result = await (provider as any).selectModel('');
 
       expect(result).toBeDefined();
-      expect(result.id).toBe('claude-sonnet-4.5');
+      // First safe-tier copilot vendor model wins (gpt-5-mini at 0x)
+      expect(result.id).toBe('gpt-5-mini');
       expect(showErrorMessage).not.toHaveBeenCalled();
     });
 
@@ -151,15 +140,8 @@ describe('VsCodeLmProvider.selectModel()', () => {
       const copilotModel = { ...safeTierModels[1], vendor: 'copilot' };
       const copilotcliModel = { ...safeTierModels[1], vendor: 'copilotcli' };
 
-      selectChatModels.mockImplementation((opts) => {
-        if (!opts) {
-          return Promise.resolve(allModels);
-        }
-        if (opts?.family === 'claude-haiku-4.5') {
-          return Promise.resolve([copilotcliModel, copilotModel]);
-        }
-        return Promise.resolve([]);
-      });
+      // Return only the two models — copilotcli-first, copilot second
+      selectChatModels.mockResolvedValue([copilotcliModel, copilotModel]);
 
       const result = await (provider as any).selectModel('');
 
@@ -177,8 +159,9 @@ describe('VsCodeLmProvider.selectModel()', () => {
       );
     });
 
-    it('ERRORS (not silent fallback) when pricing data missing from all models', async () => {
-      // Models available, but NO pricing field = GUARD triggers
+    it('errors when all models lack pricing data (auto-select)', async () => {
+      // Models available but NO pricing field — not in modelToMultiplier map, so
+      // auto-select cannot find any safe tier models and errors out.
       const modelsWithoutPricing = [
         { id: 'model-1', name: 'Model 1', vendor: 'copilot' }, // no pricing field
         { id: 'model-2', name: 'Model 2', vendor: 'copilot' }, // no pricing field
@@ -188,13 +171,11 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await (provider as any).selectModel('');
 
-      // CRITICAL: Must error, not silently fall back to unpriced models
+      // Auto-select only considers models in modelToMultiplier — those without pricing
+      // are invisible, resulting in no safe model found.
       expect(result).toBeUndefined();
       expect(showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Cannot retrieve model pricing information'),
-      );
-      expect(showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Refusing to auto-select models for safety'),
+        expect.stringContaining('No low-cost model available'),
       );
     });
 
@@ -214,14 +195,8 @@ describe('VsCodeLmProvider.selectModel()', () => {
     });
 
     it('NEVER falls back to expensive models', async () => {
-      selectChatModels.mockImplementation((opts) => {
-        if (!opts) {
-          // Initially return all models
-          return Promise.resolve(allModels);
-        }
-        // All family queries return empty (simulating all safe families not found)
-        return Promise.resolve([]);
-      });
+      // Return only expensive models — no safe-tier copilot models available
+      selectChatModels.mockResolvedValue(expensiveModels);
 
       const result = await (provider as any).selectModel('');
 
@@ -313,7 +288,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
       );
     });
 
-    it('rejects configured model if pricing info lost from all models', async () => {
+    it('allows configured model through when pricing info missing', async () => {
       selectChatModels.mockImplementation((opts) => {
         if (!opts) {
           // All models returned without pricing
@@ -329,10 +304,10 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await (provider as any).selectModel('claude-sonnet-4.5');
 
-      expect(result).toBeUndefined();
-      expect(showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Cannot retrieve model pricing information'),
-      );
+      // User explicitly configured this model — allow it through even without pricing
+      expect(result).toBeDefined();
+      expect(result.id).toBe('claude-sonnet-4.5');
+      expect(showErrorMessage).not.toHaveBeenCalled();
     });
 
     it('STOPS (not blindly falls back) when configured model unavailable', async () => {
@@ -422,15 +397,8 @@ describe('VsCodeLmProvider.selectModel()', () => {
     });
 
     it('handles decimal multipliers (0.33x)', async () => {
-      selectChatModels.mockImplementation((opts) => {
-        if (!opts) {
-          return Promise.resolve(allModels);
-        }
-        if (opts?.family === 'claude-haiku-4.5') {
-          return Promise.resolve([safeTierModels[1]]);
-        }
-        return Promise.resolve([]);
-      });
+      // Return only the haiku model so it is the sole auto-select candidate
+      selectChatModels.mockResolvedValue([safeTierModels[1]]);
 
       const result = await (provider as any).selectModel('');
 
@@ -443,20 +411,12 @@ describe('VsCodeLmProvider.selectModel()', () => {
     it('fresh pricing data adapts to new models without code changes', async () => {
       // Simulate a new model added to Copilot with updated pricing
       const updatedModels = [
+        { id: 'claude-haiku-5', name: 'Claude Haiku 5', vendor: 'copilot', pricing: '0.5x' },
         ...safeTierModels,
         ...expensiveModels,
-        { id: 'claude-haiku-5', name: 'Claude Haiku 5', vendor: 'copilot', pricing: '0.5x' },
       ];
 
-      selectChatModels.mockImplementation((opts) => {
-        if (!opts) {
-          return Promise.resolve(updatedModels);
-        }
-        if (opts?.family === 'claude-haiku-5') {
-          return Promise.resolve([updatedModels[updatedModels.length - 1]]);
-        }
-        return Promise.resolve([]);
-      });
+      selectChatModels.mockResolvedValue(updatedModels);
 
       const result = await (provider as any).selectModel('');
 
@@ -525,7 +485,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
       });
 
       // Use fresh provider instance for this test
-      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5', () => {});
+      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5');
 
       const result = await testProvider.complete({
         systemPrompt: 'Test',
@@ -557,7 +517,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
       });
 
       // Use fresh provider instance for this test
-      const testProvider2 = new VsCodeLmProvider('claude-haiku-4.5', 'claude-haiku-4.5', () => {});
+      const testProvider2 = new VsCodeLmProvider('claude-haiku-4.5', 'claude-haiku-4.5');
 
       const result = await testProvider2.complete({
         systemPrompt: 'Test',
@@ -589,7 +549,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
       });
 
       // Use fresh provider instance for this test
-      const testProvider3 = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini', () => {});
+      const testProvider3 = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini');
 
       const result = await testProvider3.complete({
         systemPrompt: 'Test',
@@ -619,7 +579,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
         return Promise.resolve([]);
       });
 
-      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5', () => {});
+      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5');
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
       expect(result.error).toContain('Failed to iterate response: stream boom');
@@ -641,7 +601,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
         return Promise.resolve([]);
       });
 
-      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini', () => {});
+      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini');
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
       expect(result.error).toBe('Model returned empty text response');
@@ -651,7 +611,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
       const mockModel = { ...safeTierModels[2], id: 'claude-sonnet-4.5' } as any;
       mockModel.sendRequest = vi.fn().mockResolvedValue({});
 
-      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5', () => {});
+      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5');
       (testProvider as any).cachedStandard = mockModel;
 
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
@@ -663,12 +623,12 @@ describe('VsCodeLmProvider.selectModel()', () => {
       const mockModel = { ...safeTierModels[2], id: 'claude-sonnet-4.5' } as any;
       mockModel.sendRequest = vi.fn().mockRejectedValue(new Error('network down'));
 
-      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5', () => {});
+      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5');
       (testProvider as any).cachedStandard = mockModel;
 
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
-      expect(result).toEqual({ text: '{}', error: 'vscode.lm request failed: network down' });
+      expect(result).toEqual({ text: '{}', error: expect.stringContaining('vscode.lm request failed') });
     });
 
     it('uses a cached model without reselecting when complete() runs', async () => {
@@ -680,7 +640,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
         })(),
       });
 
-      const testProvider = new VsCodeLmProvider('claude-haiku-4.5', 'claude-haiku-4.5', () => {});
+      const testProvider = new VsCodeLmProvider('claude-haiku-4.5', 'claude-haiku-4.5');
       (testProvider as any).cachedStandard = mockModel;
 
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
@@ -701,7 +661,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
         })(),
       });
 
-      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'claude-sonnet-4.5', () => {});
+      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'claude-sonnet-4.5');
       (testProvider as any).cachedDeep = mockModel;
 
       const result = await testProvider.complete({
@@ -718,7 +678,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
       const mockModel = { ...safeTierModels[1], id: 'claude-haiku-4.5' } as any;
       mockModel.sendRequest = vi.fn().mockRejectedValue(new Error('network down'));
 
-      const testProvider = new VsCodeLmProvider('claude-haiku-4.5', 'claude-haiku-4.5', () => {});
+      const testProvider = new VsCodeLmProvider('claude-haiku-4.5', 'claude-haiku-4.5');
       (testProvider as any).cachedStandard = mockModel;
 
       const result = await testProvider.testSimplePrompt();
@@ -737,7 +697,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
         })(),
       });
 
-      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini', () => {});
+      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini');
       (testProvider as any).cachedStandard = mockModel;
 
       const result = await testProvider.testSimplePrompt();

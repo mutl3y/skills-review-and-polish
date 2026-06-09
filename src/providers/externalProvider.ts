@@ -20,6 +20,61 @@ export interface ExternalProviderOptions {
 }
 
 // --------------------------------------------------------------------------
+// Shared retry / fetch logic
+// --------------------------------------------------------------------------
+
+/** API error shape returned by OpenRouter / GitHub Models / Azure. */
+type ApiError = { message?: string; code?: number | string; status?: number | string };
+
+/** Shared request body built by each provider's `complete()` method. */
+interface ChatBody {
+  model: string;
+  messages: { role: string; content: string }[];
+  max_tokens: number;
+}
+
+/**
+ * POST a JSON request with exponential back-off retry on 429 / 5xx.
+ *
+ * Both `OpenRouterProvider` and `GitHubModelsProvider` delegate to this
+ * function so the retry loop is defined in exactly one place.
+ */
+async function fetchWithRetry(
+  url: string,
+  body: ChatBody,
+  extraHeaders: Record<string, string>,
+  maxRetries: number,
+): Promise<LlmResponse> {
+  const jsonBody = JSON.stringify(body);
+  let lastError = '';
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      await sleep(1000 * attempt);
+    }
+    try {
+      const resp = await fetchJson(url, jsonBody, extraHeaders);
+      const apiErr = getApiError(resp);
+      if (apiErr) {
+        lastError = String(apiErr.message ?? apiErr);
+        if (!isRetryable(apiErr.code ?? apiErr.status)) break;
+        continue;
+      }
+      const text = extractText(resp);
+      return { text };
+    } catch (e) {
+      lastError = String(e).replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
+    }
+  }
+  return { text: '', error: lastError };
+}
+
+/** Pull the assistant text from a chat-completions response payload. */
+function extractText(resp: Record<string, unknown>): string {
+  const choices = resp['choices'] as Array<Record<string, unknown>> | undefined;
+  return ((choices?.[0]?.['message'] as Record<string, unknown> | undefined)?.['content'] as string) ?? '';
+}
+
+// --------------------------------------------------------------------------
 // OpenRouter
 // --------------------------------------------------------------------------
 
@@ -41,45 +96,19 @@ export class OpenRouterProvider implements LlmProvider {
   }
 
   async complete(req: LlmRequest): Promise<LlmResponse> {
-    const body = JSON.stringify({
-      model: this.model,
-      messages: [
+    return fetchWithRetry(
+      'https://openrouter.ai/api/v1/chat/completions',
+      { model: this.model, messages: [
         { role: 'system', content: req.systemPrompt },
         { role: 'user', content: req.prompt },
-      ],
-      max_tokens: this.maxTokens,
-    });
-
-    return this.callWithRetry('https://openrouter.ai/api/v1/chat/completions', body);
-  }
-
-  private async callWithRetry(url: string, body: string): Promise<LlmResponse> {
-    let lastError = '';
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      if (attempt > 0) {
-        // Exponential back-off: 1 s, 2 s
-        await sleep(1000 * attempt);
-      }
-      try {
-        const resp = await fetchJson(url, body, {
-          Authorization: `Bearer ${this.apiKey}`,
-          'HTTP-Referer': 'vscode://skills-review-and-polish',
-          'X-Title': 'Skills Review and Polish',
-        });
-        const apiErr = getApiError(resp);
-        if (apiErr) {
-          lastError = String(apiErr.message ?? apiErr);
-          if (!isRetryable(apiErr.code ?? apiErr.status)) break;
-          continue;
-        }
-        const choices = resp['choices'] as Array<Record<string, unknown>> | undefined;
-        const text: string = (choices?.[0]?.['message'] as Record<string, unknown> | undefined)?.['content'] as string ?? '';
-        return { text };
-      } catch (e) {
-        lastError = String(e);
-      }
-    }
-    return { text: '', error: lastError };
+      ], max_tokens: this.maxTokens },
+      {
+        Authorization: `Bearer ${this.apiKey}`,
+        'HTTP-Referer': 'vscode://skills-review-and-polish',
+        'X-Title': 'Skills Review and Polish',
+      },
+      this.maxRetries,
+    );
   }
 }
 
@@ -107,41 +136,20 @@ export class GitHubModelsProvider implements LlmProvider {
   }
 
   async complete(req: LlmRequest): Promise<LlmResponse> {
-    const body = JSON.stringify({
-      model: this.model,
-      messages: [
+    return fetchWithRetry(
+      GitHubModelsProvider.BASE_URL,
+      { model: this.model, messages: [
         { role: 'system', content: req.systemPrompt },
         { role: 'user', content: req.prompt },
-      ],
-      max_tokens: this.maxTokens,
-    });
-
-    let lastError = '';
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      if (attempt > 0) await sleep(1000 * attempt);
-      try {
-        const resp = await fetchJson(GitHubModelsProvider.BASE_URL, body, {
-          Authorization: `Bearer ${this.apiKey}`,
-        });
-        const apiErr = getApiError(resp);
-        if (apiErr) {
-          lastError = String(apiErr.message ?? apiErr);
-          if (!isRetryable(apiErr.code ?? apiErr.status)) break;
-          continue;
-        }
-        const choices = resp['choices'] as Array<Record<string, unknown>> | undefined;
-        const text: string = (choices?.[0]?.['message'] as Record<string, unknown> | undefined)?.['content'] as string ?? '';
-        return { text };
-      } catch (e) {
-        lastError = String(e);
-      }
-    }
-    return { text: '', error: lastError };
+      ], max_tokens: this.maxTokens },
+      { Authorization: `Bearer ${this.apiKey}` },
+      this.maxRetries,
+    );
   }
 }
 
 // --------------------------------------------------------------------------
-// Shared utilities
+// HTTP / JSON utilities (low-level, no retry)
 // --------------------------------------------------------------------------
 
 async function fetchJson(
@@ -163,8 +171,6 @@ async function fetchJson(
   }
   return (await response.json()) as Record<string, unknown>;
 }
-
-type ApiError = { message?: string; code?: number | string; status?: number | string };
 
 function getApiError(resp: Record<string, unknown>): ApiError | undefined {
   return resp['error'] as ApiError | undefined;

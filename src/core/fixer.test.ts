@@ -391,3 +391,233 @@ describe('SurgicalFixer', () => {
     expect(SURGICAL_FIXABLE_CODES.has('coverage-gap')).toBe(false);
   });
 });
+
+describe('surroundingContext — edge cases', () => {
+  it('returns null when targetText is not found in content', () => {
+    expect(surroundingContext('Some content here.', 'nonexistent text')).toBeNull();
+  });
+
+  it('truncates section exceeding maxChars with … markers and centers the target', () => {
+    const filler = 'word '.repeat(300);
+    const target = 'TARGET_PHRASE';
+    const content = `# Section\n\n${filler}${target} ${filler}\n# Next`;
+    const result = surroundingContext(content, target, 1200);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain(target);
+    expect(result!.length).toBeLessThanOrEqual(1202);
+    expect(result).toMatch(/…/);
+  });
+
+  it('returns null when section is barely larger than targetText', () => {
+    const content = '# A\ntarget\n# B';
+    expect(surroundingContext(content, 'target')).toBeNull();
+  });
+});
+
+describe('expandToParagraph — edge cases', () => {
+  it('returns null when phrase is not found in content', () => {
+    expect(expandToParagraph('Some content.', 'nonexistent phrase')).toBeNull();
+  });
+
+  it('returns paragraph when phrase is at the start of content', () => {
+    const content = 'Start with the target phrase here.\n\nSecond paragraph.';
+    const result = expandToParagraph(content, 'target phrase here');
+
+    expect(result).not.toBeNull();
+    expect(result).toContain('target phrase here');
+    expect(result).toContain('Start with');
+  });
+
+  it('returns paragraph when phrase is at the end of content', () => {
+    const content = 'First paragraph.\n\nEnd with the target phrase.';
+    const result = expandToParagraph(content, 'target phrase');
+
+    expect(result).not.toBeNull();
+    expect(result).toContain('target phrase');
+    expect(result).toContain('End with');
+  });
+});
+
+describe('factualGroundingTrigger — additional patterns', () => {
+  it('detects CamelCase identifiers', () => {
+    expect(factualGroundingTrigger('Use ReactComponent for rendering')).toBe(true);
+  });
+
+  it('detects SCREAMING_CASE identifiers', () => {
+    expect(factualGroundingTrigger('Set the API_KEY environment variable')).toBe(true);
+  });
+
+  it('returns false when all capitalized words are excluded proper nouns', () => {
+    expect(factualGroundingTrigger('If When Then The This That')).toBe(false);
+  });
+
+  it('detects dot-separated identifiers', () => {
+    expect(factualGroundingTrigger('com.example.service')).toBe(true);
+  });
+
+  it('detects slash-separated paths', () => {
+    expect(factualGroundingTrigger('src/utils/helpers.ts')).toBe(true);
+  });
+});
+
+describe('extractParagraphAtLine — out-of-bounds', () => {
+  it('returns null for a negative line index', () => {
+    expect(extractParagraphAtLine('line one\nline two\nline three', -1)).toBeNull();
+  });
+
+  it('returns null when line index exceeds line count', () => {
+    expect(extractParagraphAtLine('line one\nline two\nline three', 10)).toBeNull();
+  });
+});
+
+describe('SURGICAL_FIXABLE_CODES — completeness', () => {
+  it('contains exactly the 5 expected surgical-fixable codes', () => {
+    const expected = [
+      'ambiguity-llm',
+      'hygiene-redundant-instruction',
+      'hygiene-unordered-process',
+      'hygiene-over-specification',
+      'contradiction',
+    ];
+    for (const code of expected) {
+      expect(SURGICAL_FIXABLE_CODES.has(code)).toBe(true);
+    }
+    expect(SURGICAL_FIXABLE_CODES.size).toBe(5);
+  });
+
+  it('does not include coverage-gap as a surgical-fixable code', () => {
+    expect(SURGICAL_FIXABLE_CODES.has('coverage-gap')).toBe(false);
+  });
+});
+
+describe('SurgicalFixer — boundary and acceptance tests', () => {
+  it('fixIssue end-to-end happy path: ambiguity-llm with obligation preservation', async () => {
+    const text = 'Consider using the tool carefully.';
+    const fixer = new SurgicalFixer({
+      complete: vi.fn().mockResolvedValue({ text: 'Consider using the tool.' }),
+    });
+
+    const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('ambiguity-llm', text), {
+      semanticCheck: false,
+      selfCritique: false,
+    });
+
+    expect(result.accepted).toBe(true);
+    expect(result.fixed).toBe('Consider using the tool.');
+    expect(result.rejectReason).toBeUndefined();
+  });
+
+  it('rejects a fix at exactly upperBound (1.5× growth guard boundary)', async () => {
+    const text = 'Review the configuration settings.';
+    const { upperBound } = computeFixBounds(text, 'contradiction', false);
+    const fixAtBoundary = 'X'.repeat(Math.ceil(upperBound));
+
+    const fixer = new SurgicalFixer({
+      complete: vi.fn().mockResolvedValue({ text: fixAtBoundary }),
+    });
+    const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text));
+
+    expect(result.accepted).toBe(false);
+    expect(result.rejectReason).toContain('expansion');
+  });
+
+  it('passes the growth guard at upperBound − 1 (1.5× boundary)', async () => {
+    const text = 'Review the configuration settings.';
+    const { upperBound } = computeFixBounds(text, 'contradiction', false);
+    // upperBound = 51; fix of 50 chars that passes all guards
+    const fixJustBelow = 'Review the configuration settings and verify fully';
+    expect(fixJustBelow.length).toBe(Math.floor(upperBound) - 1);
+
+    const fixer = new SurgicalFixer({
+      complete: vi.fn().mockResolvedValue({ text: fixJustBelow }),
+    });
+    const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text));
+
+    expect(result.accepted).toBe(true);
+    expect(result.fixed).toBe(fixJustBelow);
+  });
+
+  it('passes the shrinkage guard at exactly lowerBound', async () => {
+    const text = 'Use the API for all tasks.';
+    const { lowerBound } = computeFixBounds(text, 'contradiction', false);
+    // lowerBound = 13; fix of exactly lowerBound chars using only original concept words
+    const fixAtFloor = 'Use API tasks';
+    expect(fixAtFloor.length).toBe(Math.ceil(lowerBound));
+
+    const fixer = new SurgicalFixer({
+      complete: vi.fn().mockResolvedValue({ text: fixAtFloor }),
+    });
+    const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text));
+
+    expect(result.accepted).toBe(true);
+    expect(result.fixed).toBe(fixAtFloor);
+  });
+
+  it('rejects a fix at exactly lowerBound − 1 (shrinkage floor boundary)', async () => {
+    const text = 'Use the API for all tasks.';
+    const { lowerBound } = computeFixBounds(text, 'contradiction', false);
+    const fixBelowFloor = 'X'.repeat(Math.max(1, Math.floor(lowerBound) - 1));
+
+    const fixer = new SurgicalFixer({
+      complete: vi.fn().mockResolvedValue({ text: fixBelowFloor }),
+    });
+    const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text));
+
+    expect(result.accepted).toBe(false);
+    expect(result.rejectReason).toContain('shrinkage');
+  });
+
+  it('obligation token preservation: meaning-guard does NOT reject when tokens are kept', async () => {
+    const text = 'You should consider all options and may request help.';
+    const fix = 'You should consider all options and may request help promptly';
+    const fixer = new SurgicalFixer({
+      complete: vi.fn().mockResolvedValue({ text: fix }),
+    });
+
+    const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text), {
+      semanticCheck: false,
+      selfCritique: false,
+    });
+
+    expect(result.accepted).toBe(true);
+    expect(result.fixed).toBe(fix);
+    // All three obligation tokens preserved in both original and fix
+    expect(text).toMatch(/\bshould\b/i);
+    expect(text).toMatch(/\bconsider\b/i);
+    expect(text).toMatch(/\bmay\b/i);
+    expect(fix).toMatch(/\bshould\b/i);
+    expect(fix).toMatch(/\bconsider\b/i);
+    expect(fix).toMatch(/\bmay\b/i);
+  });
+
+  it('fixDocument skips all diagnostics when LLM abstains on every one', async () => {
+    const text = 'Line one.\nLine two.\nLine three.';
+    const fixer = new SurgicalFixer({
+      complete: vi.fn().mockResolvedValue({ text: '[[ABSTAIN]]' }),
+    });
+
+    const result = await fixer.fixDocument(text, '/tmp/test.md', [
+      makeDiagnostic('ambiguity-llm', 'Line one.'),
+      makeDiagnostic('ambiguity-llm', 'Line two.'),
+      makeDiagnostic('ambiguity-llm', 'Line three.'),
+    ]);
+
+    expect(result.applied).toBe(0);
+    expect(result.skipped).toBe(3);
+    expect(result.fixedText).toBe(text);
+  });
+
+  it('fixDocument returns unchanged text with zero counters for empty diagnostics', async () => {
+    const text = 'No diagnostics here.';
+    const fixer = new SurgicalFixer({
+      complete: vi.fn(),
+    });
+
+    const result = await fixer.fixDocument(text, '/tmp/test.md', []);
+
+    expect(result.fixedText).toBe(text);
+    expect(result.applied).toBe(0);
+    expect(result.skipped).toBe(0);
+  });
+});

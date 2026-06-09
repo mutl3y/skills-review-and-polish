@@ -14,6 +14,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { AnalysisResult, LlmProvider, LlmRequest } from './types';
+import { loadPrompt } from './prompts';
 
 // --------------------------------------------------------------------------
 // Constants
@@ -57,7 +58,12 @@ const EMPHASIS_SCOPE_WORDS = [
 
 function tokenPresent(text: string, token: string): boolean {
   const esc = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-  return new RegExp(`\\b${esc}\\b`, 'i').test(text);
+  // Use explicit boundary assertions instead of \b so tokens that start or
+  // end with non-word characters (or are multi-word phrases) match correctly.
+  // (?:(?<=\W)|(?<=^))  — preceded by a non-word char or start of string
+  // (?:(?=\W)|(?=$))    — followed by a non-word char or end of string
+  const boundary = '(?:(?<=\\W)|(?<=^))(?:' + esc + ')(?:(?=\\W)|(?=$))';
+  return new RegExp(boundary, 'i').test(text);
 }
 
 function countOf(text: string, needle: string): number {
@@ -168,7 +174,15 @@ export function loadReferenceGrounding(
   const files = fs
     .readdirSync(refDir)
     .filter((name) => /\.(md|mdx|txt|json|yaml|yml)$/i.test(name))
-    .sort();
+    .sort()
+    // Reject symlinks — they could point outside the references directory
+    .filter((name) => {
+      try {
+        return !fs.lstatSync(path.join(refDir, name)).isSymbolicLink();
+      } catch {
+        return false;
+      }
+    });
 
   const parts: string[] = [];
   let remaining = maxChars;
@@ -182,6 +196,9 @@ export function loadReferenceGrounding(
       continue;
     }
     if (!fileStat.isFile()) continue;
+    // Path traversal guard: resolved path must remain inside refDir
+    const resolved = path.resolve(full);
+    if (!resolved.startsWith(path.resolve(refDir))) continue;
     let text: string;
     try {
       text = fs.readFileSync(full, 'utf8').trim();
@@ -210,7 +227,7 @@ export function expandToParagraph(content: string, phrase: string): string | nul
   let searchStart = normContent.indexOf(phrase);
   if (searchStart === -1) {
     const re = new RegExp(
-      normPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+'),
+      normPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ +/g, '\\s{1,3}'),
     );
     const m = normContent.match(re);
     searchStart = m ? normContent.indexOf(m[0]) : -1;
@@ -224,8 +241,11 @@ export function expandToParagraph(content: string, phrase: string): string | nul
       paraStart = 0;
       break;
     }
-    paraStart = prev + 2;
-    break;
+    if (prev + 2 <= searchStart) {
+      paraStart = prev + 2;
+      break;
+    }
+    paraStart = prev;
   }
   const next = normContent.indexOf('\n\n', searchStart);
   const paraEnd = next !== -1 ? next : normContent.length;
@@ -266,34 +286,11 @@ export function surgicalFixSystemPrompt({ additive = false }: { additive?: boole
     ? '- For ambiguity-llm in additive mode: reproduce the full original text first, then INSERT a short concrete clause.'
     : '- For ambiguity-llm: remove or tighten the vague qualifier — DELETE the vague word or swap for a shorter concrete term.';
 
-  return `You are a precision editor for AI prompt/instruction files.
-You will be shown a short fragment from a skill/instructions document and asked to fix ONE specific quality issue.
-You must understand what the fragment means before you touch it — but only ever edit the fragment itself.
-Your job is to return the corrected version of that fragment, OR to abstain.
-
-When to ABSTAIN (return exactly the token [[ABSTAIN]] optionally followed by a short reason):
-- If a safe correction would require domain knowledge you don't have, or inventing a concrete value.
-- If the only way to "fix" the fragment is to ALTER A FACTUAL CLAIM — a framework/library/tool name
-  (e.g. webmvc vs webflux), an API or config key, a number or threshold, an ordering word
-  ("sequentially" vs "in parallel", "before" vs "after"), a proper noun, or a cause/effect statement.
-- When in doubt, ABSTAIN. A skipped fix routed to a human is far better than a confident rewrite
-  that silently changes what the document asserts. Do NOT guess to satisfy the task.
-
-Rules (strictly enforced) when you DO edit:
-- Return ONLY the corrected fragment — no surrounding text, no explanation, no code fences.
-- Treat the surrounding context as reference only: never copy it into your output and never edit it.
-${addRule}
-${lengthRule}
-- Do NOT change the surrounding document structure.
-- For redundant-instruction: return exactly the empty string "" to signal deletion.
-- For unordered-process: return the same text with items numbered, no other changes.
-${ambiguityRule}
-- For contradiction: return the reconciled version of just the conflicting fragment.
-- NEVER invent concrete values, names, URLs, file paths, server names, version numbers, or examples that are not already present in the fragment. If a vague term needs a concrete criterion, describe the criterion generically (e.g. "a pinned version") rather than fabricating a specific value.
-- Preserve all of the fragment's original information — do not drop requirements, clauses, or list items.
-- Preserve SEMANTIC EQUIVALENCE: the corrected fragment must keep the SAME meaning, scope, and obligation strength as the original. Keep modal/hedge words intact (must, should, may, consider, recommended, optional, prefer, "at least", "at most") — do NOT turn a recommendation into a mandate ("Consider using X" must stay "Consider using X", not "Use X") or vice versa.
-- Keep every DOMAIN-SPECIFIC qualifier (e.g. "async", "meaningful", "concurrent", "comprehensive", "at least one"). Only the genuinely vague word may be removed — never drop a word that carries technical meaning.
-- NEVER introduce code fences (triple-backtick), triple-quotes (""" or '''), or any delimiter that was not already in the original fragment, and never delete a list item or line.`;
+  const template = loadPrompt('surgical-fix');
+  return template
+    .replace('{{ADD_RULE}}', addRule)
+    .replace('{{LENGTH_RULE}}', lengthRule)
+    .replace('{{AMBIGUITY_RULE}}', ambiguityRule);
 }
 
 export function buildSurgicalFixPrompt(
@@ -506,7 +503,9 @@ export function meaningPreservationReject(
 
   // 2. Line deletion (except for redundant-instruction which deletes intentionally)
   if (code !== 'hygiene-redundant-instruction') {
-    if (countOf(fixed, '\n') < countOf(targetText, '\n')) return 'line-deletion';
+    const fixedLines = fixed.trim().split('\n').length;
+    const targetLines = targetText.trim().split('\n').length;
+    if (fixedLines < targetLines) return 'line-deletion';
   }
 
   // 3. Obligation-strength preservation
@@ -800,7 +799,9 @@ export class SurgicalFixer {
     diagnostics: AnalysisResult[],
     options: SurgicalFixOptions = {},
   ): Promise<{ fixedText: string; applied: number; skipped: number }> {
-    const fixable = diagnostics.filter((d) => SURGICAL_FIXABLE_CODES.has(d.code ?? ''));
+    const fixable = diagnostics
+      .filter((d) => SURGICAL_FIXABLE_CODES.has(d.code ?? ''))
+      .sort((a, b) => (b.range?.start?.line ?? 0) - (a.range?.start?.line ?? 0));
     let content = text;
     let applied = 0;
     let skipped = 0;
@@ -823,10 +824,20 @@ export class SurgicalFixer {
         continue;
       }
 
+      // Count occurrences of anchor to avoid corrupting the wrong instance.
+      const anchorCount = countOf(content, anchor);
+      if (anchorCount !== 1) {
+        // Ambiguous anchor — skip to avoid silent data corruption.
+        skipped++;
+        continue;
+      }
+
+      // Use function-as-replacement to prevent $-pattern interpretation
+      // (e.g. $variable being treated as a replacement token).
       if (d.code === 'hygiene-redundant-instruction' && result.fixed === '') {
-        content = content.replace(anchor + '\n', '').replace(anchor, '');
+        content = content.replace(anchor + '\n', '').replace(anchor, () => '');
       } else {
-        content = content.replace(anchor, result.fixed);
+        content = content.replace(anchor, () => result.fixed);
       }
       applied++;
     }

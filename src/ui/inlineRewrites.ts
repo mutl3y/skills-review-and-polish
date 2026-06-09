@@ -18,6 +18,30 @@ import { AnalysisResult } from '../core/types';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from '../core/fixer';
 import { Engine } from '../core';
 
+/** Cache of recent fix results to avoid redundant LLM calls. */
+const fixCache = new Map<string, { result: { accepted: boolean; fixed: string }; timestamp: number }>();
+const FIX_CACHE_TTL_MS = 30_000; // 30 seconds
+/** Maximum cache entries before oldest are evicted. */
+const FIX_CACHE_MAX_SIZE = 50;
+
+/** Ensure the cache doesn't exceed MAX_SIZE by evicting oldest entries. */
+function enforceCacheMaxSize(): void {
+  if (fixCache.size <= FIX_CACHE_MAX_SIZE) return;
+  // Map iteration order is insertion order — delete oldest entries first.
+  const excess = fixCache.size - FIX_CACHE_MAX_SIZE;
+  let deleted = 0;
+  for (const key of fixCache.keys()) {
+    if (deleted >= excess) break;
+    fixCache.delete(key);
+    deleted++;
+  }
+}
+
+/** Clear the fix cache — exported for test isolation. */
+export function clearFixCache(): void {
+  fixCache.clear();
+}
+
 /**
  * Create and register the experimental inline rewrite provider.
  * Returns the disposable so the extension can push it to `context.subscriptions`.
@@ -50,10 +74,32 @@ export function createInlineRewriteProvider(
       if (!result) return [];
 
       try {
-        const engine = await getEngine();
         const text = document.getText();
+
+        // Check cache first to avoid redundant LLM calls
+        const cacheKey = `${document.uri.toString()}:${code}:${result.relevantText?.slice(0, 100) ?? ''}`;
+        const cached = fixCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < FIX_CACHE_TTL_MS) {
+          if (!cached.result.accepted || !cached.result.fixed) return [];
+          const anchor = result.relevantText ?? '';
+          if (!anchor || !text.includes(anchor)) return [];
+          const anchorStart = text.indexOf(anchor);
+          const anchorEnd = anchorStart + anchor.length;
+          const startPos = document.positionAt(anchorStart);
+          const endPos = document.positionAt(anchorEnd);
+          const anchorRange = new vscode.Range(startPos, endPos);
+          if (!anchorRange.contains(position)) return [];
+          return [new vscode.InlineCompletionItem(cached.result.fixed, anchorRange)];
+        }
+
+        const engine = await getEngine();
         const fixer = new SurgicalFixer(engine.provider);
         const fixResult = await fixer.fixIssue(text, document.uri.fsPath, result);
+
+        // Cache the result to avoid redundant LLM calls
+        fixCache.set(cacheKey, { result: { accepted: fixResult.accepted, fixed: fixResult.fixed }, timestamp: Date.now() });
+        enforceCacheMaxSize();
+
         if (!fixResult.accepted || !fixResult.fixed) return [];
 
         // Replace just the anchor range with the proposed fix

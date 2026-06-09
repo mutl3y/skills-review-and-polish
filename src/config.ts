@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import picomatch from 'picomatch';
 import {
   EngineConfig,
   Severity,
@@ -9,12 +10,29 @@ import {
 
 const SECTION = 'skillsReviewAndPolish';
 
+/** Module-level config cache — invalidated at end of each event-loop tick. */
+let cachedConfig: ExtensionConfig | null = null;
+let configCacheTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Invalidate the cached config so the next readConfig() call re-reads from
+ * VS Code settings.  Exported for tests that mock getConfiguration.
+ */
+export function clearConfigCache(): void {
+  cachedConfig = null;
+  if (configCacheTimer) {
+    clearTimeout(configCacheTimer);
+    configCacheTimer = undefined;
+  }
+}
+
 export interface ExtensionConfig extends EngineConfig {
   enable: boolean;
   provider: 'vscode-lm' | 'openrouter' | 'githubModels';
   model: string;
   deepModel: string;
   fixModel: string;
+  pickerSortBy: 'price' | 'multiplier' | 'name';
   runOn: 'manual' | 'onSave' | 'onType';
   include: string[];
   exclude: string[];
@@ -27,15 +45,17 @@ export interface ExtensionConfig extends EngineConfig {
 }
 
 export function readConfig(): ExtensionConfig {
+  if (cachedConfig) return cachedConfig;
   const c = vscode.workspace.getConfiguration(SECTION);
   const waves = c.get<string[]>('enabledWaves', ALL_WAVES) as WaveName[];
-  return {
+  cachedConfig = {
     ...DEFAULT_ENGINE_CONFIG,
     enable: c.get('enable', true),
     provider: c.get('provider', 'vscode-lm'),
     model: c.get('model', ''),
     deepModel: c.get('deepModel', ''),
     fixModel: c.get('fixModel', ''),
+    pickerSortBy: c.get('pickerSortBy', 'price'),
     analysisMode: c.get('analysisMode', 'single'),
     enabledWaves: waves.length ? waves : [...ALL_WAVES],
     scoreSamples: c.get('scoreSamples', 3),
@@ -54,6 +74,16 @@ export function readConfig(): ExtensionConfig {
     telemetryEnable: c.get('telemetry.enable', true),
     logLevel: c.get('logLevel', 'info') as 'info' | 'debug',
   };
+  // Invalidate at end of current event-loop tick — prevents redundant
+  // re-parsing within the same synchronous operation while ensuring
+  // fresh config on the next user action.
+  if (!configCacheTimer) {
+    configCacheTimer = setTimeout(() => {
+      cachedConfig = null;
+      configCacheTimer = undefined;
+    }, 0);
+  }
+  return cachedConfig;
 }
 
 export const DEFAULT_INCLUDE = [
@@ -66,26 +96,15 @@ export const DEFAULT_INCLUDE = [
 
 /** Cheap path-based check for whether a document is an AI customization. */
 export function isCustomizationPath(fsPath: string, include: string[]): boolean {
-  const lower = fsPath.toLowerCase();
-  return (
-    lower.endsWith('/skill.md') ||
-    lower.endsWith('.prompt.md') ||
-    lower.endsWith('.agent.md') ||
-    lower.endsWith('.instructions.md') ||
-    lower.endsWith('/agents.md') ||
-    include.some((g) => simpleGlobMatch(g, fsPath))
-  );
+  return include.some((g) => simpleGlobMatch(g, fsPath));
 }
 
-/** Minimal glob matcher (placeholder — replace with vscode.RelativePattern at call sites). */
-function simpleGlobMatch(glob: string, path: string): boolean {
-  const re = new RegExp(
-    '^' +
-      glob
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, '.*')
-        .replace(/\*/g, '[^/]*') +
-      '$',
-  );
-  return re.test(path);
+/** Glob matcher — uses picomatch for full glob support including braces, ?, [abc]. */
+function simpleGlobMatch(glob: string, filePath: string): boolean {
+  try {
+    return picomatch.isMatch(filePath, glob, { nocase: true });
+  } catch {
+    // Malformed glob — treat as no match (report via settings validation instead)
+    return false;
+  }
 }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { createInlineRewriteProvider } from './inlineRewrites';
+import { createInlineRewriteProvider, clearFixCache } from './inlineRewrites';
 import { SurgicalFixer } from '../core/fixer';
 
 const mocks = vi.hoisted(() => {
@@ -50,6 +50,7 @@ describe('createInlineRewriteProvider', () => {
     vi.clearAllMocks();
     mocks.getDiagnostics.mockReturnValue([]);
     (SurgicalFixer as any).mockClear();
+    clearFixCache();
   });
 
   function getRegisteredProvider() {

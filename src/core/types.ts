@@ -96,6 +96,13 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   fixReferenceGrounding: true,
 };
 
+/** Cognitive codes that get severity downgraded for workflow/meta skill types. */
+export const COGNITIVE_DOWNGRADE_CODES = [
+  'cognitive-nested-conditions',
+  'cognitive-sequencing',
+  'cognitive-load',
+] as const;
+
 // ─── LLM response shapes (internal, used by Analyzer) ────────────────────────
 
 export interface LLMContradictionItem {

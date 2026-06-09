@@ -30,7 +30,8 @@ Uses your **GitHub Copilot subscription** via the VS Code Language Model API —
 ### Integration
 
 - Live VS Code squiggles, quick fixes ("Fix this issue"), and hover explanations
-- Optional MCP server for automation and CI/CD integration
+- Full MCP server with 7 tools (analyze, fix, score, verify_fix, accept_finding, list_accepted_findings, health)
+- `.skills-review.json` config sync from VS Code settings
 - Markdown linting for documentation quality
 - Git hooks for pre-commit/pre-push validation
 
@@ -66,6 +67,31 @@ Open VS Code Settings and search "Skills Review":
 - **[Tutorials →](docs/TUTORIALS.md)** — Step-by-step walkthroughs (5–15 min each)
 - **[FAQs →](docs/FAQS.md)** — Common questions and answers
 - **[Architecture →](docs/ARCHITECTURE.md)** — How the analyzer works and why we made these choices
+
+### MCP Server
+
+The extension ships with a headless [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server for CI/CD, automation, and external tooling.
+
+| Tool | Description |
+| --- | --- |
+| `analyze` | Run all 6 analysis waves, return JSON diagnostics |
+| `fix` | Surgical fix for one issue (5 fixable codes) |
+| `score` | Quality score (0–100) + letter grade (A+ through F) |
+| `verify_fix` | Re-analyze to confirm a specific fix worked |
+| `accept_finding` | Suppress a known/expected finding |
+| `list_accepted_findings` | View all suppressed findings |
+| `health` | Check provider, model, and config source |
+
+**Quick start:**
+
+```bash
+npm run compile
+npm run mcp   # starts stdio server
+```
+
+The server reads `.skills-review.json` from the workspace root (written by the **Sync MCP Config** command) or falls back to `GITHUB_TOKEN` env vars.
+
+See [`src/mcp/README.md`](src/mcp/README.md) for full setup, client config examples, and the recommended agent workflow.
 
 ### For Developers
 
@@ -111,6 +137,15 @@ Questions?
 - Check [docs/plan/LEARNINGS.md](docs/plan/LEARNINGS.md) for engineering decisions
 
 ### Security
+
+This extension handles LLM API interactions and file system access. Security measures applied after [Gilfoyle code review (2026-06-09)](docs/plan/20260609-gilfoyle-review-remediation/gilfoyle-review.md):
+
+- **API key redaction** — Bearer tokens and API keys stripped from all error messages and status bar tooltips
+- **Path traversal guards** — `references/` directory loader validates resolved paths stay within expected boundary; rejects symlinks
+- **Workspace-root anchoring** — Accepted findings and MCP config resolved from workspace root, not `process.cwd()`
+- **Input size limits** — MCP tools enforce `MAX_TEXT_LENGTH` to prevent runaway LLM costs
+- **Concurrent analysis locks** — Per-URI analysis serialization prevents race conditions on `lastResults`
+- **Safe text replacement** — Function-as-replacement prevents `$`-pattern corruption in surgical fixes
 
 Report vulnerabilities to [security@example.com](mailto:security@example.com) rather than the issue tracker. See [SECURITY.md](SECURITY.md).
 

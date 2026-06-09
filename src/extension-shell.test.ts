@@ -7,13 +7,16 @@ const DEFAULT_CONFIG = {
   provider: 'vscode-lm',
   include: ['**/SKILL.md'],
   exclude: ['**/node_modules/**'],
+  enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+  analysisMode: 'multiWave',
+  fixStrategy: 'subtractive',
   fixSemanticCheck: false,
   fixSelfCritique: false,
   fixReferenceGrounding: true,
+  severityOverrides: {},
   inlineRewrites: false,
   runOn: 'manual',
   logLevel: 'info',
-  severityOverrides: {},
 } as const;
 
 const mocks = vi.hoisted(() => ({
@@ -35,7 +38,7 @@ const mocks = vi.hoisted(() => ({
   onDidChangeTextDocument: vi.fn(),
   onDidChangeActiveTextEditor: vi.fn(),
   executeCommand: vi.fn(),
-  createOutputChannel: vi.fn(() => ({ dispose: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })),
+  createOutputChannel: vi.fn(() => ({ dispose: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), show: vi.fn(), appendLine: vi.fn() })),
   createDiagnosticCollection: vi.fn(() => ({ dispose: vi.fn(), set: vi.fn(), get: vi.fn(() => []) })),
 }));
 
@@ -50,12 +53,32 @@ vi.mock('vscode', () => ({
     showErrorMessage: mocks.showErrorMessage,
     showQuickPick: mocks.showQuickPick,
     showInputBox: mocks.showInputBox,
+    createQuickPick: vi.fn(() => {
+      const listeners: Array<(...args: any[]) => void> = [];
+      const picker = {
+        title: '',
+        placeholder: '',
+        items: [] as any[],
+        selectedItems: [] as any[],
+        busy: false,
+        onDidAccept: vi.fn((cb: () => void) => { listeners.push(cb); return { dispose: vi.fn() }; }),
+        onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+        onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+        show: vi.fn(),
+        hide: vi.fn(),
+        dispose: vi.fn(),
+        _fireAccept() { listeners.forEach((cb) => cb()); },
+      };
+      return picker;
+    }),
     createStatusBarItem: vi.fn(() => ({ show: vi.fn(), dispose: vi.fn(), name: '', command: '', tooltip: '', text: '' })),
+    withProgress: vi.fn((_opts, task) => task()),
   },
   workspace: {
     registerTextDocumentContentProvider: mocks.registerTextDocumentContentProvider,
     onDidSaveTextDocument: mocks.onDidSaveTextDocument,
     onDidChangeTextDocument: mocks.onDidChangeTextDocument,
+    onDidCloseTextDocument: vi.fn(),
     getConfiguration: vi.fn(() => ({ get: vi.fn(), update: vi.fn() })),
     applyEdit: vi.fn(),
   },
@@ -93,6 +116,40 @@ vi.mock('./ui/codeActions', () => ({ SkillsCodeActionProvider: class { static pr
 vi.mock('./ui/hover', () => ({ SuggestionHoverProvider: class {} }));
 vi.mock('./ui/inlineRewrites', () => ({ createInlineRewriteProvider: vi.fn(() => ({ dispose: vi.fn() })) }));
 vi.mock('./test-api-inspection', () => ({ inspectLMAPIs: vi.fn() }));
+vi.mock('./core', () => {
+  return {
+    Engine: class {
+      analyze = vi.fn().mockResolvedValue([]);
+    },
+  };
+});
+vi.mock('./core/scoring', () => ({
+  scoreSkill: vi.fn().mockReturnValue({ score: 100, grade: 'A', breakdown: {} }),
+  parseSkillType: vi.fn().mockReturnValue('skill'),
+}));
+vi.mock('./core/logger', () => ({
+  setLogLevel: vi.fn(),
+  setTransport: vi.fn(),
+  createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })),
+}));
+vi.mock('./core/fixer', () => ({
+  SurgicalFixer: class {},
+  SURGICAL_FIXABLE_CODES: [],
+}));
+vi.mock('./providers/vscodeLmProvider', () => ({
+  VsCodeLmProvider: class {
+    invalidate = vi.fn();
+  },
+}));
+vi.mock('./providers/externalProvider', () => ({
+  OpenRouterProvider: class {},
+  GitHubModelsProvider: class {},
+}));
+vi.mock('./pricing', () => ({
+  fetchPricing: vi.fn().mockResolvedValue(new Map()),
+  formatPricing: vi.fn().mockReturnValue('$0.00/M in, $0.00/M out'),
+  normalizeModelName: vi.fn((name: string) => name.toLowerCase()),
+}));
 
 describe('extension activation wiring', () => {
   beforeEach(() => {
@@ -129,11 +186,12 @@ describe('extension activation wiring', () => {
     expect(mocks.registerCommand).not.toHaveBeenCalled();
   });
 
-  it('warns and skips analyze when the active editor is not a customization file', async () => {
+  it('proceeds with analysis when the active editor is not a customization file', async () => {
     mocks.activeTextEditor = {
       document: {
         uri: { fsPath: '/tmp/README.md', toString: () => 'file:///tmp/README.md' },
         fileName: 'README.md',
+        getText: vi.fn().mockReturnValue(''),
       },
     } as any;
     mocks.isCustomizationPath.mockReturnValue(false);
@@ -145,7 +203,8 @@ describe('extension activation wiring', () => {
 
     await analyzeCommand();
 
-    expect(mocks.showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('not a recognised AI customization file'));
+    // Manual trigger now analyses any file — no warning shown
+    expect(mocks.showWarningMessage).not.toHaveBeenCalled();
   });
 
   it('warns when model selection has no available models', async () => {
@@ -164,15 +223,30 @@ describe('extension activation wiring', () => {
   it('saves a validated model selection and reports the result', async () => {
     const update = vi.fn().mockResolvedValue(undefined);
     const config = { update };
+    const lmModels = [
+      { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6', vendor: 'copilot', pricing: '1x' },
+    ];
     mocks.selectChatModels
-      .mockResolvedValueOnce([
-        { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6', vendor: 'copilot', pricing: '1x' },
-      ])
-      .mockResolvedValueOnce([
-        { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6', vendor: 'copilot' },
-      ]);
-    mocks.showQuickPick.mockResolvedValue({ modelId: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6' });
+      .mockResolvedValueOnce(lmModels) // for selectModel: fetch models
+      .mockResolvedValueOnce([{ id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6', vendor: 'copilot' }]); // for validation
     vi.mocked(vscode.workspace.getConfiguration).mockReturnValue(config as any);
+
+    // Make createQuickPick auto-accept with a selected item.
+    // The trick: override onDidAccept so that whenever selectModel registers
+    // its callback, it fires immediately with the pre-set selectedItems.
+    const pickedItem = { label: '🟢 Claude Sonnet 4.6', description: '', detail: '     claude-sonnet-4.6 · copilot', modelId: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6' };
+    (vscode.window.createQuickPick as any).mockImplementation(() => {
+      const picker = {
+        title: '', placeholder: '', items: [] as any[], selectedItems: [pickedItem], busy: false,
+        onDidAccept: vi.fn((cb: () => void) => { setTimeout(cb, 0); return { dispose: vi.fn() }; }),
+        onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+        onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+        show: vi.fn(),
+        hide: vi.fn(),
+        dispose: vi.fn(),
+      };
+      return picker;
+    });
 
     activate({ subscriptions: [] } as any);
 

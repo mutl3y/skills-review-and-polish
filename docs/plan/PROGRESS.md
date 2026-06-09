@@ -11,7 +11,7 @@
 - **VS Code Integration**: Diagnostics, code actions, CodeLens, hovers, status bar
 - **LLM Providers**: vscode.lm (Copilot), OpenRouter, GitHub Models
 - **Agentic Tools**: Analyze/fix callable from Copilot agent mode
-- **MCP Server**: Headless stdio seam for CI/CD and external clients
+- **MCP Server**: 7-tool headless seam (analyze, fix, score, verify_fix, accept_finding, list_accepted_findings, health) with `.skills-review.json` config sync, unit + integration tests
 - **Testing**: 168+ unit tests, 11 E2E Playwright tests, fixture regression suite
 - **Documentation**: User-focused README, developer guide, release gates
 - **Quality Gates**: TypeScript, ESLint, markdownlint all passing

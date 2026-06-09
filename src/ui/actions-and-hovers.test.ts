@@ -89,9 +89,10 @@ describe('UI action and hover helpers', () => {
       ],
     } as any);
 
-    expect(result).toHaveLength(2);
+    expect(result).toHaveLength(3);
     expect(result[0].title).toContain('Fix');
     expect(result[1].title).toContain('Ignore');
+    expect(result[2].title).toContain('Accept finding');
   });
 
   it('updates code lens metadata and renders issue labels', () => {
@@ -164,8 +165,9 @@ describe('UI action and hover helpers', () => {
       ],
     } as any);
 
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     expect(result[0].title).toContain('Ignore rule');
     expect(result[0].title).not.toContain('Fix');
+    expect(result[1].title).toContain('Accept finding');
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as vscode from 'vscode';
-import { DEFAULT_INCLUDE, isCustomizationPath, readConfig } from './config';
+import { DEFAULT_INCLUDE, isCustomizationPath, readConfig, clearConfigCache } from './config';
 
 vi.mock('vscode', () => ({
   workspace: {
@@ -11,6 +11,7 @@ vi.mock('vscode', () => ({
 describe('readConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearConfigCache();
   });
 
   it('returns the default configuration shape when settings are absent', () => {

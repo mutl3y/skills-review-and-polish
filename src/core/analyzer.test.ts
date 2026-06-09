@@ -9,7 +9,7 @@
  *  - `analyze without proxy` test removed — provider handles gracefully via error response.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -151,11 +151,9 @@ describe('findTextRange', () => {
     expect(r.endChar).toBe('the quick brown fox'.length);
   });
 
-  it('returns line 0 full line when no match found', () => {
+  it('returns null when no match found', () => {
     const r = find('hello world', 'nonexistent text that does not appear');
-    expect(r.line).toBe(0);
-    expect(r.startChar).toBe(0);
-    expect(r.endChar).toBe('hello world'.length);
+    expect(r).toBeNull();
   });
 
   it('is case-insensitive', () => {
@@ -167,7 +165,7 @@ describe('findTextRange', () => {
 
   it('handles empty search text', () => {
     const r = find('hello', '');
-    expect(r.line).toBe(0);
+    expect(r).toBeNull();
   });
 
   it('falls back to word-level partial match with column offsets', () => {
@@ -468,6 +466,11 @@ describe('wave isolation', () => {
 // ─── Analysis history / loop detection ──────────────────────────────────────
 
 describe('analysis history and resilience', () => {
+  // Clear static shared history before each test
+  beforeEach(() => {
+    (Analyzer as any).analysisHistory = new Map();
+  });
+
   it('parses skill metadata and extracts domain keywords from frontmatter', () => {
     const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
 
@@ -487,7 +490,7 @@ describe('analysis history and resilience', () => {
 
     expect((analyzer as any).detectLoops('new.md', []).isLoop).toBe(false);
 
-    (analyzer as any).analysisHistory.set('doc.md', {
+    (Analyzer as any).analysisHistory.set('doc.md', {
       uri: 'doc.md',
       recommendations: [{ timestamp: 1, issueCode: 'ambiguity-llm', relevantText: 'Use it carefully', issueHash: 'x', severity: 'warning', suggestion: 'Tighten it' }],
       lastFingerprint: 'fp',
@@ -535,7 +538,7 @@ describe('analysis history and resilience', () => {
   it('flags repeated recommendations as a loop using stored history', () => {
     const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
 
-    (analyzer as any).analysisHistory.set('doc.md', {
+    (Analyzer as any).analysisHistory.set('doc.md', {
       uri: 'doc.md',
       recommendations: [
         {
@@ -571,7 +574,7 @@ describe('analysis history and resilience', () => {
 
     await analyzer.analyze({ text: 'Be concise.', filePath: '/tmp/doc.md' });
 
-    const history = (analyzer as any).analysisHistory.get('/tmp/doc.md');
+    const history = (Analyzer as any).analysisHistory.get('/tmp/doc.md');
 
     expect(history).toBeDefined();
     expect(history.recommendations.length).toBeGreaterThanOrEqual(0);

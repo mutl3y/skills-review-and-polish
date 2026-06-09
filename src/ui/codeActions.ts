@@ -56,6 +56,19 @@ export class SkillsCodeActionProvider implements vscode.CodeActionProvider {
         arguments: [code],
       };
       actions.push(ignoreAction);
+
+      // Accept finding — suppresses this specific issue on this file
+      const acceptAction = new vscode.CodeAction(
+        `Skills Review: Accept finding "${code}"`,
+        vscode.CodeActionKind.QuickFix,
+      );
+      acceptAction.diagnostics = [diag];
+      acceptAction.command = {
+        command: 'skillsReviewAndPolish.acceptFinding',
+        title: `Accept finding "${code}"`,
+        arguments: [document.uri, result ?? diag],
+      };
+      actions.push(acceptAction);
     }
 
     return actions;

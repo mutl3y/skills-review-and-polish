@@ -1,0 +1,92 @@
+plan_id: "20260609-gilfoyle-review-remediation"
+objective: "Fresh Gilfoyle code review of skills-review-and-polish codebase, then team-led remediation of all findings"
+created: "2026-06-09"
+status: "complete"
+complexity: "HIGH"
+
+context:
+  description: |
+    The skills-review-and-polish VS Code extension is an AI prompt/skill linter.
+    A previous Gilfoyle review (GILFOYLE-REVIEW-2026-06-09.md) found 23 issues
+    and claimed all were fixed. This plan runs a FRESH Gilfoyle review to verify
+    the current state, find any remaining or new issues, and then systematically
+    address them.
+  tech_stack:
+    - "TypeScript"
+    - "VS Code Extension API"
+    - "Vitest (testing)"
+    - "MCP SDK"
+  key_files:
+    - "src/extension.ts"
+    - "src/core/analyzer.ts"
+    - "src/core/fixer.ts"
+    - "src/core/scoring.ts"
+    - "src/core/acceptedFindings.ts"
+    - "src/mcp/server.ts"
+    - "src/config.ts"
+    - "src/providers/vscodeLmProvider.ts"
+    - "src/providers/externalProvider.ts"
+    - "src/ui/inlineRewrites.ts"
+    - "src/core/logger.ts"
+    - "src/core/prompts.ts"
+
+waves:
+  - wave: 1
+    name: "Gilfoyle Code Review"
+    parallelizable: true
+    tasks:
+      - task_id: "T1"
+        agent: "Gilfoyle Code Review Mode"
+        title: "Fresh Gilfoyle review of entire codebase"
+        status: "completed"
+        result: "25 issues found (3 CRITICAL, 7 HIGH, 9 MEDIUM, 6 LOW)"
+        output: "gilfoyle-review.md"
+
+  - wave: 2
+    name: "Critical & High Fixes"
+    parallelizable: true
+    tasks:
+      - task_id: "T3"
+        agent: "gem-implementer"
+        title: "Fix CRITICAL issues (3)"
+        status: "completed"
+        result: "3 CRITICAL fixes applied, 126 tests pass"
+      - task_id: "T4"
+        agent: "gem-implementer"
+        title: "Fix HIGH issues (7)"
+        status: "completed"
+        result: "7 HIGH fixes applied (1 already fixed, 1 skipped as pre-existing), 263 tests pass"
+
+  - wave: 3
+    name: "Medium & Low Fixes"
+    parallelizable: true
+    tasks:
+      - task_id: "T5"
+        agent: "gem-implementer"
+        title: "Fix MEDIUM issues (9)"
+        status: "completed"
+        result: "9 MEDIUM fixes applied, 263 tests pass"
+      - task_id: "T6"
+        agent: "gem-implementer"
+        title: "Fix LOW issues (6)"
+        status: "completed"
+        result: "6 LOW fixes applied, 263 tests pass"
+
+  - wave: 4
+    name: "Verification"
+    parallelizable: true
+    tasks:
+      - task_id: "T7"
+        agent: "gem-reviewer"
+        title: "Review all fixes for correctness and regressions"
+        status: "completed"
+        result: "Build clean, 263/263 tests pass, no regressions detected"
+      - task_id: "T8"
+        agent: "gem-code-simplifier"
+        title: "Check for dead code and simplification opportunities"
+        status: "completed"
+        result: "copilotPricing.ts identified as dead code, annotated with note"
+
+validations:
+  plan_validation: "pending"
+  review_validation: "pending"

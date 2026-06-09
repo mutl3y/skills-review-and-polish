@@ -56,6 +56,12 @@
           "default": "",
           "markdownDescription": "Analysis model **id**. Use the _Skills Review: Select Analysis Model_ command — the picker shows the friendly name with its id as description. The id uniquely identifies one model (e.g. `claude-sonnet-4.6`, `gpt-5.4`, `gemini-3-flash-preview`). Empty = auto-select best available model."
         },
+        "skillsReviewAndPolish.pickerSortBy": {
+          "type": "string",
+          "enum": ["price", "multiplier", "name"],
+          "default": "price",
+          "description": "How to sort models in the picker. 'price' = per-million-token cost (cheapest first), 'multiplier' = Copilot premium request multiplier (lowest first), 'name' = alphabetical."
+        },
         "skillsReviewAndPolish.modelDisplayName": {
           "type": "string",
           "default": "",
@@ -247,6 +253,11 @@
         "category": "Skills Review and Polish"
       },
       {
+        "command": "skillsReviewAndPolish.setPickerSortOrder",
+        "title": "Set Model Picker Sort Order",
+        "category": "Skills Review and Polish"
+      },
+      {
         "command": "skillsReviewAndPolish.setApiKey",
         "title": "Set API Key (external provider)",
         "category": "Skills Review and Polish"
@@ -262,6 +273,11 @@
         "category": "Skills Review and Polish"
       },
       {
+        "command": "skillsReviewAndPolish.acceptFinding",
+        "title": "Accept Finding (suppress on this file)",
+        "category": "Skills Review and Polish"
+      },
+      {
         "command": "skillsReviewAndPolish.inspectAPIs",
         "title": "Inspect VS Code LM APIs (Debug)",
         "category": "Skills Review and Polish"
@@ -270,6 +286,18 @@
         "command": "skillsReviewAndPolish.testModelSimplePrompt",
         "title": "Test Model with Simple JSON Prompt (Debug)",
         "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.analyzeFolder",
+        "title": "Skills Review: Analyze Folder",
+        "category": "Skills Review and Polish",
+        "icon": "$(folder-library)"
+      },
+      {
+        "command": "skillsReviewAndPolish.syncMcpConfig",
+        "title": "Skills Review: Sync MCP Config",
+        "category": "Skills Review and Polish",
+        "icon": "$(sync)"
       }
     ],
     "languageModelTools": [
@@ -349,11 +377,18 @@
           "group": "navigation",
           "when": "skillsReviewAndPolish.isCustomization && skillsReviewAndPolish.hasDiagnostics"
         }
+      ],
+      "explorer/context": [
+        {
+          "command": "skillsReviewAndPolish.analyzeFolder",
+          "group": "skillsReviewAndPolish",
+          "when": "explorerResourceIsFolder"
+        }
       ]
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && cp -r src/core/prompts out/core/prompts",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "lint:md": "markdownlint-cli2 '.github/**/*.md' 'docs/**/*.md' 'src/**/*.md' 'README.md'",
@@ -369,6 +404,7 @@
     "@eslint/js": "^9.0.0",
     "@playwright/test": "^1.60.0",
     "@types/node": "^20.0.0",
+    "@types/picomatch": "^4.0.3",
     "@types/vscode": "^1.90.0",
     "@vitest/coverage-v8": "^4.1.8",
     "@vscode/test-cli": "^0.0.12",
@@ -390,6 +426,7 @@
     ]
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "picomatch": "^4.0.4"
   }
 }

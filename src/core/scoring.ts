@@ -1,5 +1,5 @@
 /**
- * Quality scoring — vscode-free.
+ * Quality scoring — extension-agnostic.
  *
  * Implements skill quality assessment and grading.
  *
@@ -7,7 +7,7 @@
  * score changes; use median-of-N (see Engine.score()).
  */
 
-import { AnalysisResult } from './types';
+import { AnalysisResult, COGNITIVE_DOWNGRADE_CODES } from './types';
 
 export type SkillType = 'simple' | 'standard' | 'workflow' | 'meta';
 export type GradeLetter = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-' | 'D+' | 'D' | 'D-' | 'F';
@@ -108,7 +108,7 @@ export function scoreSkill(
   // workflow / meta: cognitive-structure findings downgraded warning→info.
   const cognitiveDowngrade =
     skillType === 'workflow' || skillType === 'meta'
-      ? new Set(['cognitive-nested-conditions', 'cognitive-sequencing', 'cognitive-load'])
+      ? new Set(COGNITIVE_DOWNGRADE_CODES)
       : new Set<string>();
 
   const scored = results

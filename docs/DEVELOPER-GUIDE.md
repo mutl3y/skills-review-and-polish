@@ -21,7 +21,20 @@ src/
 │   ├── scoring.ts           # Penalty calculation, median-of-N
 │   ├── fixer.ts             # Surgical fixer + safety gates
 │   ├── types.ts             # Shared type definitions
-│   └── index.ts             # Engine orchestrator
+│   ├── index.ts             # Engine orchestrator
+│   ├── acceptedFindings.ts  # Per-file accepted findings store
+│   ├── logger.ts            # Structured logging with log levels
+│   ├── prompts.ts           # Prompt loading from .md files
+│   └── prompts/             # Editable .md prompts (8 files)
+│       ├── contradiction.md
+│       ├── ambiguity.md
+│       ├── persona.md
+│       ├── structural-quality.md
+│       ├── coverage.md
+│       ├── hygiene.md
+│       ├── surgical-fix.md
+│       ├── composition-conflicts.md
+│       └── custom-diagnostics.md
 │
 ├── providers/               # LLM provider implementations
 │   ├── vscodeLmProvider.ts  # VS Code LM API (Copilot)
@@ -35,8 +48,10 @@ src/
 │   ├── statusBar.ts         # Analysis state
 │   └── inlineRewrites.ts    # Ghost text (experimental)
 │
-├── mcp/                     # MCP server (headless seam)
-│   └── server.ts
+├── mcp/                     # MCP server (7 tools, headless seam)
+│   ├── server.ts            # Server + tool registry
+│   ├── server.test.ts       # Unit tests (9 tests, mocked)
+│   └── server.integration.test.ts  # E2E tests (7 tests, real MCP protocol)
 │
 └── extension.ts             # Main activation + command wiring
 

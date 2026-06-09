@@ -1,9 +1,11 @@
 {
   "globs": ["docs/**/*.md"],
+  "ignores": ["src/core/prompts/**"],
   "config": {
     "default": true,
     "MD013": false,
     "MD022": true,
+    "MD024": false,
     "MD031": true,
     "MD032": true,
     "MD040": true,

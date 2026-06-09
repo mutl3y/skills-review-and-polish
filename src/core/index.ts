@@ -1,7 +1,7 @@
 /**
  * Core engine entry point.
  *
- * Keep this file vscode-free. All LLM access goes through `provider`.
+ * Keep this file extension-agnostic. All LLM access goes through `provider`.
  */
 
 import {
@@ -18,6 +18,9 @@ export * from './types';
 export * from './analyzer';
 export * from './scoring';
 export * from './fixer';
+export * from './logger';
+export * from './prompts';
+export * from './acceptedFindings';
 
 export interface AnalyzeInput {
   /** Full document text. */
@@ -26,6 +29,8 @@ export interface AnalyzeInput {
   filePath?: string;
   /** Optional custom diagnostics to add as an extra wave. */
   customDiagnostics?: CustomDiagnosticConfig[];
+  /** Optional path to the accepted findings store JSON file. */
+  acceptedFindingsPath?: string;
 }
 
 export class Engine {
@@ -44,7 +49,11 @@ export class Engine {
    */
   async analyze(input: AnalyzeInput): Promise<AnalysisResult[]> {
     return this.analyzer.analyze(
-      { text: input.text, filePath: input.filePath },
+      {
+        text: input.text,
+        filePath: input.filePath,
+        acceptedFindingsPath: input.acceptedFindingsPath,
+      },
       input.customDiagnostics,
     );
   }

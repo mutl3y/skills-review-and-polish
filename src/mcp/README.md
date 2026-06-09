@@ -2,22 +2,38 @@
 
 This directory contains the headless MCP seam for wrapping the `skills-review-and-polish` engine as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server.
 
-## What the MCP seam exposes
+## Tools
 
-The server currently exposes two tools:
+The server exposes seven tools:
 
-- `analyze`: returns diagnostic findings for a full document string and optional file path.
-- `fix`: applies the surgical fixer to one flagged issue using the same engine/provider path as the extension.
+| Tool | Description |
+| --- | --- |
+| `analyze` | Run all 6 analysis waves on a document. Returns JSON diagnostics with codes, severities, line ranges, and suggestions. |
+| `fix` | Surgically fix ONE issue. Returns proposed fix text, accept/reject status, and risk flags. Only works on 5 codes: `ambiguity-llm`, `contradiction`, `hygiene-redundant-instruction`, `hygiene-unordered-process`, `hygiene-over-specification`. |
+| `score` | Compute quality score (0–100), letter grade (A+ through F), penalty breakdown, and pillar scores. |
+| `verify_fix` | Re-analyze a document and check if a specific issue is still present. Returns `{ fixed, matchingIssue, newIssues, score }`. |
+| `accept_finding` | Suppress a specific finding on a file so it won't appear in future analyses. |
+| `list_accepted_findings` | Return all accepted (suppressed) findings, optionally filtered by file. |
+| `health` | Return current provider, model, config source, and connectivity status. |
 
-The server uses the same core engine that powers the VS Code extension, which keeps the analysis behavior consistent across hosts.
+### Recommended agent workflow
+
+```text
+1. health()                                        → verify setup
+2. analyze(text)                                   → find issues
+3. fix(text, "ambiguity-llm", "...")                → fix one issue
+4. verify_fix(text, "ambiguity-llm", "...")         → confirm fix worked
+5. score(text)                                     → measure improvement
+6. repeat 3–5 for each fixable issue
+```
 
 ## Why this works cleanly
 
-The `src/core/` module is **vscode-free by design** — `src/core/types.ts` has no VS Code imports, and `Engine` only depends on the `LlmProvider` interface. Wrapping it in an MCP server requires:
+The `src/core/` module is **extension-agnostic by design** — `src/core/types.ts` has no VS Code imports, and `Engine` only depends on the `LlmProvider` interface. Wrapping it in an MCP server requires:
 
 1. An MCP-compatible transport (e.g. `@modelcontextprotocol/sdk` stdio transport)
 2. An `LlmProvider` implementation that calls an external API (already done in `src/providers/externalProvider.ts`)
-3. Two MCP tools mirroring the VS Code `languageModelTools`: `analyze` and `fix`
+3. MCP tools mirroring the VS Code `languageModelTools`
 
 The headless MCP seam now prefers GitHub Models via `GITHUB_TOKEN`, matching the CLI analyzer path. OpenRouter remains available as a fallback when that token is not set.
 
@@ -47,7 +63,39 @@ The headless MCP seam now prefers GitHub Models via `GITHUB_TOKEN`, matching the
 
 The MCP seam prefers GitHub Models via `GITHUB_TOKEN` because that matches the CLI analyzer path in the companion repo. If `GITHUB_TOKEN` is not set, it falls back to `OPENROUTER_API_KEY`.
 
-Recommended env for the headless seam:
+### `.skills-review.json` configuration
+
+The MCP server reads a `.skills-review.json` file from the workspace root on startup. This file is written by the VS Code extension's **Sync MCP Config** command (`skillsReviewAndPolish.syncMcpConfig`).
+
+```json
+{
+  "provider": "githubModels",
+  "model": "gpt-4o-mini",
+  "deepModel": "gpt-4o",
+  "fixModel": "gpt-4o-mini",
+  "analysisMode": "standard",
+  "logLevel": "info"
+}
+```
+
+**Config priority at startup:**
+
+1. `.skills-review.json` in workspace root (if exists)
+2. `GITHUB_TOKEN` + `ANALYSIS_MODEL` env vars (legacy)
+3. `OPENROUTER_API_KEY` + `ANALYSIS_MODEL` env vars (legacy fallback)
+4. Error: no configuration found
+
+### Provider mapping
+
+| VS Code Provider | MCP Config | API Used | Auth |
+| --- | --- | --- | --- |
+| `vscode-lm` (any model) | `githubModels` | `models.inference.ai.azure.com` | `GITHUB_TOKEN` |
+| `openrouter` | `openrouter` | `openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `githubModels` | `githubModels` | `models.inference.ai.azure.com` | `GITHUB_TOKEN` |
+
+### Env-only setup (no VS Code extension)
+
+For headless/CI usage without the extension, set env vars directly:
 
 ```json
 {
@@ -58,7 +106,7 @@ Recommended env for the headless seam:
 }
 ```
 
-Fallback env (if you want to use OpenRouter instead):
+Or for OpenRouter:
 
 ```json
 {
@@ -91,22 +139,7 @@ Fallback env (if you want to use OpenRouter instead):
 1. Run `npm install` in the repo root.
 2. Build the server with `npm run compile`.
 3. Start it with `npm run mcp`, or point your MCP client directly at `node ./out/mcp/server.js`.
-4. Add the env vars shown above to your client configuration.
-
-   ```json
-   {
-     "mcpServers": {
-       "skills-review": {
-         "command": "node",
-         "args": ["./out/mcp/server.js"],
-         "env": {
-           "GITHUB_TOKEN": "<your-github-token>",
-           "ANALYSIS_MODEL": "gpt-4o-mini"
-         }
-       }
-     }
-   }
-   ```
+4. **Either** create `.skills-review.json` in the workspace root (via the VS Code **Sync MCP Config** command), **or** set env vars as shown above.
 
 The MCP seam is now wired as a real stdio server entry point. The VS Code language model tools remain the primary in-editor surface, while the MCP path gives headless CI / review-pipeline use-cases a direct engine interface.
 
