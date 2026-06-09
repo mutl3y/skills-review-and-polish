@@ -526,6 +526,73 @@ describe('analysis history and resilience', () => {
 
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  it('rejects linked prompt files with path traversal (..)', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
+    const mainFile = path.join(dir, 'main.prompt.md');
+
+    const linked = (analyzer as any).readLinkedPromptFiles(
+      `[Evil](../etc/passwd.prompt.md)`,
+      mainFile,
+    );
+
+    expect(linked).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('rejects linked prompt files with absolute paths', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
+    const mainFile = path.join(dir, 'main.prompt.md');
+
+    const linked = (analyzer as any).readLinkedPromptFiles(
+      `[Evil](/etc/passwd.prompt.md)`,
+      mainFile,
+    );
+
+    expect(linked).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('rejects linked prompt files that are symlinks', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
+    const realFile = path.join(dir, 'real.prompt.md');
+    fs.writeFileSync(realFile, 'secret', 'utf8');
+    const symlinkFile = path.join(dir, 'trick.prompt.md');
+    fs.symlinkSync(realFile, symlinkFile);
+    const mainFile = path.join(dir, 'main.prompt.md');
+
+    const linked = (analyzer as any).readLinkedPromptFiles(
+      `[Trick](./trick.prompt.md)`,
+      mainFile,
+    );
+
+    expect(linked).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('rejects linked prompt files that resolve outside the skill directory', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
+    const subDir = path.join(dir, 'sub');
+    fs.mkdirSync(subDir);
+    const mainFile = path.join(subDir, 'main.prompt.md');
+
+    // Write a file in the parent dir — path resolves outside subDir
+    const outsideFile = path.join(dir, 'outside.prompt.md');
+    fs.writeFileSync(outsideFile, 'escaped content', 'utf8');
+
+    const linked = (analyzer as any).readLinkedPromptFiles(
+      `[Outside](../outside.prompt.md)`,
+      mainFile,
+    );
+
+    expect(linked).toHaveLength(0);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it('recovers truncated JSON arrays via salvageTruncatedJSON', () => {
     const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
 
@@ -594,5 +661,322 @@ describe('analysis history and resilience', () => {
 
     await analyzer.analyze({ text: 'You are an assistant.' });
     expect(mockFn.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+// ─── Persona wave ─────────────────────────────────────────────────────────────
+
+describe('persona wave', () => {
+  it('extracts persona-inconsistency results from persona_issues', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [{
+          description: 'Tone shift',
+          trait1: 'formal',
+          trait2: 'casual',
+          relevant_text: 'Write casually to users',
+          severity: 'info',
+          suggestion: 'Standardise the tone.',
+        }],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'You must always write formally.\nWrite casually to users.' });
+    const persona = results.filter(r => r.code === 'persona-inconsistency');
+    expect(persona.length).toBeGreaterThan(0);
+    expect(persona[0].analyzer).toBe('persona-consistency');
+    expect(persona[0].severity).toBe('info');
+    expect(persona[0].range.start.line).toBe(1);
+  });
+
+  it('handles multiple persona issues', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [
+          {
+            description: 'Voice conflict',
+            trait1: 'first-person',
+            trait2: 'third-person',
+            relevant_text: 'The system handles it',
+            severity: 'warning',
+            suggestion: 'Use consistent voice.',
+          },
+          {
+            description: 'Register clash',
+            trait1: 'technical',
+            trait2: 'informal',
+            relevant_text: 'just chill and vibe',
+            severity: 'info',
+            suggestion: 'Pick a register.',
+          },
+        ],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+      }),
+    }));
+
+    const results = await analyzer.analyze({
+      text: 'The system handles it\njust chill and vibe',
+    });
+    const persona = results.filter(r => r.code === 'persona-inconsistency');
+    expect(persona.length).toBe(2);
+    expect(persona[0].severity).toBe('warning');
+    expect(persona[1].severity).toBe('info');
+  });
+
+  it('skips persona issues whose relevant_text cannot be located', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [{
+          description: 'Ghost trait',
+          trait1: 'a',
+          trait2: 'b',
+          relevant_text: 'text that does not appear anywhere',
+          severity: 'warning',
+          suggestion: 'Fix it.',
+        }],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'No matching content here.' });
+    expect(results.filter(r => r.code === 'persona-inconsistency')).toHaveLength(0);
+  });
+});
+
+// ─── Structural (cognitive load) wave ─────────────────────────────────────────
+
+describe('structural wave', () => {
+  it('produces high-complexity diagnostic for very-high overall_complexity', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: {
+          overall_complexity: 'very-high',
+          issues: [],
+        },
+        coverage_analysis: {},
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'A very long and complex prompt...' });
+    const highComplexity = results.filter(r => r.code === 'high-complexity');
+    expect(highComplexity.length).toBe(1);
+    expect(highComplexity[0].severity).toBe('warning');
+    expect(highComplexity[0].analyzer).toBe('cognitive-load');
+    expect(highComplexity[0].range.start.line).toBe(0);
+  });
+
+  it('produces cognitive-* diagnostics for individual cognitive issues', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: {
+          overall_complexity: 'high',
+          issues: [{
+            type: 'nested-conditions',
+            description: 'Deeply nested if-then logic',
+            relevant_text: 'If A then if B then if C',
+            severity: 'warning',
+            suggestion: 'Flatten conditions.',
+          }],
+        },
+        coverage_analysis: {},
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'If A then if B then if C do something.' });
+    const cogResults = results.filter(r => String(r.code).startsWith('cognitive-'));
+    expect(cogResults.length).toBe(1);
+    expect(cogResults[0].code).toBe('cognitive-nested-conditions');
+    expect(cogResults[0].severity).toBe('warning');
+    expect(cogResults[0].analyzer).toBe('cognitive-load');
+    expect(cogResults[0].range.start.line).toBe(0);
+  });
+
+  it('skips cognitive issues whose relevant_text cannot be found', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: {
+          overall_complexity: 'medium',
+          issues: [{
+            type: 'sequencing',
+            description: 'Unclear ordering',
+            relevant_text: 'nonexistent target text',
+            severity: 'info',
+            suggestion: 'Add step numbers.',
+          }],
+        },
+        coverage_analysis: {},
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'Simple prompt.' });
+    expect(results.filter(r => String(r.code).startsWith('cognitive-'))).toHaveLength(0);
+    // overall_complexity is 'medium', so no high-complexity diagnostic either
+    expect(results.filter(r => r.code === 'high-complexity')).toHaveLength(0);
+  });
+
+  it('does not produce high-complexity when overall_complexity is not very-high', async () => {
+    for (const level of ['low', 'medium', 'high'] as const) {
+      const analyzer = makeAnalyzer(async () => ({
+        text: JSON.stringify({
+          contradictions: [],
+          ambiguity_issues: [],
+          persona_issues: [],
+          cognitive_load: { overall_complexity: level, issues: [] },
+          coverage_analysis: {},
+        }),
+      }));
+
+      const results = await analyzer.analyze({ text: 'Simple prompt.' });
+      expect(results.filter(r => r.code === 'high-complexity')).toHaveLength(0);
+    }
+  });
+});
+
+// ─── Coverage wave ────────────────────────────────────────────────────────────
+
+describe('coverage wave', () => {
+  it('produces limited-coverage diagnostic for limited overall_coverage', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {
+          overall_coverage: 'limited',
+          coverage_gaps: [],
+        },
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'Short prompt.' });
+    const limited = results.filter(r => r.code === 'limited-coverage');
+    expect(limited.length).toBe(1);
+    expect(limited[0].severity).toBe('warning');
+    expect(limited[0].analyzer).toBe('semantic-coverage');
+  });
+
+  it('produces limited-coverage diagnostic for minimal overall_coverage', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {
+          overall_coverage: 'minimal',
+          coverage_gaps: [],
+        },
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'Short prompt.' });
+    expect(results.filter(r => r.code === 'limited-coverage').length).toBe(1);
+  });
+
+  it('produces coverage-gap diagnostics for medium and high impact gaps', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {
+          overall_coverage: 'adequate',
+          coverage_gaps: [
+            {
+              gap: 'No error handling specified',
+              relevant_text: 'Return the result as JSON.',
+              impact: 'high',
+              suggestion: 'Add error handling guidance.',
+            },
+            {
+              gap: 'No output format defined',
+              relevant_text: 'Return the result as JSON.',
+              impact: 'medium',
+              suggestion: 'Define the output schema.',
+            },
+            {
+              gap: 'Minor style nit',
+              relevant_text: 'Be clear.',
+              impact: 'low',
+              suggestion: 'N/A',
+            },
+          ],
+        },
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'Return the result as JSON.' });
+    const gaps = results.filter(r => r.code === 'coverage-gap');
+    // low-impact gaps are filtered out by the processor
+    expect(gaps.length).toBe(2);
+    expect(gaps[0].severity).toBe('warning'); // high impact
+    expect(gaps[1].severity).toBe('info');     // medium impact
+    expect(gaps[0].analyzer).toBe('semantic-coverage');
+  });
+
+  it('does not produce limited-coverage when overall_coverage is comprehensive or adequate', async () => {
+    for (const level of ['comprehensive', 'adequate'] as const) {
+      const analyzer = makeAnalyzer(async () => ({
+        text: JSON.stringify({
+          contradictions: [],
+          ambiguity_issues: [],
+          persona_issues: [],
+          cognitive_load: { issues: [], overall_complexity: 'low' },
+          coverage_analysis: {
+            overall_coverage: level,
+            coverage_gaps: [],
+          },
+        }),
+      }));
+
+      const results = await analyzer.analyze({ text: 'Adequate prompt.' });
+      expect(results.filter(r => r.code === 'limited-coverage')).toHaveLength(0);
+    }
+  });
+
+  it('skips coverage gaps whose relevant_text cannot be located', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {
+          overall_coverage: 'limited',
+          coverage_gaps: [{
+            gap: 'Missing edge case',
+            relevant_text: 'text that does not exist in the doc',
+            impact: 'high',
+            suggestion: 'Add it.',
+          }],
+        },
+      }),
+    }));
+
+    const results = await analyzer.analyze({ text: 'Simple prompt.' });
+    // limited-coverage fires, but coverage-gap does not (anchor not found)
+    expect(results.filter(r => r.code === 'limited-coverage').length).toBe(1);
+    expect(results.filter(r => r.code === 'coverage-gap')).toHaveLength(0);
   });
 });

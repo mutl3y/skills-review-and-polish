@@ -12,7 +12,7 @@
  */
 
 import * as path from 'path';
-import * as fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import { AnalysisResult, LlmProvider, LlmRequest } from './types';
 import { loadPrompt } from './prompts';
 
@@ -138,60 +138,95 @@ export function skillDomainHint(content: string): string | null {
  */
 export function factualGroundingTrigger(text: string): boolean {
   const s = String(text || '');
+  // Numbers (version strings, thresholds, etc.)
   if (/\b\d+(?:[.\-–]\d+)?\b/.test(s)) return true;
+  // Backtick-quoted code references
   if (/`[^`]+`/.test(s)) return true;
-  if (/\b[A-Za-z]+(?:[._/-][A-Za-z0-9]+)+\b/.test(s)) return true;
+  // Dotted/segmented paths (e.g. src/core/fixer.ts, node_modules)
+  if (/\b[A-Za-z]+(?:[._\-/][A-Za-z0-9]+)+\b/.test(s)) return true;
+  // CamelCase identifiers (e.g. GitHubCopilot, YAMLFrontMatter)
   if (/\b[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+\b/.test(s)) return true;
-  if (/\b[A-Z]{2,}[A-Z0-9_/-]*\b/.test(s)) return true;
-  const proper = s.match(/\b[A-Z][a-z0-9]+\b/g) ?? [];
-  return proper.filter(
-    (w) => !['I', 'If', 'When', 'Then', 'The', 'This', 'That', 'Use', 'Return', 'Do', 'DoNot'].includes(w),
-  ).length >= 2;
+  // ALL_CAPS or uppercase technical acronyms (e.g. API, HTTP, YAML)
+  if (/\b[A-Z]{2,}[A-Z0-9_\-/]*\b/.test(s)) return true;
+  // HTTP/HTTPS URLs
+  if (/https?:\/\//i.test(s)) return true;
+  // Sequential proper nouns in close proximity (e.g. "GitHub Copilot",
+  // "OpenRouter API", "Copilot Pricing") — require 2+ consecutive
+  // capitalized words where the second is NOT a common English word-start.
+  // This avoids triggering on natural prose like "When Alice told Bob".
+  const COMMON_STARTERS = new Set([
+    'I', 'If', 'When', 'Then', 'The', 'This', 'That', 'Use', 'Return',
+    'Do', 'And', 'But', 'Or', 'For', 'Not', 'All', 'Can', 'Will', 'May',
+    'Has', 'Had', 'Was', 'Were', 'Are', 'Have', 'You', 'Your', 'Our',
+    'Its', 'Let', 'Get', 'Set', 'Add', 'Put', 'See', 'Try', 'How', 'Why',
+  ]);
+  const tokens = s.split(/\s+/);
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const w1 = tokens[i].replace(/[^A-Za-z]/g, '');
+    const w2 = tokens[i + 1].replace(/[^A-Za-z0-9]/g, '');
+    if (
+      w1.length >= 2 && w1[0] === w1[0].toUpperCase() &&
+      w2.length >= 2 && w2[0] === w2[0].toUpperCase() &&
+      !COMMON_STARTERS.has(w1) && !COMMON_STARTERS.has(w2)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Loads content from a sibling `references/` directory when
  * `fixReferenceGrounding` is enabled and the fragment is factual.
  */
-export function loadReferenceGrounding(
+export async function loadReferenceGrounding(
   filePath: string,
   targetText: string,
   enabled: boolean,
   maxChars = 1800,
-): string | null {
+): Promise<string | null> {
   if (!enabled) return null;
+  // Skip reference grounding for untitled documents (no real file path)
+  if (!filePath || filePath.trim() === '') return null;
   if (!factualGroundingTrigger(targetText)) return null;
   const refDir = path.join(path.dirname(filePath), 'references');
-  if (!fs.existsSync(refDir)) return null;
-  let stat: fs.Stats;
   try {
-    stat = fs.statSync(refDir);
+    await fsPromises.access(refDir);
+  } catch {
+    return null;
+  }
+  let stat: import('fs').Stats;
+  try {
+    stat = await fsPromises.stat(refDir);
   } catch {
     return null;
   }
   if (!stat.isDirectory()) return null;
 
-  const files = fs
-    .readdirSync(refDir)
+  const allNames = await fsPromises.readdir(refDir);
+  const files = allNames
     .filter((name) => /\.(md|mdx|txt|json|yaml|yml)$/i.test(name))
-    .sort()
-    // Reject symlinks — they could point outside the references directory
-    .filter((name) => {
-      try {
-        return !fs.lstatSync(path.join(refDir, name)).isSymbolicLink();
-      } catch {
-        return false;
-      }
-    });
+    .sort();
+
+  // Reject symlinks — they could point outside the references directory
+  const safeFiles: string[] = [];
+  for (const name of files) {
+    try {
+      const lstat = await fsPromises.lstat(path.join(refDir, name));
+      if (!lstat.isSymbolicLink()) safeFiles.push(name);
+    } catch {
+      // skip
+    }
+  }
 
   const parts: string[] = [];
   let remaining = maxChars;
-  for (const name of files) {
+  for (const name of safeFiles) {
     if (remaining <= 80) break;
     const full = path.join(refDir, name);
-    let fileStat: fs.Stats;
+    let fileStat: import('fs').Stats;
     try {
-      fileStat = fs.statSync(full);
+      fileStat = await fsPromises.stat(full);
     } catch {
       continue;
     }
@@ -201,7 +236,7 @@ export function loadReferenceGrounding(
     if (!resolved.startsWith(path.resolve(refDir))) continue;
     let text: string;
     try {
-      text = fs.readFileSync(full, 'utf8').trim();
+      text = (await fsPromises.readFile(full, 'utf8')).trim();
     } catch {
       continue;
     }
@@ -682,7 +717,7 @@ export class SurgicalFixer {
     const additive = (options.additive ?? false) && code === 'ambiguity-llm';
     const context = surroundingContext(text, targetText);
     const domain = skillDomainHint(text);
-    const grounding = loadReferenceGrounding(filePath, targetText, options.referenceGrounding ?? true);
+    const grounding = await loadReferenceGrounding(filePath, targetText, options.referenceGrounding ?? true);
 
     // Call fixer LLM
     const req: LlmRequest = {
@@ -750,7 +785,7 @@ export class SurgicalFixer {
 
   private resolveAnchorText(text: string, diagnostic: AnalysisResult, code: string): { targetText: string | null; rejectReason: string | null } {
     const rawAnchor = diagnostic.relevantText ?? this.extractAnchorFromMessage(diagnostic.message, code);
-    if (!rawAnchor) return { targetText: null, rejectReason: 'no anchor text' };
+    if (!rawAnchor || !rawAnchor.trim()) return { targetText: null, rejectReason: 'empty or whitespace-only anchor' };
 
     let targetText = text.includes(rawAnchor) ? rawAnchor : expandToParagraph(text, rawAnchor);
     if (!targetText) {

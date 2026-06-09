@@ -10,9 +10,8 @@ import {
 
 const SECTION = 'skillsReviewAndPolish';
 
-/** Module-level config cache — invalidated at end of each event-loop tick. */
+/** Module-level config cache — invalidated by onDidChangeConfiguration. */
 let cachedConfig: ExtensionConfig | null = null;
-let configCacheTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
  * Invalidate the cached config so the next readConfig() call re-reads from
@@ -20,10 +19,23 @@ let configCacheTimer: ReturnType<typeof setTimeout> | undefined;
  */
 export function clearConfigCache(): void {
   cachedConfig = null;
-  if (configCacheTimer) {
-    clearTimeout(configCacheTimer);
-    configCacheTimer = undefined;
-  }
+}
+
+/**
+ * Register a `vscode.workspace.onDidChangeConfiguration` listener for the
+ * `skillsReviewAndPolish` section.  When settings change the cache is
+ * immediately invalidated so the next `readConfig()` call picks up fresh
+ * values.
+ *
+ * Call once from `activate()` — the returned disposable should be added to
+ * `context.subscriptions`.
+ */
+export function setupConfigWatcher(): { dispose(): void } {
+  return vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration(SECTION)) {
+      cachedConfig = null;
+    }
+  });
 }
 
 export interface ExtensionConfig extends EngineConfig {
@@ -74,15 +86,6 @@ export function readConfig(): ExtensionConfig {
     telemetryEnable: c.get('telemetry.enable', true),
     logLevel: c.get('logLevel', 'info') as 'info' | 'debug',
   };
-  // Invalidate at end of current event-loop tick — prevents redundant
-  // re-parsing within the same synchronous operation while ensuring
-  // fresh config on the next user action.
-  if (!configCacheTimer) {
-    configCacheTimer = setTimeout(() => {
-      cachedConfig = null;
-      configCacheTimer = undefined;
-    }, 0);
-  }
   return cachedConfig;
 }
 

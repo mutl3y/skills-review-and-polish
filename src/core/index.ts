@@ -6,6 +6,7 @@
 
 import {
   AnalysisResult,
+  CancellationToken,
   EngineConfig,
   DEFAULT_ENGINE_CONFIG,
   LlmProvider,
@@ -31,6 +32,8 @@ export interface AnalyzeInput {
   customDiagnostics?: CustomDiagnosticConfig[];
   /** Optional path to the accepted findings store JSON file. */
   acceptedFindingsPath?: string;
+  /** Optional cancellation token — allows the caller to abort in-flight analysis. */
+  token?: CancellationToken;
 }
 
 export class Engine {
@@ -53,6 +56,7 @@ export class Engine {
         text: input.text,
         filePath: input.filePath,
         acceptedFindingsPath: input.acceptedFindingsPath,
+        token: input.token,
       },
       input.customDiagnostics,
     );
@@ -82,9 +86,12 @@ export class Engine {
     options: SurgicalFixOptions = {},
   ): Promise<{ fixedText: string; applied: number; skipped: number }> {
     const fixer = new SurgicalFixer(this.provider);
+    // Skip reference grounding for untitled documents (no real file path)
+    const filePath = input.filePath ?? '';
+    const isUntitled = !filePath || filePath.trim() === '';
     return fixer.fixDocument(
       input.text,
-      input.filePath ?? '',
+      filePath,
       diagnostics,
       {
         additive: this.config.fixStrategy === 'additive',
@@ -92,6 +99,8 @@ export class Engine {
         selfCritique: this.config.fixSelfCritique,
         referenceGrounding: this.config.fixReferenceGrounding,
         ...options,
+        // Untitled documents have no real path — always skip reference grounding
+        ...(isUntitled ? { referenceGrounding: false } : {}),
       },
     );
   }

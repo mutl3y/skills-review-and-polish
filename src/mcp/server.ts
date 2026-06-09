@@ -20,11 +20,22 @@ export interface McpEngineConfig {
 /** Maximum text length accepted by tools. Prevents runaway LLM costs. */
 const MAX_TEXT_LENGTH = 100_000; // ~25k tokens
 
+/** Maximum length for relevantText in accept_finding. */
+const MAX_RELEVANT_TEXT_LENGTH = 200;
+
+/** Minimum meaningful length for relevantText in accept_finding. */
+const MIN_RELEVANT_TEXT_LENGTH = 3;
+
+/** Overly generic single-word patterns that should not be used as acceptance anchors. */
+const GENERIC_PATTERNS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'be', 'to', 'of', 'in', 'for', 'on', 'with', 'as', 'at', 'by',
+]);
+
 /**
  * Sanitize an error message to remove secrets (Bearer tokens, API keys, etc.)
  * before returning it in MCP responses.
  */
-function sanitizeErrorMessage(error: unknown): string {
+export function sanitizeErrorMessage(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
   // Strip Bearer tokens
   let sanitized = msg.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
@@ -55,6 +66,28 @@ function requireText(args: Record<string, unknown>): string {
     throw new Error(`Text too long: ${text.length} chars (max ${MAX_TEXT_LENGTH}). Split the document or analyze a subsection.`);
   }
   return text;
+}
+
+/**
+ * Validate and sanitize relevantText for the accept_finding tool.
+ * Returns the trimmed/sanitized text, or throws with a descriptive error.
+ */
+function validateRelevantText(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.length < MIN_RELEVANT_TEXT_LENGTH) {
+    throw new Error(`relevantText too short (${trimmed.length} chars, minimum ${MIN_RELEVANT_TEXT_LENGTH}). Must be a meaningful text fragment.`);
+  }
+  if (trimmed.length > MAX_RELEVANT_TEXT_LENGTH) {
+    throw new Error(`relevantText too long (${trimmed.length} chars, maximum ${MAX_RELEVANT_TEXT_LENGTH}). Use a shorter representative fragment.`);
+  }
+  // Reject overly generic single-word patterns
+  if (GENERIC_PATTERNS.has(trimmed.toLowerCase())) {
+    throw new Error(`relevantText "${trimmed}" is overly generic and would suppress unrelated findings. Use a longer, more specific text fragment.`);
+  }
+  // Escape control characters: replace chars below 0x20 (except \t \n \r) with empty
+  // eslint-disable-next-line no-control-regex
+  const sanitized = trimmed.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+  return sanitized;
 }
 
 interface ToolHandlerContext {
@@ -105,7 +138,23 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
 async function handleAcceptFinding(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
   const filePath = requireString(args, 'filePath');
   const diagnosticCode = requireString(args, 'diagnosticCode');
-  const relevantText = requireString(args, 'relevantText');
+  const rawRelevantText = requireString(args, 'relevantText');
+
+  let relevantText: string;
+  try {
+    relevantText = validateRelevantText(rawRelevantText);
+  } catch (e) {
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          status: 'error',
+          error: e instanceof Error ? e.message : String(e),
+        }, null, 2),
+      }],
+    };
+  }
+
   const reason = optionalString(args, 'reason');
 
   acceptFinding(resolveAcceptedFindingsPath(), filePath, {
@@ -307,6 +356,24 @@ export function createMcpToolRegistry({
   // Resolve engine + config once; handlers use the stored values.
   let resolvedEngine: Engine | undefined;
   let resolvedConfig: McpEngineConfig | undefined;
+  let configWatcher: ReturnType<typeof fs.watch> | undefined;
+
+  /** Watch the config file and invalidate the cached engine on change. */
+  function startConfigWatcher(configPath: string): void {
+    if (configWatcher) return; // already watching
+    try {
+      configWatcher = fs.watch(configPath, { persistent: false }, (eventType) => {
+        if (eventType === 'change') {
+          resolvedEngine = undefined;
+          resolvedConfig = undefined;
+          configWatcher?.close();
+          configWatcher = undefined;
+        }
+      });
+    } catch {
+      // fs.watch may not be available in all environments — fail silently.
+    }
+  }
 
   async function getEngine(): Promise<Engine> {
     if (!resolvedEngine) {
@@ -319,6 +386,11 @@ export function createMcpToolRegistry({
       } else {
         resolvedEngine = result as unknown as Engine;
         resolvedConfig = { provider: 'unknown', model: 'unknown', configSource: 'unknown' } as McpEngineConfig;
+      }
+      // Start watching the config file for changes (if resolved from file).
+      if (resolvedConfig?.configSource?.startsWith('file:')) {
+        const configFilePath = resolvedConfig.configSource.slice(5);
+        if (configFilePath) startConfigWatcher(configFilePath);
       }
     }
     return resolvedEngine;

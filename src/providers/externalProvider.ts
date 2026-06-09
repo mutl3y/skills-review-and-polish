@@ -8,6 +8,20 @@
 
 import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
 
+/**
+ * HTTP error with status code — allows retry logic to distinguish
+ * permanent client errors (4xx) from transient server errors (5xx).
+ */
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
 /** Shared option bag for both external providers. */
 export interface ExternalProviderOptions {
   apiKey: string;
@@ -62,6 +76,10 @@ async function fetchWithRetry(
       const text = extractText(resp);
       return { text };
     } catch (e) {
+      if (e instanceof HttpError && isNonRetryableStatus(e.status)) {
+        lastError = `HTTP ${e.status}: ${e.message}`;
+        break;
+      }
       lastError = String(e).replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
     }
   }
@@ -166,8 +184,9 @@ async function fetchJson(
     body,
   });
   if (!response.ok && response.status !== 429) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+    // Don't include response body — it may contain session tokens, debug info,
+    // or other sensitive data that would leak into user-visible error messages.
+    throw new HttpError(`HTTP ${response.status}`, response.status);
   }
   return (await response.json()) as Record<string, unknown>;
 }
@@ -179,6 +198,11 @@ function getApiError(resp: Record<string, unknown>): ApiError | undefined {
 function isRetryable(code: number | string | undefined): boolean {
   const n = Number(code);
   return n === 429 || n === 500 || n === 502 || n === 503 || n === 504;
+}
+
+/** Status codes that should never be retried — client errors are permanent. */
+function isNonRetryableStatus(status: number): boolean {
+  return status === 400 || status === 401 || status === 403 || status === 404 || status === 422;
 }
 
 function sleep(ms: number): Promise<void> {

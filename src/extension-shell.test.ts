@@ -5,16 +5,25 @@ import { activate } from './extension';
 const DEFAULT_CONFIG = {
   enable: true,
   provider: 'vscode-lm',
+  model: '',
+  deepModel: '',
+  fixModel: '',
   include: ['**/SKILL.md'],
   exclude: ['**/node_modules/**'],
   enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
   analysisMode: 'multiWave',
+  scoreSamples: 3,
   fixStrategy: 'subtractive',
   fixSemanticCheck: false,
   fixSelfCritique: false,
   fixReferenceGrounding: true,
   severityOverrides: {},
+  fixMode: 'diff',
+  fixLoopMaxIterations: 3,
+  pickerSortBy: 'price',
   inlineRewrites: false,
+  showScoreCodeLens: true,
+  telemetryEnable: true,
   runOn: 'manual',
   logLevel: 'info',
 } as const;
@@ -79,6 +88,7 @@ vi.mock('vscode', () => ({
     onDidSaveTextDocument: mocks.onDidSaveTextDocument,
     onDidChangeTextDocument: mocks.onDidChangeTextDocument,
     onDidCloseTextDocument: vi.fn(),
+    onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
     getConfiguration: vi.fn(() => ({ get: vi.fn(), update: vi.fn() })),
     applyEdit: vi.fn(),
   },
@@ -107,6 +117,7 @@ vi.mock('vscode', () => ({
 vi.mock('./config', () => ({
   readConfig: mocks.readConfig,
   isCustomizationPath: mocks.isCustomizationPath,
+  setupConfigWatcher: vi.fn(() => ({ dispose: vi.fn() })),
 }));
 
 vi.mock('./ui/diagnostics', () => ({ createDiagnosticCollection: mocks.createDiagnosticCollection, publishDiagnostics: vi.fn() }));

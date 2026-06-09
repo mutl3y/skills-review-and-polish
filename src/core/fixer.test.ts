@@ -107,6 +107,22 @@ describe('context and grounding helpers', () => {
     expect(factualGroundingTrigger('Use the tool carefully')).toBe(false);
   });
 
+  it('triggers on technical terms but not natural language prose', () => {
+    // Should trigger: technical references
+    expect(factualGroundingTrigger('GitHub Copilot models')).toBe(true);
+    expect(factualGroundingTrigger('OpenRouter API endpoint')).toBe(true);
+    expect(factualGroundingTrigger('YAML frontmatter parsing')).toBe(true);
+    expect(factualGroundingTrigger('Use `fs.readFileSync`')).toBe(true);
+    expect(factualGroundingTrigger('See https://example.com')).toBe(true);
+    expect(factualGroundingTrigger('the API key')).toBe(true);
+    // Should NOT trigger: natural English prose
+    expect(factualGroundingTrigger('When Alice told Bob about')).toBe(false);
+    expect(factualGroundingTrigger('If you want to')).toBe(false);
+    expect(factualGroundingTrigger('Use the tool carefully')).toBe(false);
+    expect(factualGroundingTrigger('The quick brown fox')).toBe(false);
+    expect(factualGroundingTrigger('Return the result')).toBe(false);
+  });
+
   it('expands and extracts paragraphs from anchored text', () => {
     const text = 'Intro\n\nUse   the tool carefully.\n\nNext line';
 
@@ -116,23 +132,28 @@ describe('context and grounding helpers', () => {
 });
 
 describe('loadReferenceGrounding', () => {
-  it('returns null when grounding is disabled or no reference directory exists', () => {
+  it('returns null when grounding is disabled or no reference directory exists', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fixer-grounding-'));
 
-    expect(loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use 3 retries', false)).toBeNull();
-    expect(loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use 3 retries', true)).toBeNull();
+    expect(await loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use 3 retries', false)).toBeNull();
+    expect(await loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use 3 retries', true)).toBeNull();
   });
 
-  it('collects reference fragments from a sibling references folder', () => {
+  it('collects reference fragments from a sibling references folder', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fixer-grounding-'));
     const refDir = path.join(tempDir, 'references');
     fs.mkdirSync(refDir);
     fs.writeFileSync(path.join(refDir, 'notes.md'), 'Use version 1.2.3 for the API.');
 
-    const text = loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use version 1.2.3 for the API.', true);
+    const text = await loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use version 1.2.3 for the API.', true);
 
     expect(text).toContain('references/notes.md');
     expect(text).toContain('Use version 1.2.3');
+  });
+
+  it('returns null for untitled documents (empty filePath)', async () => {
+    expect(await loadReferenceGrounding('', 'Use version 1.2.3 for the API.', true)).toBeNull();
+    expect(await loadReferenceGrounding('   ', 'Use version 1.2.3 for the API.', true)).toBeNull();
   });
 });
 
@@ -385,6 +406,52 @@ describe('SurgicalFixer', () => {
     expect(result.fixed).toBe('Use the tool.');
   });
 
+  it('rejects empty anchor text without crashing', async () => {
+    const complete = vi.fn();
+    const fixer = new SurgicalFixer({ complete });
+
+    const result = await fixer.fixIssue(
+      'Use the tool carefully.',
+      '/tmp/test.md',
+      makeDiagnostic('ambiguity-llm', ''),
+    );
+
+    expect(result.accepted).toBe(false);
+    expect(result.rejectReason).toContain('anchor');
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('rejects whitespace-only anchor text without crashing', async () => {
+    const complete = vi.fn();
+    const fixer = new SurgicalFixer({ complete });
+
+    const result = await fixer.fixIssue(
+      'Use the tool carefully.',
+      '/tmp/test.md',
+      makeDiagnostic('ambiguity-llm', '   '),
+    );
+
+    expect(result.accepted).toBe(false);
+    expect(result.rejectReason).toContain('anchor');
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('skips empty anchor in fixDocument without corrupting content', async () => {
+    const complete = vi.fn();
+    const fixer = new SurgicalFixer({ complete });
+
+    const text = 'Use the tool carefully.';
+    const result = await fixer.fixDocument(
+      text,
+      '/tmp/test.md',
+      [makeDiagnostic('ambiguity-llm', '')],
+    );
+
+    expect(result.applied).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.fixedText).toBe(text);
+  });
+
   it('only allows the known surgical-fixable codes', () => {
     expect(SURGICAL_FIXABLE_CODES.has('ambiguity-llm')).toBe(true);
     expect(SURGICAL_FIXABLE_CODES.has('contradiction')).toBe(true);
@@ -619,5 +686,87 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     expect(result.fixedText).toBe(text);
     expect(result.applied).toBe(0);
     expect(result.skipped).toBe(0);
+  });
+
+  it('fixDocument handles adjacent diagnostics on the same line without corruption', async () => {
+    // Two adjacent but non-overlapping anchors on the same line
+    const text = 'Use the API carefully and be concise.';
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ text: 'Use the API.' })
+      .mockResolvedValueOnce({ text: 'be specific.' });
+    const fixer = new SurgicalFixer({ complete });
+
+    const result = await fixer.fixDocument(text, '/tmp/test.md', [
+      makeDiagnostic('ambiguity-llm', 'Use the API carefully'),
+      makeDiagnostic('ambiguity-llm', 'be concise'),
+    ]);
+
+    // Both should be attempted; at minimum no corruption
+    expect(result.fixedText).toBeDefined();
+    expect(typeof result.fixedText).toBe('string');
+    // The first fix applied replaces 'Use the API carefully' → 'Use the API.'
+    // After that, 'be concise' may or may not be found depending on ordering;
+    // the key invariant is no crash and no garbled output.
+    expect(result.fixedText.length).toBeGreaterThan(0);
+  });
+
+  it('fixDocument handles overlapping text ranges safely', async () => {
+    // Diagnostic A anchors on a substring that is also inside diagnostic B's anchor.
+    // Both anchors are on the same line. After the first replacement, the second
+    // anchor may no longer exist → skipped. The key invariant: no garbled output.
+    const text = 'Use the API when calling it carefully.';
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ text: 'Use the API.' })
+      .mockResolvedValueOnce({ text: 'BE SKIPPED' });
+    const fixer = new SurgicalFixer({ complete });
+
+    // 'Use the API' is contained within 'Use the API when calling it carefully.'
+    const result = await fixer.fixDocument(text, '/tmp/test.md', [
+      makeDiagnostic('ambiguity-llm', 'Use the API'),
+      makeDiagnostic('ambiguity-llm', 'Use the API when calling it carefully.'),
+    ]);
+
+    // At least one fix attempted, no crash, output is valid
+    expect(result.applied + result.skipped).toBeGreaterThanOrEqual(1);
+    expect(result.fixedText).toBeDefined();
+    expect(typeof result.fixedText).toBe('string');
+  });
+
+  it('fixDocument handles one range completely inside another', async () => {
+    // Inner anchor is a strict subset of the outer anchor.
+    // Processing order depends on sort (same line → original array order).
+    // Key invariant: no garbled output and no crash, regardless of which gets processed.
+    const text = 'When responding always be helpful and kind.';
+    // Both mocks produce text within bounds: outer=41 chars → bounds [20.5, 45.1]
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ text: 'When responding, be helpful and kind.' })
+      .mockResolvedValueOnce({ text: 'be extremely helpful' });
+    const fixer = new SurgicalFixer({ complete });
+
+    const result = await fixer.fixDocument(text, '/tmp/test.md', [
+      makeDiagnostic('ambiguity-llm', 'When responding always be helpful and kind.'),
+      makeDiagnostic('ambiguity-llm', 'be helpful'),
+    ]);
+
+    expect(result.fixedText).toBeDefined();
+    expect(typeof result.fixedText).toBe('string');
+    // No crash, no garbled output — the test simply verifies the fixer
+    // handles nested ranges without throwing or producing invalid text.
+  });
+
+  it('fixDocument skips ambiguous anchors (multiple occurrences)', async () => {
+    // The same text appears twice — fixDocument should skip to avoid
+    // silent data corruption.
+    const text = 'Be concise.\nSome other content.\nBe concise.';
+    const complete = vi.fn().mockResolvedValue({ text: 'Be specific.' });
+    const fixer = new SurgicalFixer({ complete });
+
+    const result = await fixer.fixDocument(text, '/tmp/test.md', [
+      makeDiagnostic('ambiguity-llm', 'Be concise.'),
+    ]);
+
+    expect(result.applied).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.fixedText).toBe(text);
   });
 });

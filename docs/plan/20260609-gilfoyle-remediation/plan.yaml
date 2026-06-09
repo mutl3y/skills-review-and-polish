@@ -1,0 +1,169 @@
+plan_id: 20260609-gilfoyle-remediation
+objective: "Remediate all 30 issues from Gilfoyle's code review of skills-review-and-polish"
+created: 2026-06-09
+status: in_progress
+complexity: HIGH
+
+waves:
+  - id: 1
+    name: "Critical & High"
+    tasks:
+      - id: "task-01"
+        title: "Delete copilotPricing.ts dead code"
+        severity: critical
+        status: pending
+        files: ["src/copilotPricing.ts"]
+        description: >
+          Delete src/copilotPricing.ts entirely. It duplicates data in src/pricing.ts.
+          No code imports it — only docs reference it. Update llms.txt reference.
+
+      - id: "task-02"
+        title: "Add LRU eviction to analysisHistory"
+        severity: critical
+        status: pending
+        files: ["src/core/analyzer.ts"]
+        description: >
+          The static analysisHistory map grows without bound. Add max-size (100 entries)
+          with LRU eviction. Also clear in deactivate().
+
+      - id: "task-03"
+        title: "Replace setTimeout config cache with onDidChangeConfiguration"
+        severity: high
+        status: pending
+        files: ["src/config.ts"]
+        description: >
+          Replace the fragile setTimeout(…, 0) cache invalidation with
+          vscode.workspace.onDidChangeConfiguration listener that explicitly
+          clears the cache when settings actually change.
+
+      - id: "task-04"
+        title: "Invalidate buildEngine cache on API key change"
+        severity: high
+        status: pending
+        files: ["src/extension.ts"]
+        description: >
+          Include API key hash in computeConfigHash() or explicitly invalidate
+          cachedEngine in the setApiKey command handler.
+
+      - id: "task-05"
+        title: "Improve findTextRange with token-overlap scoring"
+        severity: high
+        status: pending
+        files: ["src/core/analyzer.ts"]
+        description: >
+          Replace naive substring indexOf matching with a token-overlap scoring
+          approach. Use word-level Jaccard similarity to find best match position.
+
+      - id: "task-06"
+        title: "Convert loadReferenceGrounding to async fs"
+        severity: high
+        status: pending
+        files: ["src/core/fixer.ts"]
+        description: >
+          Replace all sync fs calls (existsSync, statSync, readdirSync, lstatSync,
+          readFileSync) with fs.promises equivalents. Make the function async.
+
+      - id: "task-07"
+        title: "Remove HTML scraper, use static pricing data"
+        severity: high
+        status: pending
+        files: ["src/pricing.ts"]
+        description: >
+          Remove the fragile parseCopilotHtml regex scraper. Keep the static
+          COPILOT_MODEL_PRICING as the primary data source. Remove HTML fetch logic.
+
+      - id: "task-08"
+        title: "Convert MCP createDefaultEngine to async file read"
+        severity: high
+        status: pending
+        files: ["src/mcp/server.ts"]
+        description: >
+          Replace fs.readFileSync in createDefaultEngine with fs.promises.readFile.
+          Make the function async.
+
+  - id: 2
+    name: "Medium"
+    tasks:
+      - id: "task-09"
+        title: "Extract testModelSimplePrompt to separate module"
+        severity: medium
+        status: pending
+        files: ["src/extension.ts", "src/modelTest.ts"]
+        description: >
+          Extract the 120+ line testModelSimplePrompt handler into its own module.
+
+      - id: "task-10"
+        title: "Add meaningPreservationReject enum"
+        severity: medium
+        status: pending
+        files: ["src/core/fixer.ts", "src/core/types.ts"]
+        description: >
+          Replace magic string returns in meaningPreservationReject with a
+          TypeScript enum or discriminated union type.
+
+      - id: "task-11"
+        title: "Add waves config validation"
+        severity: medium
+        status: pending
+        files: ["src/config.ts"]
+        description: >
+          Validate waves array elements against ALL_WAVES after reading from config.
+          Filter out invalid values with a warning.
+
+      - id: "task-12"
+        title: "Fix empty response returning '{}'"
+        severity: medium
+        status: pending
+        files: ["src/providers/vscodeLmProvider.ts"]
+        description: >
+          When collectStreamText gets empty text, return empty string instead of '{}'
+          so the analyzer properly throws rather than silently producing zero results.
+
+      - id: "task-13"
+        title: "Broaden bearer token sanitization in errors"
+        severity: medium
+        status: pending
+        files: ["src/providers/externalProvider.ts"]
+        description: >
+          Extend error sanitization to cover all error propagation paths, not just
+          the catch block.
+
+  - id: 3
+    name: "Low & Nit"
+    tasks:
+      - id: "task-14"
+        title: "Fix DEFAULT_ACCEPTED_FINDINGS_PATH"
+        severity: low
+        status: pending
+        files: ["src/core/acceptedFindings.ts"]
+        description: >
+          Change DEFAULT_ACCEPTED_FINDINGS_PATH to not use process.cwd().
+          Add a comment noting callers should use workspaceFolders[0].
+
+      - id: "task-15"
+        title: "Add validation for non-atomic MCP config write"
+        severity: low
+        status: pending
+        files: ["src/extension.ts"]
+        description: >
+          Add a try-catch around renameSync for the MCP config write
+          and clean up temp file on failure.
+
+      - id: "task-16"
+        title: "Add MCP server fixStrategy support"
+        severity: low
+        status: pending
+        files: ["src/mcp/server.ts"]
+        description: >
+          Read fixStrategy from resolved config instead of hardcoding additive: true.
+
+validation:
+  wave_1:
+    - "Run `npm run compile` — zero errors"
+    - "Run `npx vitest run` — all tests pass"
+  wave_2:
+    - "Run `npm run compile` — zero errors"
+    - "Run `npx vitest run` — all tests pass"
+  wave_3:
+    - "Run `npm run compile` — zero errors"
+    - "Run `npx vitest run` — all tests pass"

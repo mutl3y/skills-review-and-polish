@@ -92,6 +92,30 @@ export function formatPricing(pricing: ModelPricing | undefined): string {
 // Copilot pricing — HTML table scraping
 // ---------------------------------------------------------------------------
 
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * Wraps fetch with an AbortController-based timeout.
+ * @param url The URL to fetch.
+ * @param init Standard fetch init options.
+ * @param timeoutMs Timeout in milliseconds (default 10s).
+ * @returns The fetch Response.
+ * @throws Any fetch error, including AbortError on timeout.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchCopilotPricing(): Promise<Map<string, ModelPricing>> {
   if (copilotCache && Date.now() - copilotCache.fetchedAt < COPILOT_CACHE_TTL_MS) {
     return copilotCache.models;
@@ -99,7 +123,7 @@ async function fetchCopilotPricing(): Promise<Map<string, ModelPricing>> {
 
   // Try HTML scraping first, fall back to static data
   try {
-    const resp = await fetch(
+    const resp = await fetchWithTimeout(
       'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing',
       { headers: { 'User-Agent': 'skills-review-and-polish' } },
     );
@@ -302,7 +326,7 @@ async function fetchOpenRouterPricing(): Promise<Map<string, ModelPricing>> {
     return openrouterCache.models;
   }
 
-  const resp = await fetch('https://openrouter.ai/api/v1/models', {
+  const resp = await fetchWithTimeout('https://openrouter.ai/api/v1/models', {
     headers: { 'User-Agent': 'skills-review-and-polish' },
   });
   if (!resp.ok) throw new Error(`OpenRouter pricing fetch failed: HTTP ${resp.status}`);

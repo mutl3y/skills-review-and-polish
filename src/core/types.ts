@@ -40,6 +40,12 @@ export type ModelTier = 'standard' | 'deep';
  * `complete` takes the user prompt + system prompt and returns the raw text
  * response (the engine handles JSON extraction itself).
  */
+/** Minimal cancellation token interface — compatible with vscode.CancellationToken. */
+export interface CancellationToken {
+  readonly isCancellationRequested: boolean;
+  readonly onCancellationRequested: (listener: () => void) => { dispose(): void };
+}
+
 export interface LlmProvider {
   complete(request: LlmRequest): Promise<LlmResponse>;
 }
@@ -48,6 +54,7 @@ export interface LlmRequest {
   prompt: string;
   systemPrompt: string;
   modelTier?: ModelTier;
+  token?: CancellationToken;
 }
 
 export interface LlmResponse {

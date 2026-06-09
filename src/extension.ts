@@ -2,13 +2,13 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Engine, AnalysisResult } from './core';
+import { Engine, AnalysisResult, Analyzer } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, GitHubModelsProvider } from './providers/externalProvider';
-import { readConfig, isCustomizationPath } from './config';
+import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
 import { acceptFinding } from './core/acceptedFindings';
 import { createDiagnosticCollection, publishDiagnostics } from './ui/diagnostics';
 import { StatusBarManager } from './ui/statusBar';
@@ -89,8 +89,10 @@ function getAcceptedFindingsPath(): string {
 let cachedEngine: Engine | undefined;
 let cachedEngineConfigHash = '';
 
-function computeConfigHash(cfg: ReturnType<typeof readConfig>): string {
-  return `${cfg.provider}:${cfg.model}:${cfg.deepModel}:${cfg.fixModel}:${cfg.analysisMode}:${cfg.enabledWaves.join(',')}:${cfg.fixStrategy}:${cfg.fixSemanticCheck}:${cfg.fixSelfCritique}:${cfg.fixReferenceGrounding}:${JSON.stringify(cfg.severityOverrides)}`;
+function computeConfigHash(cfg: ReturnType<typeof readConfig>, apiKey?: string): string {
+  // Use last-4-char discriminator for change detection (not cryptographic security).
+  const apiKeyDiscriminator = apiKey ? apiKey.slice(-4) : '';
+  return `${cfg.provider}:${cfg.model}:${cfg.deepModel}:${cfg.fixModel}:${cfg.analysisMode}:${cfg.enabledWaves.join(',')}:${cfg.fixStrategy}:${cfg.fixSemanticCheck}:${cfg.fixSelfCritique}:${cfg.fixReferenceGrounding}:${JSON.stringify(cfg.severityOverrides)}:${apiKeyDiscriminator}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +131,9 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   context.subscriptions.push(out, diagnostics, statusBar, codeLensProvider);
+
+  // --- Config watcher: invalidate cache immediately on settings change ---
+  context.subscriptions.push(setupConfigWatcher());
   log('info', cfg.logLevel === 'debug'
     ? `Extension activated — log level: ${cfg.logLevel}, log file: ${logFilePath ?? '(none)'}`
     : `Extension activated — log level: ${cfg.logLevel}`);
@@ -285,6 +290,7 @@ export function deactivate(): void {
   analysisLocks.clear();
   fixPreviewContent.clear();
   cachedEngine = undefined;
+  Analyzer.clearHistory();
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +299,8 @@ export function deactivate(): void {
 
 async function buildEngine(): Promise<Engine> {
   const cfg = readConfig();
-  const hash = computeConfigHash(cfg);
+  const apiKey = extensionContext?.secrets ? await extensionContext.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
+  const hash = computeConfigHash(cfg, apiKey);
   if (cachedEngine && cachedEngineConfigHash === hash) {
     log('debug', 'buildEngine: using cached engine');
     return cachedEngine;
@@ -301,7 +308,6 @@ async function buildEngine(): Promise<Engine> {
   log('info', `buildEngine: provider=${cfg.provider} standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'}`);
 
   if (cfg.provider === 'openrouter' || cfg.provider === 'githubModels') {
-    const apiKey = extensionContext ? await extensionContext.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
     if (!apiKey) {
       log('warn', `buildEngine: ${cfg.provider} selected but no API key — falling back to vscode-lm`);
       vscode.window.showWarningMessage(
@@ -458,7 +464,7 @@ async function analyzeDocument(
           const text = doc.getText();
           if (token?.isCancellationRequested) return;
           log('info', `analyzeDocument: calling engine.analyze on ${text.length} chars`);
-          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath() });
+          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token });
           if (token?.isCancellationRequested) return;
           log('info', `analyzeDocument: got ${results.length} results`);
           for (const r of results) {
@@ -1171,7 +1177,7 @@ export function registerLanguageModelTools(
         const { text, filePath } = options.input;
         try {
           const engine = await buildEngineFn();
-          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath() });
+          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token });
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
           ]);

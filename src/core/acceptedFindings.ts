@@ -5,6 +5,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { AnalysisResult } from './types';
 import { createLogger } from './logger';
@@ -27,13 +28,26 @@ export interface AcceptedFindingsStore {
 }
 
 /**
- * Default path: in the workspace root (CWD), alongside .skills-review.json.
+ * Default path: tries workspace root via `vscode.workspace.workspaceFolders`,
+ * falls back to the user's home directory (never `process.cwd()` which is
+ * unreliable in extension hosts and MCP server contexts).
  *
- * NOTE: In MCP server context, `process.cwd()` may not match the actual
- * workspace root. Callers should anchor this to the workspace root when
- * available (e.g. from the MCP server's `rootUri`).
+ * Callers with access to the workspace root (extension.ts, MCP server) should
+ * prefer constructing the path directly from `workspaceFolders[0]`.
  */
-export const DEFAULT_ACCEPTED_FINDINGS_PATH = path.join(process.cwd(), '.accepted-findings.json');
+export const DEFAULT_ACCEPTED_FINDINGS_PATH = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const vscode = require('vscode') as typeof import('vscode');
+    const folders = vscode.workspace?.workspaceFolders;
+    if (folders && folders.length > 0) {
+      return path.join(folders[0].uri.fsPath, '.accepted-findings.json');
+    }
+  } catch {
+    /* not running inside VS Code extension host — fall through */
+  }
+  return path.join(os.homedir(), '.accepted-findings.json');
+})();
 
 // ─── File-name sanitization ──────────────────────────────────────────────────
 

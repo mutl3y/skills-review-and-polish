@@ -220,6 +220,11 @@ export class VsCodeLmProvider implements LlmProvider {
     this.log.debug('complete: using model', { vendor: model.vendor, family: model.family, name: model.name });
 
     const cts = new vscode.CancellationTokenSource();
+    // Compose the caller's cancellation token with our internal timeout.
+    // If either fires, the request is aborted.
+    if (request.token) {
+      request.token.onCancellationRequested(() => cts.cancel());
+    }
     const timeout = setTimeout(() => cts.cancel(), 90_000);
 
     // vscode.lm doesn't support System message type, so combine into User message
@@ -258,7 +263,9 @@ export class VsCodeLmProvider implements LlmProvider {
 
       // Dispose the stale model reference before releasing it — VS Code language
       // model objects may hold native resources that need explicit cleanup.
-      try {   (model as any).dispose?.(); } catch { /* best-effort */ }
+      try { (model as any).dispose?.(); } catch (disposalErr) {
+        this.log.info('[WARN] model.dispose() failed during retry', { error: disposalErr instanceof Error ? disposalErr.message : String(disposalErr) });
+      }
 
       // Invalidate the cached model — it may be stale or disconnected
       if (isDeep) {

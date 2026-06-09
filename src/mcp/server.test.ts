@@ -12,8 +12,74 @@ vi.mock('../core/fixer', () => ({
   }),
 }));
 
-import { createMcpToolRegistry } from './server';
+import { createMcpToolRegistry, sanitizeErrorMessage } from './server';
 import { SurgicalFixer } from '../core/fixer';
+
+describe('accept_finding input validation', () => {
+  it('rejects relevantText that is too short (under 3 chars)', async () => {
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => ({ analyze: vi.fn(), provider: {} })) as any,
+    });
+
+    const result = await registry.callTool('accept_finding', {
+      filePath: '/test/file.md',
+      diagnosticCode: 'ambiguity-llm',
+      relevantText: 'ab',
+    });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.status).toBe('error');
+    expect(parsed.error).toContain('too short');
+  });
+
+  it('rejects overly generic single-word patterns', async () => {
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => ({ analyze: vi.fn(), provider: {} })) as any,
+    });
+
+    const result = await registry.callTool('accept_finding', {
+      filePath: '/test/file.md',
+      diagnosticCode: 'ambiguity-llm',
+      relevantText: 'the',
+    });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.status).toBe('error');
+    expect(parsed.error).toContain('generic');
+  });
+
+  it('rejects relevantText exceeding max length (200 chars)', async () => {
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => ({ analyze: vi.fn(), provider: {} })) as any,
+    });
+
+    const longText = 'a'.repeat(201);
+    const result = await registry.callTool('accept_finding', {
+      filePath: '/test/file.md',
+      diagnosticCode: 'ambiguity-llm',
+      relevantText: longText,
+    });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.status).toBe('error');
+    expect(parsed.error).toContain('too long');
+  });
+
+  it('trims whitespace and control characters before storing', async () => {
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => ({ analyze: vi.fn(), provider: {} })) as any,
+    });
+
+    const result = await registry.callTool('accept_finding', {
+      filePath: '/tmp/test-validation.json',
+      diagnosticCode: 'ambiguity-llm',
+      relevantText: '  vague or underspecified  ',
+    });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.status).toBe('accepted');
+  });
+});
 
 describe('createMcpToolRegistry', () => {
   it('lists the analyze and fix tools', () => {
@@ -388,5 +454,48 @@ describe('createMcpToolRegistry', () => {
       })) as any,
     });
     await expect(registry.callTool('verify_fix', { text: 'hello', diagnosticCode: 'x' })).rejects.toThrow('Missing required argument: relevantText');
+  });
+});
+
+describe('sanitizeErrorMessage', () => {
+  it('strips Bearer tokens', () => {
+    expect(sanitizeErrorMessage('Error: Bearer abc123def456')).toBe('Error: Bearer [REDACTED]');
+  });
+
+  it('strips API key patterns', () => {
+    expect(sanitizeErrorMessage('api_key=sk-1234567890abcdef')).toBe('api_key=[REDACTED]');
+  });
+
+  it('strips token patterns', () => {
+    expect(sanitizeErrorMessage('token: secret123')).toBe('token=[REDACTED]');
+  });
+
+  it('strips password patterns', () => {
+    expect(sanitizeErrorMessage('password=mysecretpass')).toBe('password=[REDACTED]');
+  });
+
+  it('passes through clean messages unchanged', () => {
+    expect(sanitizeErrorMessage('File not found')).toBe('File not found');
+  });
+
+  it('handles multiple secrets in one message', () => {
+    const msg = 'Failed: Bearer tok123 api_key=sk-abc123';
+    const result = sanitizeErrorMessage(msg);
+    expect(result).toContain('Bearer [REDACTED]');
+    expect(result).toContain('api_key=[REDACTED]');
+    expect(result).not.toContain('tok123');
+    expect(result).not.toContain('sk-abc123');
+  });
+
+  it('handles empty string', () => {
+    expect(sanitizeErrorMessage('')).toBe('');
+  });
+
+  it('handles non-Error objects', () => {
+    expect(sanitizeErrorMessage(42)).toBe('42');
+  });
+
+  it('strips secret patterns', () => {
+    expect(sanitizeErrorMessage('secret=abcdef123456')).toBe('secret=[REDACTED]');
   });
 });
