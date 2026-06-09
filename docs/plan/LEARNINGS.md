@@ -73,3 +73,89 @@
 - Fast unit-test harness (1s/test) beats full scans (15min) for iterating on the fixer/classifier — `test → improve → test` 1s cycle.
 - A standalone analyzer test (no extension F5 reload) is the fastest debug loop.
 - The POST-grade single-scan column is noisy and misleading on reverted runs — trust the median-of-3 penalty transitions, always diff the actual file bytes.
+
+---
+
+## Gilfoyle review learnings (2026-06-09)
+
+> 25 issues found across CRITICAL/HIGH/MEDIUM/LOW. All fixed. Key takeaways.
+
+### `String.replace()` is a trap for text editing
+
+- Using `String.replace(anchor, replacement)` with a string first arg has TWO failure modes:
+  1. Replaces the **first** occurrence, not the intended one if anchor appears multiple times
+  2. `$` characters in the replacement string (`$&`, `$'`, `` $` ``) are interpreted as replacement patterns, silently corrupting output
+- **Fix:** Always use `text.replace(anchor, () => replacement)` — the function-as-replacement form prevents `$` interpretation. Add an occurrence-count check (`countOf(content, anchor) === 1`) before replacing.
+- This affected both `fixer.ts` (fixDocument) and `extension.ts` (runFixIssue). It's a systemic pattern — any future text-replacement code must use this form.
+
+### Module-load-time I/O is fragile
+
+- `loadPrompt()` was called as `const SYSTEM_PROMPT = loadPrompt('name')` at module import time. If the file was missing (path wrong after bundling, file renamed), the entire module threw and the extension refused to activate.
+- **Fix:** Wrap `loadPrompt()` in try/catch with a safe fallback string. Log the error but never throw at import time. Lazy-load is better but try/catch is the minimal fix.
+- **General principle:** Extension activation code must never throw on I/O. The user loses the entire extension because one file is missing.
+
+### Module-level mutable state needs per-key locks
+
+- `lastResults` Map was shared across all commands. If "Analyze" fires twice quickly (manual + onSave), the second call overwrites `lastResults` mid-fix, and the user applies a fix based on stale results.
+- **Fix:** Add `analysisLocks` Map (`Map<string, Promise<void>>`) keyed by URI. Before starting analysis, await any in-flight analysis for the same URI. Clean up in `finally` block.
+- **General principle:** Any module-level Map that stores per-document state needs concurrency serialization. This is the VS Code extension equivalent of a database row lock.
+
+### `process.cwd()` is never the workspace root
+
+- In the VS Code extension host, `process.cwd()` is the Electron binary directory (`/usr/share/code/`), not the workspace root.
+- **Fix:** Always use `vscode.workspace.workspaceFolders[0].uri.fsPath` for workspace-relative paths. For MCP server context, use the `MCP_SERVER_WORKSPACE` env var.
+- This is a recurring trap — at least 3 separate issues (acceptedFindings path, MCP server path, config sync) were caused by the same wrong assumption.
+
+### `model.dispose()` matters for native resources
+
+- `VsCodeLmProvider` cached model references but never disposed them on retry/invalidation. VS Code language model objects may hold native resources.
+- **Fix:** Call `(model as any).dispose?.()` before setting to undefined. The optional chaining is necessary because dispose may not exist on all implementations.
+- **General principle:** Any cached native-ish resource needs explicit cleanup on invalidation, not just nullification.
+
+### Path traversal in file loaders is a real attack vector
+
+- `loadReferenceGrounding()` read any file in a sibling `references/` directory. A malicious SKILL.md could symlink to sensitive files, which get fed to the LLM as context and returned in diagnostics.
+- **Fix:** Two guards: (1) `fs.lstatSync().isSymbolicLink()` to reject symlinks, (2) `path.resolve(full).startsWith(path.resolve(refDir))` to enforce directory boundary.
+- **General principle:** Any `readdirSync` + `readFileSync` loop over user-controlled directories needs both symlink rejection and path-boundary validation.
+
+### Error messages leak secrets
+
+- API keys, Bearer tokens, and auth headers were surfacing in: error messages from `fetchWithRetry`, VS Code status bar tooltips, and MCP tool responses.
+- **Fix:** `sanitizeErrorMessage()` function that strips Bearer tokens, known key prefixes (`sk-`, `ghp_`, `glpat-`, `xox[bpsa]-`), and Authorization header values. Apply at the boundary before returning to user.
+- **General principle:** Error messages from HTTP clients are NOT safe for display. Always sanitize at the presentation boundary.
+
+### Config caching needs event-loop tick TTL
+
+- `readConfig()` called `vscode.workspace.getConfiguration()` on every keystroke. Not slow per call, but unnecessary repeated work.
+- **Fix:** Cache config for one event-loop tick (`setTimeout(() => cache = null, 0)`). Multiple synchronous reads in the same tick share the cache; next user action gets fresh config.
+- **General principle:** For VS Code settings, a tick-long cache prevents redundant reads without risking stale data across user actions.
+
+### `out.show()` should respect trigger source
+
+- `out.show(false)` resizes the editor to make room for the output panel, causing visible flicker during onType analysis (every 2 seconds of typing).
+- **Fix:** Only call `out.show()` when `triggerSource === 'manual'`. Pass trigger source through the call chain.
+- **General principle:** UI side effects (panels, notifications, status changes) should be gated on user intent, not code-triggered events.
+
+### The bi-directional `includes()` trap in fuzzy matching
+
+- `isFindingAccepted()` used `resultText.includes(pattern) || pattern.includes(resultText)`. A 3-character pattern like "vague" would suppress any finding shorter than "vague" that contains it — nearly everything.
+- **Fix:** Forward-only matching (`resultText.includes(pattern)`) with minimum pattern length (5 chars).
+- **General principle:** Bidirectional string containment is almost never the right semantics for matching. Short patterns match everything.
+
+### `configHash` must cover all engine-relevant fields
+
+- `computeConfigHash()` only hashed `provider:model:deepModel:fixModel`. Changing `enabledWaves`, `fixStrategy`, `fixSemanticCheck`, etc. didn't invalidate the cached engine.
+- **Fix:** Include all fields that affect analysis behavior in the hash. If in doubt, include it.
+- **General principle:** Cache invalidation is hard. When the cost of a false cache hit (stale engine) is worse than the cost of a rebuild, err toward including more fields.
+
+### `salvageTruncatedJSON` must recover all arrays, not just the first
+
+- The JSON recovery only found and recovered the first array key from truncated output. If the LLM truncated after `{"coverage_analysis": [...]}` but before `"hygiene_issues": [...]`, 30-40% of results were silently dropped.
+- **Fix:** Use regex with `g` flag to find and recover all array keys. Log a warning listing recovered keys when truncation recovery is used.
+- **General principle:** Truncation recovery that only partially recovers data is worse than no recovery — it gives false confidence in incomplete results. Either recover everything or report the failure.
+
+### Duplicate interfaces are a maintenance hazard
+
+- `EngineConfig` was defined in both `src/core/types.ts` and `src/mcp/server.ts` with different shapes. Someone will inevitably import the wrong one.
+- **Fix:** Rename the MCP-local version to `McpEngineConfig`.
+- **General principle:** Two types with the same name in the same codebase is a bug waiting to happen. Rename immediately.
