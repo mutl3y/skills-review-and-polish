@@ -12,7 +12,7 @@
  */
 import { test, expect, Page, BrowserContext } from '@playwright/test';
 import { readFileSync } from 'fs';
-import { loadAuthState, hasAuthState } from './setup';
+import { loadAuthState, hasAuthState, AUTH_STATE_FILE } from './setup';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -64,17 +64,16 @@ async function runCommand(page: Page, command: string) {
 
 test.beforeAll(async ({ browser }) => {
   // Create context with auth state if available
-  context = await browser.newContext();
-
-  // Load browser auth state (cookies + localStorage) for Copilot testing.
-  // This enables ServerKeyedAESCrypto so extension secrets (including
-  // Copilot OAuth tokens) are decrypted from browser localStorage.
+  // storageState is Playwright's native format — cookies + localStorage + IndexedDB
+  // all captured via context.storageState() during the capture-auth.ts run
+  const contextOptions: any = {};
   if (hasAuthState()) {
-    await loadAuthState(context);
+    contextOptions.storageState = AUTH_STATE_FILE;
     console.log('[test] Auth state loaded — Copilot should be available');
   } else {
-    console.log('[test] No auth state found — Copilot may not work. Run: node tests/e2e/capture-auth.ts');
+    console.log('[test] No auth state found — Copilot may not work. Run: npx tsx tests/e2e/capture-auth.ts');
   }
+  context = await browser.newContext(contextOptions);
 
   page = await context.newPage();
 
