@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as vscode from 'vscode';
-import { activate } from './extension';
+import { activate, deactivate } from './extension';
 
 const DEFAULT_CONFIG = {
   enable: true,
@@ -126,14 +126,25 @@ vi.mock('./ui/codeLens', () => ({ ScoreCodeLensProvider: class { update = vi.fn(
 vi.mock('./ui/codeActions', () => ({ SkillsCodeActionProvider: class { static providedCodeActionKinds = []; } }));
 vi.mock('./ui/hover', () => ({ SuggestionHoverProvider: class {} }));
 vi.mock('./ui/inlineRewrites', () => ({ createInlineRewriteProvider: vi.fn(() => ({ dispose: vi.fn() })) }));
-vi.mock('./test-api-inspection', () => ({ inspectLMAPIs: vi.fn() }));
-vi.mock('./core', () => {
-  return {
-    Engine: class {
-      analyze = vi.fn().mockResolvedValue([]);
-    },
-  };
-});
+const mocks2 = vi.hoisted(() => ({
+  mockEngine: {
+    analyze: vi.fn().mockResolvedValue([]),
+    surgicalFix: vi.fn().mockResolvedValue({ fixedText: 'fixed content', applied: 1, skipped: 0 }),
+    provider: {},
+  },
+  mockAnalyzer: { clearHistory: vi.fn() },
+  mockExternalProvider: { complete: vi.fn() },
+  lastVsCodeLmProvider: { current: undefined as any },
+  vscodeLmTestMock: vi.fn().mockResolvedValue({ success: false, modelUsed: '', response: '' }),
+}));
+vi.mock('./core', () => ({
+  Engine: class {
+    analyze = mocks2.mockEngine.analyze;
+    surgicalFix = mocks2.mockEngine.surgicalFix;
+    provider = mocks2.mockEngine.provider;
+  },
+  Analyzer: mocks2.mockAnalyzer,
+}));
 vi.mock('./core/scoring', () => ({
   scoreSkill: vi.fn().mockReturnValue({ score: 100, grade: 'A', breakdown: {} }),
   parseSkillType: vi.fn().mockReturnValue('skill'),
@@ -143,18 +154,42 @@ vi.mock('./core/logger', () => ({
   setTransport: vi.fn(),
   createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })),
 }));
+vi.mock('./core/acceptedFindings', () => ({
+  acceptFinding: vi.fn(),
+}));
+vi.mock('fs', () => ({
+  writeFileSync: vi.fn(),
+  renameSync: vi.fn(),
+  unlinkSync: vi.fn(),
+  appendFileSync: vi.fn(),
+}));
+vi.mock('os', () => ({
+  tmpdir: vi.fn().mockReturnValue('/tmp'),
+}));
 vi.mock('./core/fixer', () => ({
-  SurgicalFixer: class {},
-  SURGICAL_FIXABLE_CODES: [],
+  SurgicalFixer: class {
+    fixIssue = vi.fn().mockResolvedValue({ accepted: false, fixed: '', risks: [], rejectReason: 'mocked' });
+  },
+  SURGICAL_FIXABLE_CODES: new Set(['ambiguity-llm']),
 }));
 vi.mock('./providers/vscodeLmProvider', () => ({
   VsCodeLmProvider: class {
     invalidate = vi.fn();
+    testSimplePrompt = mocks2.vscodeLmTestMock;
+    constructor(_model?: string, _deepModel?: string) {
+      mocks2.lastVsCodeLmProvider.current = this;
+    }
   },
 }));
 vi.mock('./providers/externalProvider', () => ({
-  OpenRouterProvider: class {},
-  GitHubModelsProvider: class {},
+  OpenRouterProvider: class {
+    complete = mocks2.mockExternalProvider.complete;
+    constructor(_opts?: any) {}
+  },
+  GitHubModelsProvider: class {
+    complete = mocks2.mockExternalProvider.complete;
+    constructor(_opts?: any) {}
+  },
 }));
 vi.mock('./pricing', () => ({
   fetchPricing: vi.fn().mockResolvedValue(new Map()),
@@ -281,5 +316,524 @@ describe('extension activation wiring', () => {
     expect(mocks.showInputBox).toHaveBeenCalledWith(expect.objectContaining({ password: true }));
     expect(store).toHaveBeenCalledWith('skillsReviewAndPolish.apiKey', 'secret-token');
     expect(mocks.showInformationMessage).toHaveBeenCalledWith('Skills Review: API key saved to SecretStorage.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Additional coverage tests
+// ---------------------------------------------------------------------------
+
+describe('runIgnoreRule', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+  });
+
+  it('updates severityOverrides config to "off" for a given rule', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => ({})), update } as any);
+
+    activate({ subscriptions: [] } as any);
+
+    const ignoreRuleCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.ignoreRule',
+    )?.[1];
+    expect(ignoreRuleCmd).toBeInstanceOf(Function);
+
+    await ignoreRuleCmd('ambiguity-llm');
+
+    expect(update).toHaveBeenCalledWith(
+      'severityOverrides',
+      { 'ambiguity-llm': 'off' },
+      vscode.ConfigurationTarget.Workspace,
+    );
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Rule "ambiguity-llm" ignored'),
+    );
+  });
+});
+
+describe('selectPickerSortOrder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+  });
+
+  it('saves the selected sort order to config', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => 'price'), update } as any);
+    mocks.showQuickPick.mockResolvedValue({ label: '🔤 Alphabetical', description: '', value: 'name', picked: false });
+
+    activate({ subscriptions: [] } as any);
+
+    const sortCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.setPickerSortOrder',
+    )?.[1];
+    expect(sortCmd).toBeInstanceOf(Function);
+
+    await sortCmd();
+
+    expect(mocks.showQuickPick).toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith('pickerSortBy', 'name', vscode.ConfigurationTarget.Global);
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Model picker sort order set to'),
+    );
+  });
+
+  it('does nothing when user dismisses the picker', async () => {
+    const update = vi.fn();
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => 'price'), update } as any);
+    mocks.showQuickPick.mockResolvedValue(undefined);
+
+    activate({ subscriptions: [] } as any);
+
+    const sortCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.setPickerSortOrder',
+    )?.[1];
+    await sortCmd();
+
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('syncMcpConfig', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+  });
+
+  it('writes .skills-review.json when workspace folder exists', async () => {
+    const fs = await import('fs');
+    (vscode.workspace as any).workspaceFolders = [
+      { uri: { fsPath: '/workspace', toString: () => 'file:///workspace' } },
+    ];
+
+    activate({ subscriptions: [] } as any);
+
+    const syncCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.syncMcpConfig',
+    )?.[1];
+    expect(syncCmd).toBeInstanceOf(Function);
+
+    await syncCmd();
+
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    expect(fs.renameSync).toHaveBeenCalled();
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('MCP config synced'),
+    );
+  });
+
+  it('warns when no workspace folder is open', async () => {
+    (vscode.workspace as any).workspaceFolders = [];
+
+    activate({ subscriptions: [] } as any);
+
+    const syncCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.syncMcpConfig',
+    )?.[1];
+    await syncCmd();
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('No workspace folder open'),
+    );
+  });
+});
+
+describe('testModelSimplePrompt', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+  });
+
+  it('tests the vscode-lm provider and reports success', async () => {
+    mocks2.vscodeLmTestMock.mockResolvedValue({
+      success: true,
+      modelUsed: 'gpt-4o',
+      response: '{"greeting":"hello"}',
+    });
+
+    activate({ subscriptions: [], secrets: { get: vi.fn() } } as any);
+
+    const testCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',
+    )?.[1];
+    expect(testCmd).toBeInstanceOf(Function);
+
+    await testCmd();
+
+    expect(mocks2.vscodeLmTestMock).toHaveBeenCalled();
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('returned valid JSON'),
+    );
+  });
+
+  it('reports failure when vscode-lm provider returns garbled output', async () => {
+    mocks2.vscodeLmTestMock.mockResolvedValue({
+      success: false,
+      modelUsed: 'gpt-4o',
+      response: 'not json at all',
+    });
+
+    activate({ subscriptions: [], secrets: { get: vi.fn() } } as any);
+
+    const testCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',
+    )?.[1];
+    await testCmd();
+
+    expect(mocks2.vscodeLmTestMock).toHaveBeenCalled();
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('returned garbled'),
+    );
+  });
+
+  it('tests external provider (openrouter) with valid JSON response', async () => {
+    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'openrouter', model: 'gpt-4o' });
+    mocks2.mockExternalProvider.complete.mockResolvedValue({ text: '{"greeting":"hello"}', error: undefined });
+
+    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('test-key') } } as any);
+
+    const testCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',
+    )?.[1];
+    await testCmd();
+
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('returned valid JSON'),
+    );
+  });
+
+  it('reports error when external provider returns error string', async () => {
+    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'openrouter', model: 'gpt-4o' });
+    mocks2.mockExternalProvider.complete.mockResolvedValue({ text: '', error: 'rate limited' });
+
+    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('test-key') } } as any);
+
+    const testCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',
+    )?.[1];
+    await testCmd();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('rate limited'),
+    );
+  });
+
+  it('reports error when external provider has no API key', async () => {
+    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'githubModels', model: 'gpt-4o' });
+
+    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue(undefined) } } as any);
+
+    const testCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',
+    )?.[1];
+    await testCmd();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('no API key'),
+    );
+  });
+
+  it('reports error when external provider throws', async () => {
+    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'openrouter', model: 'gpt-4o' });
+    mocks2.mockExternalProvider.complete.mockRejectedValue(new Error('network timeout'));
+
+    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('test-key') } } as any);
+
+    const testCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',
+    )?.[1];
+    await testCmd();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('network timeout'),
+    );
+  });
+});
+
+describe('deactivate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+  });
+
+  it('cleans up extension state without throwing', () => {
+    expect(() => deactivate()).not.toThrow();
+  });
+});
+
+describe('event handler wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+  });
+
+  it('registers onDidChangeActiveTextEditor and calls setContext', () => {
+    const context = { subscriptions: [] as any[] } as any;
+    activate(context);
+
+    expect(mocks.onDidChangeActiveTextEditor).toHaveBeenCalled();
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      'setContext',
+      'skillsReviewAndPolish.isCustomization',
+      expect.any(Boolean),
+    );
+  });
+
+  it('registers onDidSaveTextDocument', () => {
+    const context = { subscriptions: [] as any[] } as any;
+    activate(context);
+
+    expect(mocks.onDidSaveTextDocument).toHaveBeenCalled();
+  });
+
+  it('registers onDidChangeTextDocument', () => {
+    const context = { subscriptions: [] as any[] } as any;
+    activate(context);
+
+    expect(mocks.onDidChangeTextDocument).toHaveBeenCalled();
+  });
+
+  it('registers onDidCloseTextDocument', () => {
+    const context = { subscriptions: [] as any[] } as any;
+    activate(context);
+
+    expect(vscode.workspace.onDidCloseTextDocument).toHaveBeenCalled();
+  });
+});
+
+describe('selectModel - edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+    mocks.activeTextEditor = undefined;
+    mocks.selectChatModels.mockResolvedValue([]);
+  });
+
+  it('hides picker when validation returns empty (model unavailable)', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const lmModels = [
+      { id: 'gpt-4o', name: 'GPT-4o', vendor: 'copilot' },
+    ];
+    mocks.selectChatModels
+      .mockResolvedValueOnce(lmModels)
+      .mockResolvedValueOnce([]); // validation: empty = unavailable
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ update } as any);
+
+    const pickedItem = { label: '🟢 GPT-4o', description: '', detail: '     gpt-4o · copilot', modelId: 'gpt-4o', name: 'GPT-4o' };
+    (vscode.window.createQuickPick as any).mockImplementation(() => ({
+      title: '', placeholder: '', items: [] as any[], selectedItems: [pickedItem], busy: false,
+      onDidAccept: vi.fn((cb: () => void) => { setTimeout(cb, 0); return { dispose: vi.fn() }; }),
+      onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+      onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+      show: vi.fn(), hide: vi.fn(), dispose: vi.fn(),
+    }));
+
+    activate({ subscriptions: [] } as any);
+
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel',
+    )?.[1];
+    await selectModelCommand();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('is not available'),
+    );
+  });
+
+  it('shows error when validation throws', async () => {
+    const lmModels = [
+      { id: 'gpt-4o', name: 'GPT-4o', vendor: 'copilot' },
+    ];
+    mocks.selectChatModels
+      .mockResolvedValueOnce(lmModels)
+      .mockRejectedValueOnce(new Error('network error'));
+
+    const pickedItem = { label: '🟢 GPT-4o', description: '', detail: '     gpt-4o · copilot', modelId: 'gpt-4o', name: 'GPT-4o' };
+    (vscode.window.createQuickPick as any).mockImplementation(() => ({
+      title: '', placeholder: '', items: [] as any[], selectedItems: [pickedItem], busy: false,
+      onDidAccept: vi.fn((cb: () => void) => { setTimeout(cb, 0); return { dispose: vi.fn() }; }),
+      onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+      onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+      show: vi.fn(), hide: vi.fn(), dispose: vi.fn(),
+    }));
+
+    activate({ subscriptions: [] } as any);
+
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel',
+    )?.[1];
+    await selectModelCommand();
+
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to validate model'),
+    );
+  });
+
+  it('filters out copilotcli models and warns when all filtered', async () => {
+    mocks.selectChatModels.mockResolvedValue([
+      { id: 'cli-1', name: 'CLI Model', vendor: 'copilotcli' },
+    ]);
+
+    activate({ subscriptions: [] } as any);
+
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel',
+    )?.[1];
+    await selectModelCommand();
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('No models available'),
+    );
+  });
+
+  it('sorts models by multiplier when config is set', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const lmModels = [
+      { id: 'model-b', name: 'Model B', vendor: 'copilot', pricing: '3x' },
+      { id: 'model-a', name: 'Model A', vendor: 'copilot', pricing: '1x' },
+    ];
+    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, pickerSortBy: 'multiplier' });
+    mocks.selectChatModels
+      .mockResolvedValueOnce(lmModels)
+      .mockResolvedValueOnce([{ id: 'model-a', name: 'Model A', vendor: 'copilot' }]);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ update } as any);
+
+    let capturedItems: any[] = [];
+    const pickedItem = { label: '🟢 Model A', description: '', detail: '     model-a · copilot', modelId: 'model-a', name: 'Model A' };
+    (vscode.window.createQuickPick as any).mockImplementation(() => {
+      const picker = {
+        title: '', placeholder: '', items: [] as any[], selectedItems: [pickedItem], busy: false,
+        onDidAccept: vi.fn((cb: () => void) => { setTimeout(cb, 0); return { dispose: vi.fn() }; }),
+        onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+        onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+        show: vi.fn(), hide: vi.fn(), dispose: vi.fn(),
+      };
+      Object.defineProperty(picker, 'items', {
+        set(val: any[]) { capturedItems = val; },
+        get() { return capturedItems; },
+      });
+      return picker;
+    });
+
+    activate({ subscriptions: [] } as any);
+
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel',
+    )?.[1];
+    await selectModelCommand();
+
+    // Model A (1x) should come before Model B (3x)
+    expect(capturedItems[0].name).toBe('Model A');
+    expect(capturedItems[1].name).toBe('Model B');
+  });
+
+  it('sorts models by name when config is set', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const lmModels = [
+      { id: 'z-model', name: 'Z Model', vendor: 'copilot' },
+      { id: 'a-model', name: 'A Model', vendor: 'copilot' },
+    ];
+    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, pickerSortBy: 'name' });
+    mocks.selectChatModels
+      .mockResolvedValueOnce(lmModels)
+      .mockResolvedValueOnce([{ id: 'a-model', name: 'A Model', vendor: 'copilot' }]);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ update } as any);
+
+    let capturedItems: any[] = [];
+    const pickedItem = { label: '🟢 A Model', description: '', detail: '     a-model · copilot', modelId: 'a-model', name: 'A Model' };
+    (vscode.window.createQuickPick as any).mockImplementation(() => {
+      const picker = {
+        title: '', placeholder: '', items: [] as any[], selectedItems: [pickedItem], busy: false,
+        onDidAccept: vi.fn((cb: () => void) => { setTimeout(cb, 0); return { dispose: vi.fn() }; }),
+        onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+        onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+        show: vi.fn(), hide: vi.fn(), dispose: vi.fn(),
+      };
+      Object.defineProperty(picker, 'items', {
+        set(val: any[]) { capturedItems = val; },
+        get() { return capturedItems; },
+      });
+      return picker;
+    });
+
+    activate({ subscriptions: [] } as any);
+
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel',
+    )?.[1];
+    await selectModelCommand();
+
+    expect(capturedItems[0].name).toBe('A Model');
+    expect(capturedItems[1].name).toBe('Z Model');
+  });
+
+  it('selectFixModel triggers with fixModel target', async () => {
+    activate({ subscriptions: [] } as any);
+
+    const selectFixModelCommand = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.selectFixModel',
+    )?.[1];
+    expect(selectFixModelCommand).toBeInstanceOf(Function);
+
+    await selectFixModelCommand();
+
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith('No language models available. Sign in to GitHub Copilot.');
+  });
+});
+
+describe('fixAll - unfixable issues', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+  });
+
+  it('shows info message when no fixable issues exist (empty results)', async () => {
+    mocks.activeTextEditor = {
+      document: {
+        uri: { fsPath: '/tmp/skill.md', toString: () => 'file:///tmp/skill.md' },
+        getText: vi.fn().mockReturnValue('test content'),
+      },
+    } as any;
+
+    activate({ subscriptions: [] } as any);
+
+    const fixAllCmd = mocks.registerCommand.mock.calls.find(
+      ([name]) => name === 'skillsReviewAndPolish.fixAll',
+    )?.[1];
+    await fixAllCmd();
+
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining('No auto-fixable issues'),
+    );
+  });
+});
+
+describe('inline rewrites config', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readConfig.mockReturnValue(DEFAULT_CONFIG);
+    mocks.isCustomizationPath.mockReturnValue(true);
+  });
+
+  it('enables inline rewrites when config says so', () => {
+    mocks.readConfig
+      .mockReturnValueOnce({ ...DEFAULT_CONFIG, inlineRewrites: true })
+      .mockReturnValue(DEFAULT_CONFIG);
+
+    const context = { subscriptions: [] as any[] } as any;
+    activate(context);
+
+    // Should have registered content provider + inline rewrite
+    expect(context.subscriptions.length).toBeGreaterThan(0);
   });
 });

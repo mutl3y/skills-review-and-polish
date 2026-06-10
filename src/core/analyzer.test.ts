@@ -13,15 +13,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Analyzer } from './analyzer';
+import { Analyzer, AnalysisHistoryStore } from './analyzer';
 import type { LlmProvider, LlmRequest, LlmResponse } from './types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Build an Analyzer backed by a custom mock provider function. */
-function makeAnalyzer(fn: (req: LlmRequest) => Promise<LlmResponse>): Analyzer {
+function makeAnalyzer(fn: (req: LlmRequest) => Promise<LlmResponse>, store?: AnalysisHistoryStore): Analyzer {
   const provider: LlmProvider = { complete: fn };
-  return new Analyzer(provider);
+  return new Analyzer(provider, store);
 }
 
 /** Default empty response for waves we don't care about in a given test. */
@@ -127,6 +127,55 @@ describe('extractJSON truncation salvage', () => {
 
   it('throws when nothing can be salvaged', () => {
     expect(() => extract('{"issues": [{"text": "only a partial first ob')).toThrow();
+  });
+
+  it('salvageTruncatedJSON returns undefined for text with no JSON at all', () => {
+    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }) }) as any).salvageTruncatedJSON;
+    expect(salvage('This is plain text with no JSON whatsoever.')).toBeUndefined();
+  });
+
+  it('salvageTruncatedJSON returns undefined for completely empty input', () => {
+    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }) }) as any).salvageTruncatedJSON;
+    expect(salvage('')).toBeUndefined();
+  });
+
+  it('returns undefined when array has no complete elements (truncated mid-first-element)', () => {
+    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }) }) as any).salvageTruncatedJSON;
+    // Truncated mid-string — parser stuck in inString mode, closing } never reached.
+    expect(salvage('{"hygiene_issues": [{"type": "dead')).toBeUndefined();
+  });
+
+  it('recovers complete element when truncation happens between elements', () => {
+    // First element is complete, truncation occurs after the comma separating elements.
+    const truncated =
+      '{"contradictions": [' +
+      '{"instruction1": "Be concise", "instruction2": "Explain in detail", "severity": "warning", "explanation": "These conflict"},' +
+      '{"instruction1": "second one that is trunc';
+    expect(extract(truncated)).toEqual({
+      contradictions: [{ instruction1: 'Be concise', instruction2: 'Explain in detail', severity: 'warning', explanation: 'These conflict' }],
+    });
+  });
+
+  it('recovers when truncation happens after a complete string value inside an object', () => {
+    // First element is complete (with closing `}`), truncation occurs inside the second element.
+    const truncated =
+      '{"coverage_gaps": [' +
+      '{"gap": "missing error handling", "impact": "high", "suggestion": "Add try-catch"},' +
+      '{"gap": "no output schema", "impact": ';
+    expect(extract(truncated)).toEqual({
+      coverage_gaps: [{ gap: 'missing error handling', impact: 'high', suggestion: 'Add try-catch' }],
+    });
+  });
+
+  it('recovers multiple keys from a truncated response', () => {
+    const truncated =
+      '{"contradictions": [{"instruction1": "A", "instruction2": "B", "severity": "warning", "explanation": "conflict"}],' +
+      '"ambiguity_issues": [{"text": "vague term", "severity": "info"}, {"text": ' +
+      '"trun';
+    expect(extract(truncated)).toEqual({
+      contradictions: [{ instruction1: 'A', instruction2: 'B', severity: 'warning', explanation: 'conflict' }],
+      ambiguity_issues: [{ text: 'vague term', severity: 'info' }],
+    });
   });
 });
 
@@ -466,9 +515,10 @@ describe('wave isolation', () => {
 // ─── Analysis history / loop detection ──────────────────────────────────────
 
 describe('analysis history and resilience', () => {
-  // Clear static shared history before each test
+  let store: AnalysisHistoryStore;
+
   beforeEach(() => {
-    (Analyzer as any).analysisHistory = new Map();
+    store = new AnalysisHistoryStore();
   });
 
   it('parses skill metadata and extracts domain keywords from frontmatter', () => {
@@ -486,11 +536,11 @@ describe('analysis history and resilience', () => {
   });
 
   it('returns no loop when history is empty or overlap is too low', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
 
     expect((analyzer as any).detectLoops('new.md', []).isLoop).toBe(false);
 
-    (Analyzer as any).analysisHistory.set('doc.md', {
+    store.set('doc.md', {
       uri: 'doc.md',
       recommendations: [{ timestamp: 1, issueCode: 'ambiguity-llm', relevantText: 'Use it carefully', issueHash: 'x', severity: 'warning', suggestion: 'Tighten it' }],
       lastFingerprint: 'fp',
@@ -512,13 +562,13 @@ describe('analysis history and resilience', () => {
     expect(deduped.filter((r: any) => r.code === 'ambiguity-llm')).toHaveLength(1);
   });
 
-  it('reads linked prompt files and ignores unreadable references', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+  it('reads linked prompt files and ignores unreadable references', async () => {
+    const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
     const linkedFile = path.join(dir, 'linked.prompt.md');
     fs.writeFileSync(linkedFile, 'Linked instructions body', 'utf8');
 
-    const linked = (analyzer as any).readLinkedPromptFiles(`[Local](./linked.prompt.md)\n[Missing](./missing.prompt.md)`, path.join(dir, 'main.prompt.md'));
+    const linked = await (analyzer as any).readLinkedPromptFiles(`[Local](./linked.prompt.md)\n[Missing](./missing.prompt.md)`, path.join(dir, 'main.prompt.md'));
 
     expect(linked).toHaveLength(1);
     expect(linked[0].target).toBe('./linked.prompt.md');
@@ -527,12 +577,12 @@ describe('analysis history and resilience', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('rejects linked prompt files with path traversal (..)', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+  it('rejects linked prompt files with path traversal (..)', async () => {
+    const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
     const mainFile = path.join(dir, 'main.prompt.md');
 
-    const linked = (analyzer as any).readLinkedPromptFiles(
+    const linked = await (analyzer as any).readLinkedPromptFiles(
       `[Evil](../etc/passwd.prompt.md)`,
       mainFile,
     );
@@ -541,12 +591,12 @@ describe('analysis history and resilience', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('rejects linked prompt files with absolute paths', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+  it('rejects linked prompt files with absolute paths', async () => {
+    const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
     const mainFile = path.join(dir, 'main.prompt.md');
 
-    const linked = (analyzer as any).readLinkedPromptFiles(
+    const linked = await (analyzer as any).readLinkedPromptFiles(
       `[Evil](/etc/passwd.prompt.md)`,
       mainFile,
     );
@@ -555,8 +605,8 @@ describe('analysis history and resilience', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('rejects linked prompt files that are symlinks', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+  it('rejects linked prompt files that are symlinks', async () => {
+    const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
     const realFile = path.join(dir, 'real.prompt.md');
     fs.writeFileSync(realFile, 'secret', 'utf8');
@@ -564,7 +614,7 @@ describe('analysis history and resilience', () => {
     fs.symlinkSync(realFile, symlinkFile);
     const mainFile = path.join(dir, 'main.prompt.md');
 
-    const linked = (analyzer as any).readLinkedPromptFiles(
+    const linked = await (analyzer as any).readLinkedPromptFiles(
       `[Trick](./trick.prompt.md)`,
       mainFile,
     );
@@ -573,8 +623,8 @@ describe('analysis history and resilience', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('rejects linked prompt files that resolve outside the skill directory', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+  it('rejects linked prompt files that resolve outside the skill directory', async () => {
+    const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
     const subDir = path.join(dir, 'sub');
     fs.mkdirSync(subDir);
@@ -584,7 +634,7 @@ describe('analysis history and resilience', () => {
     const outsideFile = path.join(dir, 'outside.prompt.md');
     fs.writeFileSync(outsideFile, 'escaped content', 'utf8');
 
-    const linked = (analyzer as any).readLinkedPromptFiles(
+    const linked = await (analyzer as any).readLinkedPromptFiles(
       `[Outside](../outside.prompt.md)`,
       mainFile,
     );
@@ -603,9 +653,9 @@ describe('analysis history and resilience', () => {
   });
 
   it('flags repeated recommendations as a loop using stored history', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
 
-    (Analyzer as any).analysisHistory.set('doc.md', {
+    store.set('doc.md', {
       uri: 'doc.md',
       recommendations: [
         {
@@ -637,11 +687,11 @@ describe('analysis history and resilience', () => {
   });
 
   it('updates stored history fingerprints across analyzes', async () => {
-    const analyzer = makeAnalyzer(async () => ({ text: EMPTY_RESPONSE }));
+    const analyzer = makeAnalyzer(async () => ({ text: EMPTY_RESPONSE }), store);
 
     await analyzer.analyze({ text: 'Be concise.', filePath: '/tmp/doc.md' });
 
-    const history = (Analyzer as any).analysisHistory.get('/tmp/doc.md');
+    const history = store.get('/tmp/doc.md')!;
 
     expect(history).toBeDefined();
     expect(history.recommendations.length).toBeGreaterThanOrEqual(0);
@@ -649,7 +699,7 @@ describe('analysis history and resilience', () => {
   });
 
   it('second analyze call on same doc does not throw', async () => {
-    const analyzer = makeAnalyzer(async () => ({ text: EMPTY_RESPONSE }));
+    const analyzer = makeAnalyzer(async () => ({ text: EMPTY_RESPONSE }), store);
 
     await analyzer.analyze({ text: 'You are a helpful assistant.', filePath: '/test/doc.md' });
     await expect(analyzer.analyze({ text: 'You are a helpful assistant.', filePath: '/test/doc.md' })).resolves.toBeDefined();
@@ -657,7 +707,7 @@ describe('analysis history and resilience', () => {
 
   it('analyze calls provider multiple times (one per wave)', async () => {
     const mockFn = vi.fn().mockResolvedValue({ text: EMPTY_RESPONSE });
-    const analyzer = new Analyzer({ complete: mockFn });
+    const analyzer = new Analyzer({ complete: mockFn }, store);
 
     await analyzer.analyze({ text: 'You are an assistant.' });
     expect(mockFn.mock.calls.length).toBeGreaterThan(1);

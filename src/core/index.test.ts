@@ -27,7 +27,11 @@ describe('Engine', () => {
 
     const results = await engine.analyze({ text: 'Use this carefully.', filePath: '/tmp/test.md' });
 
-    expect(spy).toHaveBeenCalledWith({ text: 'Use this carefully.', filePath: '/tmp/test.md' }, undefined);
+    expect(spy).toHaveBeenCalledWith(
+      { text: 'Use this carefully.', filePath: '/tmp/test.md' },
+      undefined,
+      ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+    );
     expect(results).toHaveLength(1);
     expect(results[0].code).toBe('ambiguity-llm');
   });
