@@ -384,13 +384,17 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
         `Skills Review: provider is "${cfg.provider}" but no API key is stored. ` +
           'Run "Skills Review: Set API Key" first, or switch provider to "vscode-lm".',
       );
+      // When falling back to vscode-lm, clear the non-Copilot model name
+      // so VsCodeLmProvider auto-selects a valid Copilot model instead.
       const vscodeLmProvider = new VsCodeLmProvider(
-        cfg.model,
-        cfg.deepModel || cfg.model,
+        '',  // let vscode-lm auto-select a Copilot model
+        '',
       );
       state!.currentVsCodeLmProvider = vscodeLmProvider;
+      // Use a different hash so stale cached engines aren't reused
+      const fallbackHash = hash + ':fallback-vscodelm';
       state!.cachedEngine = new Engine(vscodeLmProvider, cfg);
-      state!.cachedEngineConfigHash = hash;
+      state!.cachedEngineConfigHash = fallbackHash;
       return state!.cachedEngine;
     }
     const model = cfg.fixModel || cfg.model || '';

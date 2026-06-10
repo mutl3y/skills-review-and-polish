@@ -159,9 +159,12 @@ describe('scoreSkill', () => {
   });
 
   it('reports incomplete flag correctly', () => {
-    const clean = scoreSkill([], 40, 'standard');
-    expect(clean.incomplete).toBe(false);
+    // Empty results = analysis didn't happen → incomplete
+    const empty = scoreSkill([], 40, 'standard');
+    expect(empty.incomplete).toBe(true);
+    expect(empty.grade).toBe('Ungraded');
 
+    // With errors → incomplete
     const errored = scoreSkill([makeResult('llm-error', 'warning')], 40, 'standard');
     expect(errored.incomplete).toBe(true);
   });

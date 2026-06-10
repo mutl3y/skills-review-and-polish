@@ -125,6 +125,31 @@ export function scoreSkill(
   lineCount: number,
   skillType: SkillType = 'standard',
 ): ScoreResult {
+  // Length penalty (needed even for empty results)
+  const lengthTier = LENGTH_TIERS.find(t => lineCount <= t.max)!;
+  const THRESHOLD_OFFSETS: Record<SkillType, number> = { simple: 0, standard: 0, workflow: 10, meta: 15 };
+  const thresholdOffset = THRESHOLD_OFFSETS[skillType];
+
+  // Empty results = nothing was analyzed (all waves failed or rate-limited)
+  // You can't grade what wasn't analyzed.
+  if (results.length === 0) {
+    return {
+      score: 0,
+      grade: 'Ungraded' as GradeLetter,
+      issuePenalty: 0,
+      lengthPenalty: lengthTier.penalty,
+      lengthLabel: lengthTier.label,
+      lineCount,
+      pillars: { Contradictions: 0, Clarity: 0, Completeness: 0, Structure: 0, Other: 0 },
+      skillType,
+      thresholdOffset,
+      total: 0,
+      incomplete: true,
+      infraErrorCount: 0,
+      rateLimitedWaveCount: 0,
+    };
+  }
+
   // Detect incomplete analysis — wave failures, parse errors, disabled LLM
   const incomplete = results.some(r => INCOMPLETE_ANALYSIS_CODES.has(r.code));
   const infraErrorCount = results.filter(r => INCOMPLETE_ANALYSIS_CODES.has(r.code)).length;
@@ -147,11 +172,8 @@ export function scoreSkill(
     0,
   );
 
-  const lengthTier = LENGTH_TIERS.find(t => lineCount <= t.max)!;
   const score = Math.max(0, 100 - issuePenalty - lengthTier.penalty);
 
-  const THRESHOLD_OFFSETS: Record<SkillType, number> = { simple: 0, standard: 0, workflow: 10, meta: 15 };
-  const thresholdOffset = THRESHOLD_OFFSETS[skillType];
   const gradeEntry = GRADE_THRESHOLDS.find(t => score >= t.minOffset - thresholdOffset) ?? GRADE_THRESHOLDS[GRADE_THRESHOLDS.length - 1];
   let grade = gradeEntry.grade;
 
