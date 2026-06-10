@@ -459,12 +459,17 @@ export function createMcpToolRegistry({
         {
           name: 'analyze',
           description:
-            'Analyze a skill, instructions, or prompt document for quality issues. Runs 6 focused analysis waves: contradictions, ambiguities, persona conflicts, structural/cognitive issues, coverage gaps, and hygiene problems. Returns a JSON array of diagnostics, each with: code (e.g. "ambiguity-llm", "contradiction", "coverage-gap"), severity (error/warning/info), message, range, and optional suggestion. Use "score" to get an overall quality grade. Use "fix" to attempt surgical repair of fixable issues (only 5 codes are fixable: ambiguity-llm, contradiction, hygiene-redundant-instruction, hygiene-unordered-process, hygiene-over-specification).',
+            'Analyze a skill, instructions, or prompt document for quality issues. Runs 6 focused analysis waves: contradictions, ambiguities, persona conflicts, structural/cognitive issues, coverage gaps, and hygiene problems. Returns a JSON array of diagnostics, each with: code (e.g. "ambiguity-llm", "contradiction", "coverage-gap"), severity (error/warning/info), message, range, and optional suggestion. Use "score" to get an overall quality grade. Use "fix" to attempt surgical repair of fixable issues (only 5 codes are fixable: ambiguity-llm, contradiction, hygiene-redundant-instruction, hygiene-unordered-process, hygiene-over-specification). Optional "enabledWaves" parameter allows selecting specific analysis categories.',
           inputSchema: {
             type: 'object',
             properties: {
               text: { type: 'string', description: 'Full document text to analyze.' },
               filePath: { type: 'string', description: 'Optional file path for context.' },
+              enabledWaves: {
+                type: 'array',
+                items: { type: 'string', enum: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'] },
+                description: 'Optional: which analysis waves to run. If omitted, all waves are enabled.',
+              },
             },
             required: ['text'],
           },
@@ -575,7 +580,7 @@ export function createMcpServer(options: McpToolRegistryOptions = {}) {
   const registry = createMcpToolRegistry(options);
 
   const server = new Server(
-    { name: 'skills-review-and-polish', version: '0.0.1' },
+    { name: 'skills-review-and-polish', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
 

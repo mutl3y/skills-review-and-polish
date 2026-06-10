@@ -209,9 +209,10 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   context.subscriptions.push(setupConfigWatcher());
+  const extVersion = context.extension?.packageJSON?.version ?? 'unknown';
   log('info', cfg.logLevel === 'debug'
-    ? `Extension activated — log level: ${cfg.logLevel}, log file: ${state.logFilePath ?? '(none)'}`
-    : `Extension activated — log level: ${cfg.logLevel}`);
+    ? `Extension activated — version: ${extVersion}, log level: ${cfg.logLevel}, log file: ${state.logFilePath ?? '(none)'}`
+    : `Extension activated — version: ${extVersion}, log level: ${cfg.logLevel}`);
 
   const docSelector: vscode.DocumentFilter[] = [{ language: 'markdown' }];
 
