@@ -25,6 +25,10 @@ export interface ScoreResult {
   skillType: SkillType;
   thresholdOffset: number;
   total: number;
+  /** True when wave failures or parse errors prevented full analysis. */
+  incomplete: boolean;
+  /** Number of infrastructure errors (llm-error, llm-parse-error, llm-disabled). */
+  infraErrorCount: number;
 }
 
 // ─── Infrastructure codes (excluded from scoring) ─────────────────────────────
@@ -93,18 +97,36 @@ export function classifyCode(code: string): CodePillar | null {
 }
 
 /**
+ * Codes that indicate analysis was incomplete or failed.
+ * When present, the score should be capped — you can't grade what wasn't analyzed.
+ */
+const INCOMPLETE_ANALYSIS_CODES = new Set([
+  'llm-error', 'llm-parse-error', 'llm-disabled',
+]);
+
+/** Maximum grade when analysis is incomplete. */
+const INCOMPLETE_GRADE_CAP = 'B-';
+
+/**
  * Compute the quality score, grade and pillar breakdown for a skill file.
  *
  * Formula: score = 100 − issuePenalty − lengthPenalty (clamped to 0).
  * Issue penalty: error×15  warning×6  info×2  hint×1.
  * Length penalty: tiered by line count (see LENGTH_TIERS above).
  * Grade thresholds shift −10 (workflow) or −15 (meta) for complex skill types.
+ *
+ * When wave failures or parse errors are present, the grade is capped at B-
+ * to prevent misleading A grades on incomplete analysis.
  */
 export function scoreSkill(
   results: AnalysisResult[],
   lineCount: number,
   skillType: SkillType = 'standard',
 ): ScoreResult {
+  // Detect incomplete analysis — wave failures, parse errors, disabled LLM
+  const incomplete = results.some(r => INCOMPLETE_ANALYSIS_CODES.has(r.code));
+  const infraErrorCount = results.filter(r => INCOMPLETE_ANALYSIS_CODES.has(r.code)).length;
+
   // workflow / meta: cognitive-structure findings downgraded warning→info.
   const cognitiveDowngrade =
     skillType === 'workflow' || skillType === 'meta'
@@ -126,7 +148,17 @@ export function scoreSkill(
   const THRESHOLD_OFFSETS: Record<SkillType, number> = { simple: 0, standard: 0, workflow: 10, meta: 15 };
   const thresholdOffset = THRESHOLD_OFFSETS[skillType];
   const gradeEntry = GRADE_THRESHOLDS.find(t => score >= t.minOffset - thresholdOffset) ?? GRADE_THRESHOLDS[GRADE_THRESHOLDS.length - 1];
-  const grade = gradeEntry.grade;
+  let grade = gradeEntry.grade;
+
+  // Cap grade when analysis is incomplete — don't show A/A+ when waves failed.
+  // Grade comparison uses threshold index (higher index = better grade).
+  if (incomplete) {
+    const capIdx = GRADE_THRESHOLDS.findIndex(t => t.grade === INCOMPLETE_GRADE_CAP);
+    const gradeIdx = GRADE_THRESHOLDS.findIndex(t => t.grade === grade);
+    if (capIdx >= 0 && gradeIdx >= 0 && gradeIdx < capIdx) {
+      grade = INCOMPLETE_GRADE_CAP;
+    }
+  }
 
   const pillars: Record<CodePillar, number> = {
     Contradictions: 0, Clarity: 0, Completeness: 0, Structure: 0, Other: 0,
@@ -147,5 +179,7 @@ export function scoreSkill(
     skillType,
     thresholdOffset,
     total: scored.length,
+    incomplete,
+    infraErrorCount,
   };
 }

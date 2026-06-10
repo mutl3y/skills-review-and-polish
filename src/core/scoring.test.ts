@@ -117,4 +117,52 @@ describe('scoreSkill', () => {
     expect(workflow.grade).toBe('A+');
     expect(meta.grade).toBe('A+');
   });
+
+  it('caps grade at B- when llm-error is present (incomplete analysis)', () => {
+    const result = scoreSkill([
+      makeResult('llm-error', 'warning'),
+    ], 40, 'standard');
+
+    expect(result.incomplete).toBe(true);
+    expect(result.infraErrorCount).toBe(1);
+    expect(result.grade).toBe('B-');
+  });
+
+  it('caps grade at B- when llm-parse-error is present', () => {
+    const result = scoreSkill([
+      makeResult('llm-parse-error', 'warning'),
+    ], 40, 'standard');
+
+    expect(result.incomplete).toBe(true);
+    expect(result.grade).toBe('B-');
+  });
+
+  it('caps grade at B- when multiple wave failures occurred', () => {
+    const result = scoreSkill([
+      makeResult('llm-error', 'warning'),
+      makeResult('llm-error', 'warning'),
+      makeResult('llm-error', 'warning'),
+    ], 40, 'standard');
+
+    expect(result.incomplete).toBe(true);
+    expect(result.infraErrorCount).toBe(3);
+    expect(result.grade).toBe('B-');
+  });
+
+  it('does NOT cap grade when analysis is complete (no llm-error)', () => {
+    const result = scoreSkill([
+      makeResult('ambiguity-llm', 'info'),
+    ], 40, 'standard');
+
+    expect(result.incomplete).toBe(false);
+    expect(result.grade).toBe('A+');
+  });
+
+  it('reports incomplete flag correctly', () => {
+    const clean = scoreSkill([], 40, 'standard');
+    expect(clean.incomplete).toBe(false);
+
+    const errored = scoreSkill([makeResult('llm-error', 'warning')], 40, 'standard');
+    expect(errored.incomplete).toBe(true);
+  });
 });

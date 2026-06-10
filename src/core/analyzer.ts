@@ -375,18 +375,17 @@ export class Analyzer {
     const composedParts = [input.text];
     let totalSize = input.text.length;
 
+    // Generate a random delimiter per analysis session to prevent prompt injection.
+    // An attacker who knows the delimiter can craft content that breaks out of the
+    // data zone and injects instructions. Random UUIDs make this infeasible.
+    const anchorId = crypto.randomUUID();
+    const anchorOpen = `<DOC_${anchorId}>`;
+    const anchorClose = `</DOC_${anchorId}>`;
+
     for (const { target, content } of linkedTexts) {
       if (totalSize >= Analyzer.MAX_COMPOSED_SIZE) break;
-      // NOTE: Tag-based delimiter defense is a weak guard against crafted content.
-      // A determined attacker could include closing tags in their document to inject
-      // instructions. This is a known limitation — the threat model assumes non-hostile
-      // documents (the user controls their own skill files). For hostile-input scenarios,
-      // consider a randomized delimiter or a different isolation strategy.
-      const sanitized = content
-        .split('<DOCUMENT_TO_ANALYZE>').join('')
-        .split('</DOCUMENT_TO_ANALYZE>').join('');
       const remaining = Analyzer.MAX_COMPOSED_SIZE - totalSize;
-      const text = sanitized.length > remaining ? sanitized.slice(0, remaining) : sanitized;
+      const text = content.length > remaining ? content.slice(0, remaining) : content;
       composedParts.push(`\n\n--- begin ${target} ---\n${text}\n--- end ${target} ---\n`);
       totalSize += text.length;
     }
@@ -394,6 +393,8 @@ export class Analyzer {
     const composedText = composedParts.join('\n');
     const prompt = loadPromptTemplate('composition-conflicts', {
       COMPOSED_TEXT: composedText,
+      ANCHOR_OPEN: anchorOpen,
+      ANCHOR_CLOSE: anchorClose,
     });
 
     const response = await this.callLLM(prompt, undefined, undefined, token);
@@ -675,6 +676,24 @@ export class Analyzer {
       const bestLine = this.pickNearestLine(exactMatches, hintLine);
       const col = lines[bestLine].toLowerCase().indexOf(lowerSearch);
       return { line: bestLine, startChar: col, endChar: col + searchText.length };
+    }
+
+    // Fuzzy fallback: try progressively shorter substrings (first 50%, 25%, 20 chars)
+    // to handle LLM paraphrasing where relevant_text doesn't exactly appear in the document.
+    const minLen = 15;
+    for (let len = Math.floor(searchText.length / 2); len >= minLen; len = Math.floor(len * 0.6)) {
+      const fragment = searchText.slice(0, len).toLowerCase();
+      const fragmentMatches: number[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().indexOf(fragment) !== -1) {
+          fragmentMatches.push(i);
+        }
+      }
+      if (fragmentMatches.length > 0) {
+        const bestLine = this.pickNearestLine(fragmentMatches, hintLine);
+        const col = lines[bestLine].toLowerCase().indexOf(fragment);
+        return { line: bestLine, startChar: col, endChar: col + len };
+      }
     }
 
     // Partial word match — collect candidates, then pick nearest to hintLine.
