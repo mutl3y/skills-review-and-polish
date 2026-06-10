@@ -54,3 +54,6 @@ yarn-error.log*
 AGENTS.md
 test-results
 *.accepted-findings.json
+
+# Playwright auth state (encrypted browser session data — developer-specific)
+tests/e2e/auth-state/

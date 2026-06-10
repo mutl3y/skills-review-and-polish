@@ -8,9 +8,11 @@
  * Prerequisites:
  *   - VS Code web ext host running on port 9200
  *   - Extension activated (model picker commands registered)
+ *   - Auth state captured (run: node tests/e2e/capture-auth.ts, then fill in values)
  */
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, BrowserContext } from '@playwright/test';
 import { readFileSync } from 'fs';
+import { loadAuthState, hasAuthState } from './setup';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -19,10 +21,8 @@ const TOKEN_FILE = process.env.VSCODE_TOKEN_FILE ?? '/home/vscode/.vscode-token'
 const FOLDER = '/workspace/skills-review-and-polish';
 const VSCODE_URL = `${BASE_URL}/?folder=${encodeURIComponent(FOLDER)}`;
 
-// Fixture with 15 known contradictions — enough to verify detection works
-const FIXTURE_PATH = '/workspace/skills-review-and-polish/tests/fixtures/primary/test-contradictions-direct/SKILL.md';
-
 let page: Page;
+let context: BrowserContext;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -60,40 +60,42 @@ async function runCommand(page: Page, command: string) {
   await page.keyboard.press('Enter');
 }
 
-async function openFileViaCommand(page: Page, filePath: string) {
-  await openCommandPalette(page);
-  await page.fill('.quick-input-box input', '> Go to File');
-  await page.waitForSelector('.quick-input-box input', { timeout: 1_000 });
-  // Type the relative path from the workspace root
-  const relPath = filePath.replace(FOLDER + '/', '');
-  await page.fill('.quick-input-box input', relPath);
-  const item = page.locator('.quick-input-list .monaco-list-row', { hasText: 'SKILL.md' });
-  await expect(item.first()).toBeVisible({ timeout: 3_000 });
-  await page.keyboard.press('Enter');
-}
-
-async function openFileDirectly(page: Page, filePath: string) {
-  // Use the file system API via the Go to File palette
-  await openCommandPalette(page);
-  const relPath = filePath.replace(FOLDER + '/', '');
-  await page.fill('.quick-input-box input', relPath);
-  // Wait for the file to appear in the list
-  await page.waitForSelector('.quick-input-list .monaco-list-row', { timeout: 3_000 });
-  await page.keyboard.press('Enter');
-}
-
 // ── setup / teardown ─────────────────────────────────────────────────────────
 
 test.beforeAll(async ({ browser }) => {
-  page = await browser.newPage();
-  const token = readFileSync(TOKEN_FILE, 'utf8').trim();
-  await page.goto(`${BASE_URL}/?tkn=${token}`, { waitUntil: 'domcontentloaded', timeout: 10_000 });
+  // Create context with auth state if available
+  context = await browser.newContext();
+
+  // Load browser auth state (cookies + localStorage) for Copilot testing.
+  // This enables ServerKeyedAESCrypto so extension secrets (including
+  // Copilot OAuth tokens) are decrypted from browser localStorage.
+  if (hasAuthState()) {
+    await loadAuthState(context);
+    console.log('[test] Auth state loaded — Copilot should be available');
+  } else {
+    console.log('[test] No auth state found — Copilot may not work. Run: node tests/e2e/capture-auth.ts');
+  }
+
+  page = await context.newPage();
+
+  // Navigate to the ext host — the connection token is still required
+  // for VS Code Server access (separate from Copilot auth)
+  let token = '';
+  try {
+    token = readFileSync(TOKEN_FILE, 'utf8').trim();
+  } catch {
+    // Token file may not exist in all environments
+  }
+
+  const url = token ? `${BASE_URL}/?tkn=${token}` : BASE_URL;
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10_000 });
   await page.goto(VSCODE_URL, { waitUntil: 'domcontentloaded', timeout: 15_000 });
   await waitForVSCode(page);
 });
 
 test.afterAll(async () => {
   await page?.close();
+  await context?.close();
 });
 
 // ── tests ────────────────────────────────────────────────────────────────────
