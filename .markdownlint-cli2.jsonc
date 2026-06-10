@@ -1,6 +1,6 @@
 {
   "globs": ["docs/**/*.md"],
-  "ignores": ["src/core/prompts/**"],
+  "ignores": ["src/core/prompts/**", "docs/plan/archive/**"],
   "config": {
     "default": true,
     "MD013": false,

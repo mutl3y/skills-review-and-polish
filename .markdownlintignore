@@ -1,3 +1,5 @@
 LICENSE
 tests/test-results/
 test/fixtures/
+# Archived plan files are historical records — keep original formatting
+docs/plan/archive/

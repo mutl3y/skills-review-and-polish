@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Skills Review: Sync MCP Config` command — writes `.skills-review.json` from current settings
 - MCP server integration tests — real end-to-end MCP protocol tests using `InMemoryTransport`
 - Enriched MCP tool descriptions with fixable codes, recommended workflow, and input schemas
-- MCP improvement plan with 6 identified problems and fixes (`docs/plan/MCP-IMPROVEMENT-PLAN.md`)
+- MCP improvement plan with 6 identified problems and fixes (`docs/plan/archive/infrastructure/MCP-IMPROVEMENT-PLAN.md`)
 
 ### Changed
 

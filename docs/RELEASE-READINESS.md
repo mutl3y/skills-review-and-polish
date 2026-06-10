@@ -5,7 +5,7 @@
 All validation gates have been completed and verified. The project is ready for a controlled beta/pre-release to the VS Code Marketplace.
 
 **Release Status:** `v0.0.1-beta` — June 4, 2026  
-**Verification:** See [plan/RELEASE-IMPLEMENTATION-PLAN.md](plan/RELEASE-IMPLEMENTATION-PLAN.md#release-ready-confirmation-june-4-2026) for detailed gate results.
+**Verification:** See [plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md](plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md#release-ready-confirmation-june-4-2026) for detailed gate results.
 
 ## What's Verified ✅
 
@@ -26,7 +26,7 @@ All validation gates have been completed and verified. The project is ready for 
 
 ## Next Steps
 
-See [plan/RELEASE-IMPLEMENTATION-PLAN.md#next-steps-for-formal-release](plan/RELEASE-IMPLEMENTATION-PLAN.md#next-steps-for-formal-release) for formal release procedures:
+See [plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md#next-steps-for-formal-release](plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md#next-steps-for-formal-release) for formal release procedures:
 
 1. Tag commit as `v0.0.1-beta.1`
 2. Publish to VS Code Marketplace (beta/pre-release only)
