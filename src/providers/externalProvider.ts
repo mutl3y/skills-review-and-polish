@@ -83,7 +83,7 @@ async function fetchWithRetry(
       lastError = String(e).replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
     }
   }
-  return { text: '', error: lastError };
+  return { text: '', error: lastError, isRateLimit: isRateLimitError(lastError) };
 }
 
 /** Pull the assistant text from a chat-completions response payload. */
@@ -198,6 +198,14 @@ function getApiError(resp: Record<string, unknown>): ApiError | undefined {
 function isRetryable(code: number | string | undefined): boolean {
   const n = Number(code);
   return n === 429 || n === 500 || n === 502 || n === 503 || n === 504;
+}
+
+/** Check if an error message indicates rate limiting. */
+function isRateLimitError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return lower.includes('rate limit') || lower.includes('429') || lower.includes('too many requests')
+    || lower.includes('userconcurrentrequests') || lower.includes('userbymodelbyminute')
+    || lower.includes('exceeded');
 }
 
 /** Status codes that should never be retried — client errors are permanent. */

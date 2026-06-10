@@ -118,26 +118,26 @@ describe('scoreSkill', () => {
     expect(meta.grade).toBe('A+');
   });
 
-  it('caps grade at B- when llm-error is present (incomplete analysis)', () => {
+  it('caps grade at Ungraded when llm-error is present (incomplete analysis)', () => {
     const result = scoreSkill([
       makeResult('llm-error', 'warning'),
     ], 40, 'standard');
 
     expect(result.incomplete).toBe(true);
     expect(result.infraErrorCount).toBe(1);
-    expect(result.grade).toBe('B-');
+    expect(result.grade).toBe('Ungraded');
   });
 
-  it('caps grade at B- when llm-parse-error is present', () => {
+  it('caps grade at Ungraded when llm-parse-error is present', () => {
     const result = scoreSkill([
       makeResult('llm-parse-error', 'warning'),
     ], 40, 'standard');
 
     expect(result.incomplete).toBe(true);
-    expect(result.grade).toBe('B-');
+    expect(result.grade).toBe('Ungraded');
   });
 
-  it('caps grade at B- when multiple wave failures occurred', () => {
+  it('caps grade at Ungraded when multiple wave failures occurred', () => {
     const result = scoreSkill([
       makeResult('llm-error', 'warning'),
       makeResult('llm-error', 'warning'),
@@ -146,7 +146,7 @@ describe('scoreSkill', () => {
 
     expect(result.incomplete).toBe(true);
     expect(result.infraErrorCount).toBe(3);
-    expect(result.grade).toBe('B-');
+    expect(result.grade).toBe('Ungraded');
   });
 
   it('does NOT cap grade when analysis is complete (no llm-error)', () => {

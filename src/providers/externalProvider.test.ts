@@ -51,7 +51,7 @@ describe('OpenRouterProvider', () => {
     const provider = new OpenRouterProvider({ apiKey: 'token', model: 'openai/gpt-4o-mini', maxRetries: 2 });
     const result = await provider.complete({ prompt: 'p', systemPrompt: 's' });
 
-    expect(result).toEqual({ text: '', error: 'bad request' });
+    expect(result).toEqual({ text: '', error: 'bad request', isRateLimit: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -130,7 +130,7 @@ describe('GitHubModelsProvider', () => {
     const provider = new GitHubModelsProvider({ apiKey: 'token', model: 'gpt-4o-mini', maxRetries: 2 });
     const result = await provider.complete({ prompt: 'p', systemPrompt: 's' });
 
-    expect(result).toEqual({ text: '', error: 'invalid model' });
+    expect(result).toEqual({ text: '', error: 'invalid model', isRateLimit: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

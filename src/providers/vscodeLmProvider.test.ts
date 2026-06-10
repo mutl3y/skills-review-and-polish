@@ -616,7 +616,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
-      expect(result).toEqual({ text: '{}', error: 'Model returned empty response object' });
+      expect(result).toEqual({ text: '{}', error: 'Model returned empty response object', isRateLimit: false });
     });
 
     it('returns an error when the model request itself fails', async () => {
@@ -628,7 +628,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
-      expect(result).toEqual({ text: '{}', error: expect.stringContaining('vscode.lm request failed') });
+      expect(result).toEqual({ text: '{}', error: expect.stringContaining('vscode.lm request failed'), isRateLimit: false });
     });
 
     it('uses a cached model without reselecting when complete() runs', async () => {

@@ -17,6 +17,14 @@ interface ErrorProneResponse {
   error?: string;
 }
 
+/** Check if an error message indicates rate limiting (Copilot or generic). */
+function isRateLimitError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return lower.includes('rate limit') || lower.includes('429') || lower.includes('too many requests')
+    || lower.includes('userconcurrentrequests') || lower.includes('userbymodelbyminute')
+    || lower.includes('exceeded');
+}
+
 /**
  * Default provider — wraps VS Code's Language Model API (`vscode.lm`).
  * No API keys: uses the user's Copilot subscription.
@@ -137,7 +145,7 @@ export class VsCodeLmProvider implements LlmProvider {
     return models.find((model) => model.vendor === 'copilot');
   }
 
-  private async collectStreamText(response: { stream: AsyncIterable<unknown>; text?: unknown }): Promise<{ text: string; error?: string }> {
+  private async collectStreamText(response: { stream: AsyncIterable<unknown>; text?: unknown }): Promise<{ text: string; error?: string; isRateLimit?: boolean }> {
     let text = '';
     let partNum = 0;
 
@@ -161,12 +169,12 @@ export class VsCodeLmProvider implements LlmProvider {
     } catch (iterErr) {
       const errMsg = iterErr instanceof Error ? iterErr.message : String(iterErr);
       this.log.info('stream iteration error', { error: errMsg, textSoFar: text.length });
-      return { text: '{}', error: `Failed to iterate response: ${errMsg}` };
+      return { text: '{}', error: `Failed to iterate response: ${errMsg}`, isRateLimit: isRateLimitError(errMsg) };
     }
 
     if (!text) {
       this.log.info('empty response after iteration', { partsReceived: partNum });
-      return { text: '{}', error: 'Model returned empty text response' };
+      return { text: '{}', error: 'Model returned empty text response', isRateLimit: false };
     }
 
     return { text };
@@ -214,7 +222,7 @@ export class VsCodeLmProvider implements LlmProvider {
 
     if (!model) {
       this.log.info('complete: no model available', { tier });
-      return { text: '{}', error: 'No language models available — sign in to GitHub Copilot.' };
+      return { text: '{}', error: 'No language models available — sign in to GitHub Copilot.', isRateLimit: false };
     }
 
     this.log.debug('complete: using model', { vendor: model.vendor, family: model.family, name: model.name });
@@ -246,7 +254,7 @@ export class VsCodeLmProvider implements LlmProvider {
       // Handle async iterable response
       if (!response.text) {
         this.log.info('complete: response.text is falsy');
-        return { text: '{}', error: 'Model returned empty response object' };
+        return { text: '{}', error: 'Model returned empty response object', isRateLimit: false };
       }
 
       const streamed = await this.collectStreamText(response as { stream: AsyncIterable<unknown>; text?: unknown });
@@ -278,7 +286,7 @@ export class VsCodeLmProvider implements LlmProvider {
       try {
         const freshModel = await this.selectModel(modelIdRequested);
         if (!freshModel) {
-          return { text: '{}', error: `Retry failed: no model available after cache invalidation. Original: ${message}` };
+          return { text: '{}', error: `Retry failed: no model available after cache invalidation. Original: ${message}`, isRateLimit: isRateLimitError(message) };
         }
 
         this.log.debug('complete: retrying with fresh model', { vendor: freshModel.vendor, name: freshModel.name });
@@ -291,7 +299,7 @@ export class VsCodeLmProvider implements LlmProvider {
             retryCts.token,
           );
           if (!retryResponse.text) {
-            return { text: '{}', error: 'Retry: model returned empty response object' };
+            return { text: '{}', error: 'Retry: model returned empty response object', isRateLimit: false };
           }
           const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
           if (retryStreamed.error) {
@@ -306,7 +314,7 @@ export class VsCodeLmProvider implements LlmProvider {
       } catch (retryErr) {
         const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
         this.log.info('complete: retry also failed', { error: retryMsg });
-        return { text: '{}', error: `vscode.lm request failed (after retry): ${retryMsg}` };
+        return { text: '{}', error: `vscode.lm request failed (after retry): ${retryMsg}`, isRateLimit: isRateLimitError(retryMsg) };
       }
     } finally {
       clearTimeout(timeout);

@@ -520,7 +520,25 @@ async function analyzeDocument(
               ? 'No issues found.'
               : `${results.length} issue${results.length === 1 ? '' : 's'} found (grade ${score.grade}).`;
           log('info', `analyzeDocument: DONE — ${issueLabel}`);
-          vscode.window.showInformationMessage(`Skills Review: ${issueLabel}`);
+
+          // Check for rate limits — notify user and offer single-prompt fallback
+          if (score.rateLimitedWaveCount > 0) {
+            const choice = await vscode.window.showWarningMessage(
+              `Skills Review: Hit rate limits on ${score.rateLimitedWaveCount} wave(s). Some results may be incomplete (grade: ${score.grade}).`,
+              'Switch to Single Prompt',
+              'Dismiss',
+            );
+            if (choice === 'Switch to Single Prompt') {
+              await vscode.workspace.getConfiguration('skillsReviewAndPolish').update(
+                'analysisMode', 'single', vscode.ConfigurationTarget.Global,
+              );
+              vscode.window.showInformationMessage(
+                'Skills Review: Switched to single-prompt mode. Re-analyze to use fewer API calls (results may be less accurate).',
+              );
+            }
+          } else {
+            vscode.window.showInformationMessage(`Skills Review: ${issueLabel}`);
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           log('error', `analyzeDocument: ERROR — ${message}`);

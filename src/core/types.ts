@@ -60,6 +60,8 @@ export interface LlmRequest {
 export interface LlmResponse {
   text: string;
   error?: string;
+  /** True when the error is a rate limit (429 / quota exhaustion). */
+  isRateLimit?: boolean;
 }
 
 /** Single configuration object the core reads, regardless of host. */

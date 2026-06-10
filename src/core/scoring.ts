@@ -10,7 +10,7 @@
 import { AnalysisResult, COGNITIVE_DOWNGRADE_CODES } from './types';
 
 export type SkillType = 'simple' | 'standard' | 'workflow' | 'meta';
-export type GradeLetter = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-' | 'D+' | 'D' | 'D-' | 'F';
+export type GradeLetter = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-' | 'D+' | 'D' | 'D-' | 'F' | 'Ungraded';
 
 export type CodePillar = 'Contradictions' | 'Clarity' | 'Completeness' | 'Structure' | 'Other';
 
@@ -29,13 +29,15 @@ export interface ScoreResult {
   incomplete: boolean;
   /** Number of infrastructure errors (llm-error, llm-parse-error, llm-disabled). */
   infraErrorCount: number;
+  /** Number of waves that were rate-limited. */
+  rateLimitedWaveCount: number;
 }
 
 // ─── Infrastructure codes (excluded from scoring) ─────────────────────────────
 const 
 INFRA_SKIP = new Set([
   'llm-error', 'llm-parse-error', 'llm-disabled', 'llm-loop-detected',
-  'high-complexity', 'limited-coverage',
+  'high-complexity', 'limited-coverage', 'llm-rate-limited',
 ]);
 
 // ─── Length tiers ─────────────────────────────────────────────────────────────
@@ -101,11 +103,11 @@ export function classifyCode(code: string): CodePillar | null {
  * When present, the score should be capped — you can't grade what wasn't analyzed.
  */
 const INCOMPLETE_ANALYSIS_CODES = new Set([
-  'llm-error', 'llm-parse-error', 'llm-disabled',
+  'llm-error', 'llm-parse-error', 'llm-disabled', 'llm-rate-limited',
 ]);
 
 /** Maximum grade when analysis is incomplete. */
-const INCOMPLETE_GRADE_CAP = 'B-';
+const INCOMPLETE_GRADE_CAP = 'Ungraded';
 
 /**
  * Compute the quality score, grade and pillar breakdown for a skill file.
@@ -126,6 +128,9 @@ export function scoreSkill(
   // Detect incomplete analysis — wave failures, parse errors, disabled LLM
   const incomplete = results.some(r => INCOMPLETE_ANALYSIS_CODES.has(r.code));
   const infraErrorCount = results.filter(r => INCOMPLETE_ANALYSIS_CODES.has(r.code)).length;
+
+  // Count rate-limited waves (llm-rate-limited = summary code from analyzer)
+  const rateLimitedWaveCount = results.filter(r => r.code === 'llm-rate-limited').length;
 
   // workflow / meta: cognitive-structure findings downgraded warning→info.
   const cognitiveDowngrade =
@@ -150,14 +155,10 @@ export function scoreSkill(
   const gradeEntry = GRADE_THRESHOLDS.find(t => score >= t.minOffset - thresholdOffset) ?? GRADE_THRESHOLDS[GRADE_THRESHOLDS.length - 1];
   let grade = gradeEntry.grade;
 
-  // Cap grade when analysis is incomplete — don't show A/A+ when waves failed.
-  // Grade comparison uses threshold index (higher index = better grade).
-  if (incomplete) {
-    const capIdx = GRADE_THRESHOLDS.findIndex(t => t.grade === INCOMPLETE_GRADE_CAP);
-    const gradeIdx = GRADE_THRESHOLDS.findIndex(t => t.grade === grade);
-    if (capIdx >= 0 && gradeIdx >= 0 && gradeIdx < capIdx) {
-      grade = INCOMPLETE_GRADE_CAP;
-    }
+  // Cap grade when analysis is incomplete — always use "Ungraded" instead of
+  // a misleading letter grade (waves failed, rate limited, or truncated).
+  if (incomplete || rateLimitedWaveCount > 0) {
+    grade = INCOMPLETE_GRADE_CAP;
   }
 
   const pillars: Record<CodePillar, number> = {
@@ -181,5 +182,6 @@ export function scoreSkill(
     total: scored.length,
     incomplete,
     infraErrorCount,
+    rateLimitedWaveCount,
   };
 }
