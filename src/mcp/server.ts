@@ -123,11 +123,19 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
   _lastAnalyzeTimestamp = Date.now();
 
   const engine = await ctx.getEngine();
+
+  // Parse optional enabledWaves parameter
+  const wavesArg = args['enabledWaves'];
+  const validWaves = new Set<string>(['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene']);
+  const enabledWaves: string[] | undefined = Array.isArray(wavesArg)
+    ? (wavesArg as string[]).filter(w => validWaves.has(w))
+    : undefined;
+
   const results = await engine.analyze({
     text,
     filePath: optionalString(args, 'filePath'),
     acceptedFindingsPath: resolveAcceptedFindingsPath(),
-  });
+  }, undefined, enabledWaves as any);
   return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
 }
 

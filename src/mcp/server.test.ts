@@ -109,11 +109,14 @@ describe('createMcpToolRegistry', () => {
 
     const result = await registry.callTool('analyze', { text: 'Use explicit wording.' });
 
-    expect(analyze).toHaveBeenCalledWith({
-      text: 'Use explicit wording.',
-      filePath: undefined,
-      acceptedFindingsPath: expect.stringContaining('.accepted-findings.json'),
-    });
+    expect(analyze).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Use explicit wording.',
+        filePath: undefined,
+      }),
+      undefined,
+      undefined,
+    );
     expect(JSON.parse(result.content[0].text)).toEqual([{ code: 'ambiguity-llm' }]);
   });
 

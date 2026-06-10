@@ -293,6 +293,31 @@
         "title": "Skills Review: Sync MCP Config",
         "category": "Skills Review and Polish",
         "icon": "$(sync)"
+      },
+      {
+        "command": "skillsReviewAndPolish.selectProvider",
+        "title": "Skills Review: Change Provider",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.analyzeFile",
+        "title": "Skills Review: Analyze File",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.analyzeWithOptions",
+        "title": "Skills Review: Analyze with Options",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.toggleLogLevel",
+        "title": "Skills Review: Toggle Log Level",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.clearAcceptedFindings",
+        "title": "Skills Review: Clear Accepted Findings",
+        "category": "Skills Review and Polish"
       }
     ],
     "languageModelTools": [

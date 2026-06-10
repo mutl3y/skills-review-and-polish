@@ -10,6 +10,7 @@ import {
   EngineConfig,
   DEFAULT_ENGINE_CONFIG,
   LlmProvider,
+  WaveName,
 } from './types';
 import { Analyzer, CustomDiagnosticConfig } from './analyzer';
 import { scoreSkill, parseSkillType, ScoreResult } from './scoring';
@@ -49,8 +50,14 @@ export class Engine {
   /**
    * Analyze a customization document and return findings.
    * Runs all enabled waves in parallel and applies deterministic consolidation.
+   * @param enabledWavesOverride Optional override for enabled waves (from per-scan modal or MCP).
    */
-  async analyze(input: AnalyzeInput): Promise<AnalysisResult[]> {
+  async analyze(
+    input: AnalyzeInput,
+    customDiagnostics?: CustomDiagnosticConfig[],
+    enabledWavesOverride?: WaveName[],
+  ): Promise<AnalysisResult[]> {
+    const waves = enabledWavesOverride ?? this.config.enabledWaves;
     return this.analyzer.analyze(
       {
         text: input.text,
@@ -58,8 +65,8 @@ export class Engine {
         acceptedFindingsPath: input.acceptedFindingsPath,
         token: input.token,
       },
-      input.customDiagnostics,
-      this.config.enabledWaves,
+      customDiagnostics,
+      waves,
     );
   }
 

@@ -304,6 +304,64 @@ describe('extension activation wiring', () => {
     expect(mocks.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('Analysis model set to'));
   });
 
+  it('auto-detects provider when selecting a copilot model', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const lmModels = [
+      { id: 'gpt-4o', name: 'GPT-4o', vendor: 'copilot' },
+    ];
+    mocks.selectChatModels
+      .mockResolvedValueOnce(lmModels) // for selectModel: fetch models
+      .mockResolvedValueOnce([{ id: 'gpt-4o', name: 'GPT-4o', vendor: 'copilot' }]); // for validation + detectProviderForModel
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => 'openrouter'), update } as any);
+
+    const pickedItem = { label: '🟢 GPT-4o', description: '', detail: '     gpt-4o · copilot', modelId: 'gpt-4o', name: 'GPT-4o' };
+    (vscode.window.createQuickPick as any).mockImplementation(() => ({
+      title: '', placeholder: '', items: [] as any[], selectedItems: [pickedItem], busy: false,
+      onDidAccept: vi.fn((cb: () => void) => { setTimeout(cb, 0); return { dispose: vi.fn() }; }),
+      onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+      onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+      show: vi.fn(), hide: vi.fn(), dispose: vi.fn(),
+    }));
+
+    activate({ subscriptions: [] } as any);
+
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel')?.[1];
+    await selectModelCommand();
+
+    expect(update).toHaveBeenCalledWith('model', 'gpt-4o', expect.anything());
+    // Provider should be auto-switched from 'openrouter' to 'vscode-lm' for a copilot model
+    expect(update).toHaveBeenCalledWith('provider', 'vscode-lm', expect.anything());
+  });
+
+  it('auto-detects provider when selecting a non-copilot vscode.lm model', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const lmModels = [
+      { id: 'qwen/qwen3-8b', name: 'Qwen: Qwen3 8B', vendor: 'copilot' },
+    ];
+    mocks.selectChatModels
+      .mockResolvedValueOnce(lmModels) // for selectModel: fetch models
+      .mockResolvedValueOnce([{ id: 'qwen/qwen3-8b', name: 'Qwen: Qwen3 8B', vendor: 'copilot' }]); // for validation
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => 'vscode-lm'), update } as any);
+
+    const pickedItem = { label: '🔵 Qwen: Qwen3 8B', description: '', detail: '     qwen/qwen3-8b · copilot', modelId: 'qwen/qwen3-8b', name: 'Qwen: Qwen3 8B' };
+    (vscode.window.createQuickPick as any).mockImplementation(() => ({
+      title: '', placeholder: '', items: [] as any[], selectedItems: [pickedItem], busy: false,
+      onDidAccept: vi.fn((cb: () => void) => { setTimeout(cb, 0); return { dispose: vi.fn() }; }),
+      onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+      onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+      show: vi.fn(), hide: vi.fn(), dispose: vi.fn(),
+    }));
+
+    activate({ subscriptions: [] } as any);
+
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel')?.[1];
+    await selectModelCommand();
+
+    expect(update).toHaveBeenCalledWith('model', 'qwen/qwen3-8b', expect.anything());
+    // Since vendor is 'copilot', provider should stay vscode-lm (no change expected)
+    // Only non-copilot vscode.lm vendors trigger a switch to 'openrouter'
+  });
+
   it('stores an API key from the prompt flow', async () => {
     const store = vi.fn().mockResolvedValue(undefined);
     mocks.showInputBox.mockResolvedValue('secret-token');

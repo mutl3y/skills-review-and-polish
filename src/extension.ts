@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
-import { Engine, AnalysisResult, Analyzer } from './core';
+import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport, createLogger } from './core/logger';
@@ -261,6 +261,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('skillsReviewAndPolish.analyzeFile', (uri?: vscode.Uri) =>
       analyzeFile(uri),
     ),
+    vscode.commands.registerCommand('skillsReviewAndPolish.analyzeWithOptions', (uri?: vscode.Uri) =>
+      analyzeWithOptions(uri),
+    ),
     vscode.commands.registerCommand('skillsReviewAndPolish.selectProvider', () =>
       selectProvider(),
     ),
@@ -452,6 +455,99 @@ async function analyzeFile(uri?: vscode.Uri): Promise<void> {
     log('info', `analyzeFile: ${doc.uri.fsPath} is not a standard customization file — analysing anyway.`);
   }
   await analyzeDocument(doc);
+}
+
+// ---------------------------------------------------------------------------
+// Analyze With Options — modal with wave/mode/provider selection
+// ---------------------------------------------------------------------------
+
+/**
+ * Shows a modal with scan options (mode, waves, provider, model) and then
+ * runs analysis with the selected configuration. This is the primary entry
+ * point for customizable per-invocation analysis.
+ */
+async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
+  const cfg = readConfig();
+
+  // ── Step 1: Choose analysis mode (single vs multiWave) ────────────────
+  const modePick = await vscode.window.showQuickPick(
+    [
+      {
+        label: '⚡ Single Prompt',
+        description: '1 LLM call — faster, cheaper, less accurate',
+        value: 'single' as const,
+      },
+      {
+        label: '🔬 Multi-Wave (Recommended)',
+        description: '6 focused passes — best quality, higher cost',
+        value: 'multiWave' as const,
+      },
+    ],
+    {
+      title: 'Skills Review — Analysis Mode',
+      placeHolder: 'Choose how many passes to run',
+    },
+  );
+  if (!modePick) return;
+
+  // ── Step 2: Choose waves (only relevant in multiWave mode) ────────────
+  let selectedWaves = [...ALL_WAVES];
+  if (modePick.value === 'multiWave') {
+    const waveItems = ALL_WAVES.map(w => ({
+      label: `$(check) ${w.charAt(0).toUpperCase() + w.slice(1)}`,
+      description: '',
+      value: w,
+      picked: cfg.enabledWaves.includes(w),
+    }));
+
+    const wavePick = await vscode.window.showQuickPick(waveItems, {
+      title: 'Skills Review — Select Waves',
+      placeHolder: 'Toggle waves on/off (click to toggle)',
+      canPickMany: true,
+    });
+    if (!wavePick) return;
+    selectedWaves = wavePick.map(w => w.value);
+    if (selectedWaves.length === 0) {
+      vscode.window.showWarningMessage('Skills Review: At least one wave must be selected.');
+      return;
+    }
+  }
+
+  // ── Step 3: Confirm provider + model ──────────────────────────────────
+  const providerLabel = cfg.provider === 'vscode-lm' ? 'Copilot' : cfg.provider;
+  const modelLabel = cfg.model || '(auto)';
+  const confirmMsg = `Provider: ${providerLabel}\nModel: ${modelLabel}\nMode: ${modePick.value}${modePick.value === 'multiWave' ? `\nWaves: ${selectedWaves.join(', ')}` : ''}`;
+
+  const proceed = await vscode.window.showInformationMessage(
+    `Skills Review — Scan with these settings?\n\n${confirmMsg}`,
+    'Scan',
+    'Cancel',
+  );
+  if (proceed !== 'Scan') return;
+
+  // ── Step 4: Run analysis with selected options ────────────────────────
+  const document = uri
+    ? await vscode.workspace.openTextDocument(uri)
+    : vscode.window.activeTextEditor?.document;
+  if (!document) {
+    vscode.window.showWarningMessage('Skills Review: No file to analyze.');
+    return;
+  }
+
+  // Temporarily override enabledWaves for this analysis
+  const originalWaves = cfg.enabledWaves;
+  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+    .update('enabledWaves', selectedWaves, vscode.ConfigurationTarget.Global);
+  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+    .update('analysisMode', modePick.value, vscode.ConfigurationTarget.Global);
+
+  try {
+    await analyzeDocument(document);
+  } finally {
+    // Restore original settings
+    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+      .update('enabledWaves', originalWaves, vscode.ConfigurationTarget.Global);
+  }
 }
 
 // ---------------------------------------------------------------------------
