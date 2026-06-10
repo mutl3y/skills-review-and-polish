@@ -408,7 +408,7 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./ && cp -r src/core/prompts out/core/prompts",
+    "compile": "tsc -p ./ && rm -rf out/core/prompts && rm -rf out/core/prompts && cp -r src/core/prompts out/core/prompts",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "lint:md": "markdownlint-cli2 '.github/**/*.md' 'docs/**/*.md' 'src/**/*.md' 'README.md'",
