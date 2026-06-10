@@ -1,0 +1,112 @@
+plan_id: 20260610-smoke-test-bugs
+objective: >
+  Fix critical bugs discovered during manual smoke testing in the extension
+  host. These bugs were not caught by unit tests because they involve real
+  LLM behavior (truncation, paraphrasing) that mocked providers don't simulate.
+created_at: 2026-06-10T09:00:00Z
+created_by: manual-smoke-test
+status: completed
+
+smoke_test_notes: |
+  Test date: 2026-06-10
+  Test environment: Extension host (F5), Copilot provider, gpt-4o-mini
+  
+  Issues observed:
+  1. F5 opened old project instead of fixtures folder
+  2. Provider stuck on openrouter after changing to copilot in settings
+  3. Change provider command missing — had to go into settings manually
+  4. Analysis returned grade=A with 0 results despite file having issues
+  5. salvageTruncatedJSON recovered data but processors dropped everything
+  
+  Root causes:
+  - findTextRange used exact match only — LLM paraphrasing caused silent drops
+  - scoring.ts excluded llm-error from penalty → 0 penalty → grade A/A+
+  - buildUserPrompt still used static <DOCUMENT_TO_ANALYZE> tags
+  - No rate limit detection — waves failed silently
+
+bugs_fixed:
+  - id: BUG-1
+    title: findTextRange drops salvaged results (CRITICAL)
+    severity: critical
+    root_cause: >
+      LLMs paraphrase relevant_text in their responses. findTextRange used
+      exact match only, so every processor silently dropped valid findings
+      with 'if (!r) continue'. Result: 0 findings on large files despite
+      LLM detecting real issues.
+    fix: >
+      Added progressive fuzzy matching: try 50% → 25% → 20-char prefixes
+      before falling back to word-level partial match. Significantly reduces
+      false negatives from LLM paraphrasing.
+    file: src/core/analyzer.ts
+    tests_added: 5 tests for paraphrased text matching in analyzer.test.ts
+    status: fixed
+
+  - id: BUG-2
+    title: Grade A on incomplete analysis (HIGH)
+    severity: high
+    root_cause: >
+      When waves fail (rate limit, truncation), llm-error results are
+      created. scoring.ts excluded llm-error from penalty calculation,
+      resulting in 0 penalty → grade A/A+. User sees "No issues found (grade A)"
+      for files with real problems.
+    fix: >
+      Added INCOMPLETE_ANALYSIS_CODES set. When present, grade is capped at
+      "Ungraded" instead of a misleading letter grade. Added 'incomplete',
+      'infraErrorCount', and 'rateLimitedWaveCount' fields to ScoreResult.
+    file: src/core/scoring.ts
+    tests_added: 5 tests for grade capping behavior
+    status: fixed
+
+  - id: BUG-3
+    title: buildUserPrompt still used static tags (MEDIUM)
+    severity: medium
+    root_cause: >
+      C2 fix (composition-conflicts) only updated the composition-conflicts
+      prompt file. buildUserPrompt() and callLLM() fallback still used
+      static <DOCUMENT_TO_ANALYZE> tags — same injection vulnerability.
+    fix: >
+      Removed tags from buildUserPrompt (data is just the prompt text now).
+      Updated callLLM fallback system prompt to reference "data delimiters"
+      instead of specific tag names.
+    file: src/core/analyzer.ts
+    status: fixed
+
+  - id: BUG-4
+    title: No rate limit detection or user notification (HIGH)
+    severity: high
+    root_cause: >
+      When Copilot rate limits kicked in (UserConcurrentRequests,
+      UserByModelByMinute), waves failed silently. User had no way to know
+      why analysis was slow or incomplete.
+    fix: >
+      Added isRateLimit flag to LlmResponse. Added RateLimitError class.
+      Both providers detect rate limits from error messages. Analyzer tracks
+      rate-limited waves and adds llm-rate-limited result code. Extension
+      notifies user and offers to switch to single-prompt mode.
+    files:
+      - src/core/types.ts (isRateLimit field)
+      - src/core/analyzer.ts (RateLimitError, wave tracking)
+      - src/core/scoring.ts (rate limit handling)
+      - src/providers/vscodeLmProvider.ts (detection)
+      - src/providers/externalProvider.ts (detection)
+      - src/extension.ts (user notification + single-prompt fallback)
+    tests_added: Updated all provider tests with isRateLimit assertions
+    status: fixed
+
+  - id: BUG-5
+    title: Grade comparison used string ordering (MEDIUM)
+    severity: medium
+    root_cause: >
+      Initial grade capping used string comparison (grade > INCOMPLETE_GRADE_CAP)
+      which doesn't work for grades (e.g., 'A+' > 'B-' is false alphabetically).
+    fix: >
+      Simplified to unconditional assignment: when incomplete, always set
+      grade to "Ungraded" directly. No comparison needed.
+    file: src/core/scoring.ts
+    status: fixed
+
+commits:
+  - hash: 2d4e36b
+    message: "fix: three critical production bugs discovered via manual smoke test"
+  - hash: (pushed)
+    message: "fix: rate limit detection, user notification, and single-prompt fallback"
