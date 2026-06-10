@@ -626,7 +626,7 @@ describe('selectModel - edge cases', () => {
     mocks.selectChatModels
       .mockResolvedValueOnce(lmModels)
       .mockResolvedValueOnce([]); // validation: empty = unavailable
-    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ update } as any);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => 'vscode-lm'), update } as any);
 
     const pickedItem = { label: '🟢 GPT-4o', description: '', detail: '     gpt-4o · copilot', modelId: 'gpt-4o', name: 'GPT-4o' };
     (vscode.window.createQuickPick as any).mockImplementation(() => ({
@@ -705,7 +705,7 @@ describe('selectModel - edge cases', () => {
     mocks.selectChatModels
       .mockResolvedValueOnce(lmModels)
       .mockResolvedValueOnce([{ id: 'model-a', name: 'Model A', vendor: 'copilot' }]);
-    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ update } as any);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => 'vscode-lm'), update } as any);
 
     let capturedItems: any[] = [];
     const pickedItem = { label: '🟢 Model A', description: '', detail: '     model-a · copilot', modelId: 'model-a', name: 'Model A' };
@@ -746,7 +746,7 @@ describe('selectModel - edge cases', () => {
     mocks.selectChatModels
       .mockResolvedValueOnce(lmModels)
       .mockResolvedValueOnce([{ id: 'a-model', name: 'A Model', vendor: 'copilot' }]);
-    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ update } as any);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => 'vscode-lm'), update } as any);
 
     let capturedItems: any[] = [];
     const pickedItem = { label: '🟢 A Model', description: '', detail: '     a-model · copilot', modelId: 'a-model', name: 'A Model' };

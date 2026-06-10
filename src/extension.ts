@@ -24,6 +24,25 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
   pricing?: string;
 }
 
+/**
+ * Detect the correct provider for a given model ID.
+ * Checks the vendor of the first matching vscode.lm model.
+ * Returns 'vscode-lm' as fallback for Copilot/free-tier models.
+ */
+async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'openrouter' | 'githubModels'> {
+  try {
+    const models = await vscode.lm.selectChatModels({ id: modelId });
+    if (models.length > 0) {
+      const vendor = models[0].vendor;
+      if (vendor === 'copilot' || vendor === 'copilotcli') return 'vscode-lm';
+      // Non-Copilot vscode.lm models → treat as external (openrouter-compatible)
+      return 'openrouter';
+    }
+  } catch { /* selectChatModels may not be available */ }
+  // Default: keep current provider setting
+  return readConfig().provider;
+}
+
 // ---------------------------------------------------------------------------
 // Extension-level state — encapsulated in a class for testability.
 // Each activate() call creates a fresh instance; deactivate() disposes it.
@@ -112,6 +131,26 @@ function getAcceptedFindingsPath(): string {
   return '';
 }
 
+/** Remove the accepted-findings file so each test session starts clean. */
+async function clearAcceptedFindings(): Promise<void> {
+  const findingsPath = getAcceptedFindingsPath();
+  if (!findingsPath) {
+    vscode.window.showWarningMessage('Skills Review: No workspace folder open.');
+    return;
+  }
+  try {
+    if (fs.existsSync(findingsPath)) {
+      fs.unlinkSync(findingsPath);
+      vscode.window.showInformationMessage('Skills Review: Accepted findings cleared.');
+      log('info', 'clearAcceptedFindings: deleted ' + findingsPath);
+    } else {
+      vscode.window.showInformationMessage('Skills Review: No accepted findings file to clear.');
+    }
+  } catch (err) {
+    vscode.window.showErrorMessage(`Skills Review: Failed to clear accepted findings — ${err}`);
+  }
+}
+
 function computeConfigHash(cfg: ReturnType<typeof readConfig>, apiKey?: string): string {
   // Hash full API key (SHA-256 truncated) for reliable change detection on key rotation.
   const apiKeyDiscriminator = apiKey
@@ -164,6 +203,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(state.out, state.diagnostics, state.statusBar, state.codeLensProvider);
 
+  // Clear accepted findings on activation when running in test mode
+  if (process.env.VSCODE_TEST_MODE) {
+    clearAcceptedFindings();
+  }
+
   context.subscriptions.push(setupConfigWatcher());
   log('info', cfg.logLevel === 'debug'
     ? `Extension activated — log level: ${cfg.logLevel}, log file: ${state.logFilePath ?? '(none)'}`
@@ -213,6 +257,18 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('skillsReviewAndPolish.testModelSimplePrompt', testModelSimplePrompt),
     vscode.commands.registerCommand('skillsReviewAndPolish.analyzeFolder', (uri?: vscode.Uri) =>
       runAnalyzeFolder(uri),
+    ),
+    vscode.commands.registerCommand('skillsReviewAndPolish.analyzeFile', (uri?: vscode.Uri) =>
+      analyzeFile(uri),
+    ),
+    vscode.commands.registerCommand('skillsReviewAndPolish.selectProvider', () =>
+      selectProvider(),
+    ),
+    vscode.commands.registerCommand('skillsReviewAndPolish.toggleLogLevel', () =>
+      toggleLogLevel(),
+    ),
+    vscode.commands.registerCommand('skillsReviewAndPolish.clearAcceptedFindings', () =>
+      clearAcceptedFindings(),
     ),
     vscode.commands.registerCommand('skillsReviewAndPolish.syncMcpConfig', syncMcpConfig),
   );
@@ -373,6 +429,101 @@ async function runAnalyze(_force: boolean): Promise<void> {
     log('info', `runAnalyze: ${path} is not a standard customization file — analysing anyway (manual trigger).`);
   }
   await analyzeDocument(editor.document);
+}
+
+// ---------------------------------------------------------------------------
+// Analyze File (right-click on editor tab)
+// ---------------------------------------------------------------------------
+
+async function analyzeFile(uri?: vscode.Uri): Promise<void> {
+  // If invoked from context menu, uri is provided; otherwise use active editor
+  if (!uri) {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('Skills Review: No file to analyze.');
+      return;
+    }
+    uri = editor.document.uri;
+  }
+
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const cfg = readConfig();
+  if (!isCustomizationPath(doc.uri.fsPath, cfg.include)) {
+    log('info', `analyzeFile: ${doc.uri.fsPath} is not a standard customization file — analysing anyway.`);
+  }
+  await analyzeDocument(doc);
+}
+
+// ---------------------------------------------------------------------------
+// Select Provider (command palette)
+// ---------------------------------------------------------------------------
+
+async function selectProvider(): Promise<void> {
+  const cfg = readConfig();
+  const current = cfg.provider;
+  const items: Array<{ label: string; description: string; value: string; picked: boolean }> = [
+    {
+      label: '🟢 Copilot (vscode-lm)',
+      description: 'Uses your Copilot subscription — no API key needed',
+      value: 'vscode-lm',
+      picked: current === 'vscode-lm',
+    },
+    {
+      label: '🔵 OpenRouter',
+      description: 'Requires API key — wide model selection',
+      value: 'openrouter',
+      picked: current === 'openrouter',
+    },
+    {
+      label: '🔵 GitHub Models',
+      description: 'Requires GitHub token — free preview models',
+      value: 'githubModels',
+      picked: current === 'githubModels',
+    },
+  ];
+
+  const pick = await vscode.window.showQuickPick(items, {
+    title: 'Skills Review — Select LLM Provider',
+    placeHolder: `Current: ${current}`,
+  });
+
+  if (pick && pick.value !== current) {
+    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+      .update('provider', pick.value, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(`Skills Review: Provider set to "${pick.label}".`);
+    log('info', `selectProvider: ${current} → ${pick.value}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Toggle Log Level (no restart required)
+// ---------------------------------------------------------------------------
+
+async function toggleLogLevel(): Promise<void> {
+  const cfg = readConfig();
+  const newLevel: 'info' | 'debug' = cfg.logLevel === 'debug' ? 'info' : 'debug';
+
+  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+    .update('logLevel', newLevel, vscode.ConfigurationTarget.Global);
+
+  // Update the runtime transport immediately (no reload needed)
+  setLogLevel(newLevel === 'debug' ? 'debug' : 'info');
+  if (newLevel === 'debug' && !state?.logFilePath) {
+    state!.logFilePath = os.tmpdir() + '/skills-review-debug.log';
+    try { fs.writeFileSync(state!.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
+  }
+  setTransport((line) => {
+    state?.out?.appendLine(line);
+    if (newLevel === 'debug' && state?.logFilePath) {
+      try { fs.appendFileSync(state.logFilePath, line + '\n'); } catch { /* ignore */ }
+    }
+  });
+
+  const msg = newLevel === 'debug'
+    ? 'Skills Review: Debug logging enabled. Check Output panel or /tmp/skills-review-debug.log'
+    : 'Skills Review: Debug logging disabled.';
+  vscode.window.showInformationMessage(msg);
+  log('info', `toggleLogLevel: → ${newLevel}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,6 +1156,21 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
   const wsCfg = vscode.workspace.getConfiguration('skillsReviewAndPolish');
   await wsCfg.update(target, picked.modelId, vscode.ConfigurationTarget.Global);
   await wsCfg.update(`${target}DisplayName`, picked.name, vscode.ConfigurationTarget.Global);
+
+  // Auto-detect and update provider when selecting the analysis model.
+  // Read current provider from the actual vscode config (not the mock) to avoid test breakage.
+  if (target === 'model') {
+    const detectedProvider = await detectProviderForModel(picked.modelId);
+    let currentProvider = 'vscode-lm';
+    try {
+      currentProvider = vscode.workspace.getConfiguration('skillsReviewAndPolish').get('provider', 'vscode-lm');
+    } catch { /* mock may not have get() — safe fallback */ }
+    if (detectedProvider !== currentProvider) {
+      await wsCfg.update('provider', detectedProvider, vscode.ConfigurationTarget.Global);
+      log('info', `selectModel: auto-switched provider from ${currentProvider} to ${detectedProvider}`);
+    }
+  }
+
   const label = target === 'model' ? 'Analysis model' : 'Fix model';
   const pricing = pricingForModel(picked.name, pricingMap);
   const costInfo = pricing ? ` (${formatPricing(pricing)})` : '';
