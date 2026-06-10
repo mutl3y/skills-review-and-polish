@@ -50,8 +50,8 @@ describe('classifyCode', () => {
     expect(classifyCode('hygiene-dead-instruction')).toBe('Completeness');
   });
 
-  it('returns null for infrastructure-only codes', () => {
-    expect(classifyCode('contradiction-related')).toBeNull();
+  it('returns Contradictions for contradiction-related (now classified, not infra)', () => {
+    expect(classifyCode('contradiction-related')).toBe('Contradictions');
     expect(classifyCode('llm-disabled')).toBe('Other');
   });
 });
@@ -93,9 +93,11 @@ describe('scoreSkill', () => {
       makeResult('hygiene-over-specification', 'hint'),
     ], 90, 'simple');
 
-    expect(result.total).toBe(1);
-    expect(result.issuePenalty).toBe(1);
-    expect(result.score).toBe(99);
+    // llm-loop-detected is infra (skipped). contradiction-related is now classified
+    // as Contradictions (warning = 6 penalty). hygiene-over-specification is Structure (hint = 1).
+    expect(result.total).toBe(2);
+    expect(result.issuePenalty).toBe(7);
+    expect(result.score).toBe(93);
   });
 
   it('applies the correct length tier penalty for longer files', () => {

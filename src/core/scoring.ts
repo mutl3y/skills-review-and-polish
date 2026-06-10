@@ -28,9 +28,10 @@ export interface ScoreResult {
 }
 
 // ─── Infrastructure codes (excluded from scoring) ─────────────────────────────
-const INFRA_SKIP = new Set([
+const 
+INFRA_SKIP = new Set([
   'llm-error', 'llm-parse-error', 'llm-disabled', 'llm-loop-detected',
-  'high-complexity', 'limited-coverage', 'contradiction-related',
+  'high-complexity', 'limited-coverage',
 ]);
 
 // ─── Length tiers ─────────────────────────────────────────────────────────────
@@ -81,8 +82,7 @@ export function parseSkillType(text: string): SkillType {
  * Returns null for supplemental / infra codes that don't belong to a pillar.
  */
 export function classifyCode(code: string): CodePillar | null {
-  if (code === 'contradiction-related') return null;
-  if (code === 'contradiction' || code === 'hygiene-circular-definition') return 'Contradictions';
+  if (code === 'contradiction' || code === 'contradiction-related' || code === 'hygiene-circular-definition') return 'Contradictions';
   if (code === 'ambiguity-llm' || code === 'persona-inconsistency' ||
       code === 'hygiene-obligation-strength') return 'Clarity';
   if (code === 'coverage-gap' || code === 'limited-coverage' ||
@@ -123,7 +123,8 @@ export function scoreSkill(
   const lengthTier = LENGTH_TIERS.find(t => lineCount <= t.max)!;
   const score = Math.max(0, 100 - issuePenalty - lengthTier.penalty);
 
-  const thresholdOffset = ({ simple: 0, standard: 0, workflow: 10, meta: 15 } as Record<SkillType, number>)[skillType] ?? 0;
+  const THRESHOLD_OFFSETS: Record<SkillType, number> = { simple: 0, standard: 0, workflow: 10, meta: 15 };
+  const thresholdOffset = THRESHOLD_OFFSETS[skillType];
   const gradeEntry = GRADE_THRESHOLDS.find(t => score >= t.minOffset - thresholdOffset) ?? GRADE_THRESHOLDS[GRADE_THRESHOLDS.length - 1];
   const grade = gradeEntry.grade;
 

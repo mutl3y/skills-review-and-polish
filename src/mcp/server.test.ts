@@ -220,40 +220,50 @@ describe('createMcpToolRegistry', () => {
     expect(parsed).toHaveProperty('entries');
   });
 
-  it('throws on empty text for analyze', async () => {
+  it('returns isError for empty text in analyze', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ engine: { analyze: vi.fn() }, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
     });
-    await expect(registry.callTool('analyze', { text: '' })).rejects.toThrow('Missing required argument: text');
+    const result = await registry.callTool('analyze', { text: '' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Missing required argument: text');
   });
 
-  it('throws on missing diagnosticCode for fix', async () => {
+  it('returns isError for missing diagnosticCode in fix', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ engine: { analyze: vi.fn() }, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
     });
-    await expect(registry.callTool('fix', { text: 'hello', relevantText: 'hi' })).rejects.toThrow('Missing required argument: diagnosticCode');
+    const result = await registry.callTool('fix', { text: 'hello', relevantText: 'hi' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Missing required argument: diagnosticCode');
   });
 
-  it('throws on missing filePath for accept_finding', async () => {
+  it('returns isError for missing filePath in accept_finding', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ engine: { analyze: vi.fn() }, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
     });
-    await expect(registry.callTool('accept_finding', { diagnosticCode: 'x', relevantText: 'y' })).rejects.toThrow('Missing required argument: filePath');
+    const result = await registry.callTool('accept_finding', { diagnosticCode: 'x', relevantText: 'y' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Missing required argument: filePath');
   });
 
-  it('throws on unknown tool name', async () => {
+  it('returns isError for unknown tool name', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ engine: {}, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
     });
-    await expect(registry.callTool('nonexistent', {})).rejects.toThrow('Unknown tool');
+    const result = await registry.callTool('nonexistent', {});
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Unknown tool');
   });
 
-  it('throws on text exceeding max length', async () => {
+  it('returns isError on text exceeding max length', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ engine: { analyze: vi.fn() }, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
     });
     const longText = 'x'.repeat(100_001);
-    await expect(registry.callTool('analyze', { text: longText })).rejects.toThrow('Text too long');
+    const result = await registry.callTool('analyze', { text: longText });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Text too long');
   });
 
   it('verify_fix reports fixed=false when the issue is still present', async () => {
@@ -334,27 +344,31 @@ describe('createMcpToolRegistry', () => {
     );
   });
 
-  it('throws on empty text for score', async () => {
+  it('returns isError for empty text in score', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({
         engine: { analyze: vi.fn(), score: vi.fn() },
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
-    await expect(registry.callTool('score', { text: '' })).rejects.toThrow('Missing required argument: text');
+    const result = await registry.callTool('score', { text: '' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Missing required argument: text');
   });
 
-  it('throws on empty text for verify_fix', async () => {
+  it('returns isError for empty text in verify_fix', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({
         engine: { analyze: vi.fn(), score: vi.fn() },
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
-    await expect(registry.callTool('verify_fix', { text: '' })).rejects.toThrow('Missing required argument: text');
+    const result = await registry.callTool('verify_fix', { text: '' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Missing required argument: text');
   });
 
-  it('throws on text exceeding max length for fix', async () => {
+  it('returns isError on text exceeding max length for fix', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({
         engine: { analyze: vi.fn(), provider: {} },
@@ -362,10 +376,12 @@ describe('createMcpToolRegistry', () => {
       })) as any,
     });
     const longText = 'x'.repeat(100_001);
-    await expect(registry.callTool('fix', { text: longText, diagnosticCode: 'x', relevantText: 'y' })).rejects.toThrow('Text too long');
+    const result = await registry.callTool('fix', { text: longText, diagnosticCode: 'x', relevantText: 'y' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Text too long');
   });
 
-  it('throws on text exceeding max length for score', async () => {
+  it('returns isError on text exceeding max length for score', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({
         engine: { analyze: vi.fn(), score: vi.fn() },
@@ -373,10 +389,12 @@ describe('createMcpToolRegistry', () => {
       })) as any,
     });
     const longText = 'x'.repeat(100_001);
-    await expect(registry.callTool('score', { text: longText })).rejects.toThrow('Text too long');
+    const result = await registry.callTool('score', { text: longText });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Text too long');
   });
 
-  it('throws on text exceeding max length for verify_fix', async () => {
+  it('returns isError on text exceeding max length for verify_fix', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({
         engine: { analyze: vi.fn(), score: vi.fn() },
@@ -384,7 +402,9 @@ describe('createMcpToolRegistry', () => {
       })) as any,
     });
     const longText = 'x'.repeat(100_001);
-    await expect(registry.callTool('verify_fix', { text: longText, diagnosticCode: 'x', relevantText: 'y' })).rejects.toThrow('Text too long');
+    const result = await registry.callTool('verify_fix', { text: longText, diagnosticCode: 'x', relevantText: 'y' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Text too long');
   });
 
   it('accept_finding stores reason and list returns it', async () => {
@@ -412,6 +432,10 @@ describe('createMcpToolRegistry', () => {
   });
 
   it('caches the engine across multiple tool calls', async () => {
+    // Reset the rate-limit cooldown before each call so consecutive analyze
+    // calls don't block on the 5s cooldown (which would cause a test timeout).
+    const { _resetAnalyzeCooldown } = await import('./server.js');
+
     const buildEngine = vi.fn(async () => ({
       engine: { analyze: vi.fn(async () => []), provider: {} },
       config: { provider: 'test', model: 'test', configSource: 'test' },
@@ -419,41 +443,49 @@ describe('createMcpToolRegistry', () => {
 
     const registry = createMcpToolRegistry({ buildEngine });
 
+    _resetAnalyzeCooldown();
     await registry.callTool('analyze', { text: 'hello' });
+    _resetAnalyzeCooldown();
     await registry.callTool('analyze', { text: 'world' });
     await registry.callTool('health', {});
 
     expect(buildEngine).toHaveBeenCalledTimes(1);
   });
 
-  it('throws on missing relevantText for fix', async () => {
+  it('returns isError on missing relevantText for fix', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({
         engine: { analyze: vi.fn() },
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
-    await expect(registry.callTool('fix', { text: 'hello', diagnosticCode: 'x' })).rejects.toThrow('Missing required argument: relevantText');
+    const result = await registry.callTool('fix', { text: 'hello', diagnosticCode: 'x' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Missing required argument: relevantText');
   });
 
-  it('throws on missing diagnosticCode for verify_fix', async () => {
+  it('returns isError on missing diagnosticCode for verify_fix', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({
         engine: { analyze: vi.fn() },
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
-    await expect(registry.callTool('verify_fix', { text: 'hello', relevantText: 'x' })).rejects.toThrow('Missing required argument: diagnosticCode');
+    const result = await registry.callTool('verify_fix', { text: 'hello', relevantText: 'x' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Missing required argument: diagnosticCode');
   });
 
-  it('throws on missing relevantText for verify_fix', async () => {
+  it('returns isError on missing relevantText for verify_fix', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({
         engine: { analyze: vi.fn() },
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
-    await expect(registry.callTool('verify_fix', { text: 'hello', diagnosticCode: 'x' })).rejects.toThrow('Missing required argument: relevantText');
+    const result = await registry.callTool('verify_fix', { text: 'hello', diagnosticCode: 'x' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toContain('Missing required argument: relevantText');
   });
 });
 

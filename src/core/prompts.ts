@@ -15,6 +15,13 @@ import * as path from 'path';
 // If bundling is added in the future, switch to import.meta.url or a config-driven path.
 const PROMPTS_DIR = path.join(__dirname, 'prompts');
 
+// Startup assertion: fail fast if prompts directory is missing (catches bundler issues).
+try {
+  if (!fs.existsSync(PROMPTS_DIR)) {
+    console.error(`[SkillsReview] CRITICAL: Prompts directory not found at ${PROMPTS_DIR} — analysis will be severely degraded.`);
+  }
+} catch { /* fs not available in edge cases */ }
+
 /** Default fallback when a prompt .md file cannot be loaded. */
 const PROMPT_FALLBACK = '(No prompt file found — analysis degraded.)';
 

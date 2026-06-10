@@ -2,6 +2,8 @@
 
 This file documents proven patterns and standards to follow when working on this project to ensure quality and prevent regressions.
 
+> **For project structure and development workflows**, see [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md).
+
 ## vscode.lm API Usage (Critical)
 
 ### Response Handling Pattern

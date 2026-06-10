@@ -37,10 +37,17 @@ const GENERIC_PATTERNS = new Set([
  */
 export function sanitizeErrorMessage(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
+  let sanitized = msg;
   // Strip Bearer tokens
-  let sanitized = msg.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
-  // Strip potential API key patterns (long hex strings after common key patterns)
-  sanitized = sanitized.replace(/(api[_-]?key|token|secret|password)[\s:=]+\S+/gi, '$1=[REDACTED]');
+  sanitized = sanitized.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
+  // Strip API key / token / secret / password patterns in assignment or header contexts
+  sanitized = sanitized.replace(/(api[_-]?key|token|secret|password|authorization|credential)[\s:=]+\S+/gi, '$1=[REDACTED]');
+  // Strip x-api-key and other common header values
+  sanitized = sanitized.replace(/(x-api-key|x-goog-api-key|x-amz-security-token)[\s:=]+\S+/gi, '$1=[REDACTED]');
+  // Strip URLs that may contain embedded credentials (user:pass@host)
+  sanitized = sanitized.replace(/https?:\/\/[^\s]*@[^\s]+/gi, 'https://[REDACTED]');
+  // Strip any remaining long hex strings (32+ chars) that could be API keys
+  sanitized = sanitized.replace(/\b[0-9a-f]{32,}\b/gi, '[REDACTED]');
   return sanitized;
 }
 
@@ -97,8 +104,24 @@ interface ToolHandlerContext {
 
 type ToolHandler = (args: Record<string, unknown>, ctx: ToolHandlerContext) => Promise<McpToolCallResult>;
 
+/** Minimum interval (ms) between consecutive analyze calls to prevent quota exhaustion. */
+const ANALYZE_COOLDOWN_MS = 5_000;
+/** Exported for test reset — not part of public API. */
+let _lastAnalyzeTimestamp = 0;
+/** Reset the rate-limit timestamp (for tests). */
+export function _resetAnalyzeCooldown(): void { _lastAnalyzeTimestamp = 0; }
+
 async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
   const text = requireText(args);
+
+  // Rate limit: enforce minimum interval between analyze calls
+  const now = Date.now();
+  if (now - _lastAnalyzeTimestamp < ANALYZE_COOLDOWN_MS) {
+    const waitMs = ANALYZE_COOLDOWN_MS - (now - _lastAnalyzeTimestamp);
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+  _lastAnalyzeTimestamp = Date.now();
+
   const engine = await ctx.getEngine();
   const results = await engine.analyze({
     text,
@@ -112,14 +135,32 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   const text = requireText(args);
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const relevantText = requireString(args, 'relevantText');
-  const line = typeof args['line'] === 'number' ? args['line'] : (typeof args['line'] === 'string' ? parseInt(args['line'], 10) : 0);
+  const line = typeof args['line'] === 'number' ? args['line'] : (typeof args['line'] === 'string' ? parseInt(args['line'], 10) : undefined);
 
+  // Duplicate-anchor guard: if relevantText appears more than once and no
+  // explicit line was provided, refuse to fix to avoid replacing the wrong instance.
+  if (line === undefined) {
+    const occurrences = text.split(relevantText).length - 1;
+    if (occurrences > 1) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            status: 'error',
+            error: `relevantText appears ${occurrences} times in the document. Provide a "line" argument to disambiguate which occurrence to fix.`,
+          }, null, 2),
+        }],
+      };
+    }
+  }
+
+  const resolvedLine = line ?? 0;
   const engine = await ctx.getEngine();
   const syntheticDiag: AnalysisResult = {
     code: diagnosticCode,
     message: relevantText,
     severity: 'warning',
-    range: { start: { line, character: 0 }, end: { line, character: 0 } },
+    range: { start: { line: resolvedLine, character: 0 }, end: { line: resolvedLine, character: 0 } },
     analyzer: 'mcp',
     relevantText,
   };
@@ -284,6 +325,8 @@ export interface McpToolRegistryOptions {
 
 export interface McpToolCallResult {
   content: Array<{ type: 'text'; text: string }>;
+  /** MCP protocol flag: indicates the tool call resulted in an error. */
+  isError?: boolean;
 }
 
 function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
@@ -361,13 +404,19 @@ export function createMcpToolRegistry({
   /** Watch the config file and invalidate the cached engine on change. */
   function startConfigWatcher(configPath: string): void {
     if (configWatcher) return; // already watching
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       configWatcher = fs.watch(configPath, { persistent: false }, (eventType) => {
-        if (eventType === 'change') {
-          resolvedEngine = undefined;
-          resolvedConfig = undefined;
-          configWatcher?.close();
-          configWatcher = undefined;
+        if (eventType === 'change' || eventType === 'rename') {
+          // Debounce: editors may emit multiple events per save (write + rename)
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            resolvedEngine = undefined;
+            resolvedConfig = undefined;
+            configWatcher?.close();
+            configWatcher = undefined;
+            debounceTimer = undefined;
+          }, 200);
         }
       });
     } catch {
@@ -492,9 +541,24 @@ export function createMcpToolRegistry({
     },
 
     async callTool(name, args) {
-      const handler = TOOL_HANDLERS[name];
-      if (!handler) throw new Error(`Unknown tool: ${name}`);
-      return handler(args, { getEngine, resolvedConfig });
+      try {
+        const handler = TOOL_HANDLERS[name];
+        if (!handler) throw new Error(`Unknown tool: ${name}`);
+        return await handler(args, { getEngine, resolvedConfig });
+      } catch (error) {
+        // Catch ALL errors (validation, unknown tools, LLM failures, I/O)
+        // and return a structured error instead of crashing the MCP server.
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              status: 'error',
+              error: sanitizeErrorMessage(error),
+            }, null, 2),
+          }],
+          isError: true,
+        };
+      }
     },
   };
 }

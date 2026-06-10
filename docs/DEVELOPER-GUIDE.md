@@ -10,7 +10,7 @@ This guide covers project structure, development workflows, testing, and key arc
 | Git workflow (hooks, branching) | [GIT-WORKFLOW.md](GIT-WORKFLOW.md) |
 | LLM provider details | [MULTIPLIER-ACCESS.md](MULTIPLIER-ACCESS.md) and [VSCODE-LM-STREAMING-FIX.md](VSCODE-LM-STREAMING-FIX.md) |
 | Engineering decisions & lessons learned | [plan/LEARNINGS.md](plan/LEARNINGS.md) |
-| Implementation & release status | [plan/PROGRESS.md](plan/PROGRESS.md) and [plan/RELEASE-IMPLEMENTATION-PLAN.md](plan/RELEASE-IMPLEMENTATION-PLAN.md) |
+| Implementation & release status | [plan/PROGRESS.md](plan/PROGRESS.md) and [plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md](plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md) |
 
 ## Project Structure
 
@@ -67,7 +67,10 @@ tests/
 
 docs/
 ├── plan/                    # Design docs & implementation notes
-│   ├── RELEASE-IMPLEMENTATION-PLAN.md  # Release gates & phases
+│   ├── archive/             # Completed & superseded plans
+│   │   ├── releases/
+│   │   ├── gilfoyle-reviews/
+│   │   └── infrastructure/
 │   ├── LEARNINGS.md         # Hard-won lessons from analyzer tuning
 │   ├── PROGRESS.md          # Implementation status summary
 │   ├── ENGINE-REFERENCE.md  # Deep dive into analyzer architecture
@@ -180,7 +183,7 @@ npm run lint:md
 npm run package:vsce
 ```
 
-For detailed release procedures, see [plan/RELEASE-IMPLEMENTATION-PLAN.md](plan/RELEASE-IMPLEMENTATION-PLAN.md).
+For detailed release procedures, see [plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md](plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md).
 
 ## Contributing
 

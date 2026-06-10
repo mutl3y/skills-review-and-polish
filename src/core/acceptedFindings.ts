@@ -5,7 +5,6 @@
  */
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { AnalysisResult } from './types';
 import { createLogger } from './logger';
@@ -27,13 +26,16 @@ export interface AcceptedFindingsStore {
   entries: Record<string, AcceptedFinding[]>;
 }
 
+/** Maximum total accepted findings entries to prevent unbounded store growth. */
+const MAX_ACCEPTED_ENTRIES = 500;
+
 /**
- * Default path: tries workspace root via `vscode.workspace.workspaceFolders`,
- * falls back to the user's home directory (never `process.cwd()` which is
- * unreliable in extension hosts and MCP server contexts).
+ * Default path: tries workspace root via `vscode.workspace.workspaceFolders`.
  *
- * Callers with access to the workspace root (extension.ts, MCP server) should
- * prefer constructing the path directly from `workspaceFolders[0]`.
+ * IMPORTANT: This constant is ONLY for use by callers that have confirmed a
+ * workspace folder exists. In the MCP server context (no vscode module), callers
+ * MUST always pass an explicit path — this fallback is intentionally absent to
+ * prevent accidental writes to the user's home directory.
  */
 export const DEFAULT_ACCEPTED_FINDINGS_PATH = (() => {
   try {
@@ -46,7 +48,9 @@ export const DEFAULT_ACCEPTED_FINDINGS_PATH = (() => {
   } catch {
     /* not running inside VS Code extension host — fall through */
   }
-  return path.join(os.homedir(), '.accepted-findings.json');
+  // No workspace available — return empty string as a sentinel.
+  // Callers that need a valid path must provide one explicitly.
+  return '';
 })();
 
 // ─── File-name sanitization ──────────────────────────────────────────────────
@@ -131,6 +135,26 @@ export function acceptFinding(
   );
   if (!exists) {
     store.entries[key].push(finding);
+
+    // Enforce max entries — evict oldest across all files when cap exceeded
+    const totalEntries = Object.values(store.entries).reduce((sum, arr) => sum + arr.length, 0);
+    if (totalEntries > MAX_ACCEPTED_ENTRIES) {
+      const flat: Array<{ fileKey: string; index: number; acceptedAt: string }> = [];
+      for (const [fk, entries] of Object.entries(store.entries)) {
+        for (let i = 0; i < entries.length; i++) {
+          flat.push({ fileKey: fk, index: i, acceptedAt: entries[i].acceptedAt });
+        }
+      }
+      flat.sort((a, b) => (a.acceptedAt < b.acceptedAt ? -1 : a.acceptedAt > b.acceptedAt ? 1 : 0));
+      const toRemove = totalEntries - MAX_ACCEPTED_ENTRIES;
+      for (let i = 0; i < toRemove && i < flat.length; i++) {
+        const { fileKey, index } = flat[i];
+        store.entries[fileKey]?.splice(index, 1);
+        if (store.entries[fileKey]?.length === 0) delete store.entries[fileKey];
+      }
+      log.debug('Accepted findings store evicted oldest entries', { removed: toRemove });
+    }
+
     saveAcceptedFindings(storePath, store);
     log.debug('Accepted finding', { fileName: key, code: finding.code });
   } else {
@@ -176,6 +200,8 @@ export function filterAcceptedResults(
   fileName: string,
   storePath: string,
 ): AnalysisResult[] {
+  // Guard: empty path sentinel (no workspace available) — return unfiltered.
+  if (!storePath) return results;
   const store = loadAcceptedFindings(storePath);
   const key = sanitizeFileName(fileName);
   const accepted = store.entries[key];

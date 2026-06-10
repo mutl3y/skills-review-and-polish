@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { Engine, AnalysisResult, Analyzer } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
-import { setLogLevel, setTransport } from './core/logger';
+import { setLogLevel, setTransport, createLogger } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, GitHubModelsProvider } from './providers/externalProvider';
 import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
@@ -16,7 +17,6 @@ import { ScoreCodeLensProvider } from './ui/codeLens';
 import { SkillsCodeActionProvider } from './ui/codeActions';
 import { SuggestionHoverProvider } from './ui/hover';
 import { createInlineRewriteProvider } from './ui/inlineRewrites';
-import { inspectLMAPIs } from './test-api-inspection';
 import { fetchPricing, formatPricing, normalizeModelName, ModelPricing } from './pricing';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
@@ -37,6 +37,9 @@ let extensionContext: vscode.ExtensionContext;
 
 /** Current VsCodeLmProvider instance — updated when buildEngine creates one, used for testing. */
 let currentVsCodeLmProvider: VsCodeLmProvider | undefined;
+
+/** Structured logger for extension-level code. */
+const logger = createLogger('extension');
 
 /** Shared output channel — visible in the Output panel (dropdown: "Skills Review"). */
 let out: vscode.LogOutputChannel;
@@ -66,14 +69,32 @@ const lastResults = new Map<string, AnalysisResult[]>();
 /** Serializes concurrent analyses for the same URI to prevent races on lastResults. */
 const analysisLocks = new Map<string, Promise<void>>();
 
+/** Whether the extension has been deactivated — prevents stale timer callbacks. */
+let disposed = false;
+
 /** onType debounce timers, keyed by URI string. */
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** Custom scheme for fix-preview diff documents. */
 const FIX_SCHEME = 'skills-review-fix';
-const fixPreviewContent = new Map<string, string>();
+const fixPreviewContent = new Map<string, { text: string; ts: number }>();
 /** Maximum entries in the fix-preview cache to prevent unbounded memory growth. */
 const MAX_FIX_PREVIEW_ENTRIES = 20;
+/** Evict fix-preview entries older than this (10 minutes). */
+const FIX_PREVIEW_MAX_AGE_MS = 10 * 60 * 1000;
+
+/**
+ * Evict stale fix-preview entries: per-document old entries and entries
+ * older than FIX_PREVIEW_MAX_AGE_MS (handles forced reloads gracefully).
+ */
+function evictStaleFixPreviews(docPath?: string): void {
+  const now = Date.now();
+  for (const [key, entry] of fixPreviewContent) {
+    const expired = now - entry.ts > FIX_PREVIEW_MAX_AGE_MS;
+    const staleDoc = docPath && key.startsWith(docPath + '?');
+    if (expired || staleDoc) fixPreviewContent.delete(key);
+  }
+}
 
 /** Resolve the accepted-findings path from the workspace root (not process.cwd()). */
 function getAcceptedFindingsPath(): string {
@@ -90,9 +111,21 @@ let cachedEngine: Engine | undefined;
 let cachedEngineConfigHash = '';
 
 function computeConfigHash(cfg: ReturnType<typeof readConfig>, apiKey?: string): string {
-  // Use last-4-char discriminator for change detection (not cryptographic security).
-  const apiKeyDiscriminator = apiKey ? apiKey.slice(-4) : '';
-  return `${cfg.provider}:${cfg.model}:${cfg.deepModel}:${cfg.fixModel}:${cfg.analysisMode}:${cfg.enabledWaves.join(',')}:${cfg.fixStrategy}:${cfg.fixSemanticCheck}:${cfg.fixSelfCritique}:${cfg.fixReferenceGrounding}:${JSON.stringify(cfg.severityOverrides)}:${apiKeyDiscriminator}`;
+  // Hash full API key (SHA-256 truncated) for reliable change detection on key rotation.
+  const apiKeyDiscriminator = apiKey
+    ? crypto.createHash('sha256').update(apiKey).digest('hex').slice(0, 8)
+    : '';
+  // Include prompt file mtimes so edits to .md prompt files invalidate the cache.
+  // This prevents stale prompts from being reused after edits without extension restart.
+  let promptMtimes = '';
+  try {
+    const promptsDir = path.join(path.dirname(require.resolve('./core/prompts')), 'prompts');
+    const files = fs.readdirSync(promptsDir).filter(f => f.endsWith('.md'));
+    promptMtimes = files.sort().map(f => {
+      try { return `${f}:${fs.statSync(path.join(promptsDir, f)).mtimeMs}`; } catch { return f; }
+    }).join(',');
+  } catch { /* prompts dir not available — skip */ }
+  return `${cfg.provider}:${cfg.model}:${cfg.deepModel}:${cfg.fixModel}:${cfg.analysisMode}:${cfg.enabledWaves.join(',')}:${cfg.fixStrategy}:${cfg.fixSemanticCheck}:${cfg.fixSelfCritique}:${cfg.fixReferenceGrounding}:${JSON.stringify(cfg.severityOverrides)}:${apiKeyDiscriminator}:${promptMtimes}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +215,6 @@ export function activate(context: vscode.ExtensionContext): void {
       selectPickerSortOrder(),
     ),
     vscode.commands.registerCommand('skillsReviewAndPolish.setApiKey', () => setApiKey()),
-    vscode.commands.registerCommand('skillsReviewAndPolish.inspectAPIs', async () => {
-      await inspectLMAPIs();
-      vscode.window.showInformationMessage('API inspection complete — check Debug Console output');
-    }),
     vscode.commands.registerCommand('skillsReviewAndPolish.testModelSimplePrompt', testModelSimplePrompt),
     vscode.commands.registerCommand('skillsReviewAndPolish.analyzeFolder', (uri?: vscode.Uri) =>
       runAnalyzeFolder(uri),
@@ -209,7 +238,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // Reconstruct the full key including the query string (?before=… / ?after=…)
         // because uri.path strips the query component.
         const key = uri.query ? `${uri.path}?${uri.query}` : uri.path;
-        return fixPreviewContent.get(key) ?? '';
+        return fixPreviewContent.get(key)?.text ?? '';
       },
     }),
   );
@@ -280,6 +309,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   log('info', 'Extension deactivating');
+  disposed = true;
   diagnostics?.dispose();
   statusBar?.dispose();
   codeLensProvider?.dispose();
@@ -297,9 +327,13 @@ export function deactivate(): void {
 // Engine builder
 // ---------------------------------------------------------------------------
 
-async function buildEngine(): Promise<Engine> {
+async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
+  const ctx = context ?? extensionContext;
+  if (!ctx) {
+    throw new Error('buildEngine: ExtensionContext is not available yet. Ensure activate() has completed.');
+  }
   const cfg = readConfig();
-  const apiKey = extensionContext?.secrets ? await extensionContext.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
+  const apiKey = ctx.secrets ? await ctx.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
   const hash = computeConfigHash(cfg, apiKey);
   if (cachedEngine && cachedEngineConfigHash === hash) {
     log('debug', 'buildEngine: using cached engine');
@@ -398,7 +432,8 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   const files: vscode.Uri[] = [];
   for (const set of fileSets) {
     for (const uri of set) {
-      if (!seen.has(uri.toString()) && uri.fsPath.endsWith('.md')) {
+      if (!seen.has(uri.toString()) && uri.fsPath.endsWith('.md') &&
+          isCustomizationPath(uri.fsPath, cfg.include)) {
         seen.add(uri.toString());
         files.push(uri);
       }
@@ -449,6 +484,10 @@ async function analyzeDocument(
   analysisLocks.set(uriKey, lock);
 
   try {
+    if (disposed) {
+      log('debug', `analyzeDocument: skipping ${filePath} — extension disposed`);
+      return;
+    }
     log('info', `analyzeDocument: START ${filePath} (${doc.getText().length} chars)`);
     // Only reveal output panel for manual triggers — onType/onSave should not steal focus or cause layout flicker.
     if (triggerSource === 'manual') {
@@ -460,7 +499,7 @@ async function analyzeDocument(
       { location: vscode.ProgressLocation.Window, title: 'Skills Review: Analyzing…' },
       async () => {
         try {
-          const engine = await buildEngine();
+          const engine = await buildEngine(extensionContext);
           const text = doc.getText();
           if (token?.isCancellationRequested) return;
           log('info', `analyzeDocument: calling engine.analyze on ${text.length} chars`);
@@ -622,8 +661,24 @@ async function runFixIssue(
     },
     async () => {
       try {
-        const engine = await buildEngine();
+        const engine = await buildEngine(extensionContext);
         const text = doc.getText();
+
+        // Staleness check: verify the diagnostic's relevantText still exists in the current document.
+        const anchor = result.relevantText ?? '';
+        if (anchor && !text.includes(anchor)) {
+          log('warn', `runFixIssue: relevantText not found in current document — document may have changed`);
+          const reanalyze = await vscode.window.showWarningMessage(
+            'Skills Review: The flagged text was not found in the current document. It may have been edited. Re-analyze to get fresh results?',
+            'Re-analyze',
+            'Cancel',
+          );
+          if (reanalyze === 'Re-analyze') {
+            await analyzeDocument(doc, undefined, 'manual');
+          }
+          return;
+        }
+
         const fixer = new SurgicalFixer(engine.provider);
         const fixResult = await fixer.fixIssue(text, doc.uri.fsPath, result, {
           additive: cfg.fixStrategy === 'additive',
@@ -639,7 +694,6 @@ async function runFixIssue(
           return;
         }
 
-        const anchor = result.relevantText ?? '';
         // Count occurrences to avoid replacing the wrong instance.
         const anchorCount = anchor ? text.split(anchor).length - 1 : 0;
         const fixedText = anchor && anchorCount === 1
@@ -755,22 +809,17 @@ async function showFixDiff(
   const beforeKey = `${originalDoc.uri.path}?before=${ts}`;
   const afterKey  = `${originalDoc.uri.path}?after=${ts}`;
 
-  // Evict any previous preview entries for the same document to prevent
-  // unbounded memory growth on repeated fixes.
+  // Evict entries older than FIX_PREVIEW_MAX_AGE_MS and per-document stale entries
   const docPath = originalDoc.uri.path;
-  for (const key of fixPreviewContent.keys()) {
-    if (key.startsWith(docPath + '?')) {
-      fixPreviewContent.delete(key);
-    }
-  }
+  evictStaleFixPreviews(docPath);
   // Enforce max cache size — evict oldest entries (Map preserves insertion order)
   while (fixPreviewContent.size > MAX_FIX_PREVIEW_ENTRIES) {
     const oldest = fixPreviewContent.keys().next().value;
     if (oldest !== undefined) fixPreviewContent.delete(oldest);
   }
 
-  fixPreviewContent.set(beforeKey, originalDoc.getText());
-  fixPreviewContent.set(afterKey, fixedText);
+  fixPreviewContent.set(beforeKey, { text: originalDoc.getText(), ts: Date.now() });
+  fixPreviewContent.set(afterKey, { text: fixedText, ts: Date.now() });
   const beforeUri = vscode.Uri.parse(`${FIX_SCHEME}:${beforeKey}`);
   const afterUri  = vscode.Uri.parse(`${FIX_SCHEME}:${afterKey}`);
   log('info', `showFixDiff: opening diff view "${title}"`);
