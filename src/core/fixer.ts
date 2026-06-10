@@ -224,6 +224,9 @@ export async function loadReferenceGrounding(
   for (const name of safeFiles) {
     if (remaining <= 80) break;
     const full = path.join(refDir, name);
+    // stat() (not lstat) follows symlinks — we already rejected symlinks above,
+    // so this is a normal file or directory. We use it to distinguish between
+    // the two (readdir lists both) and confirm the file is readable.
     let fileStat: import('fs').Stats;
     try {
       fileStat = await fsPromises.stat(full);

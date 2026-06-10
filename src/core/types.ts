@@ -67,7 +67,7 @@ export interface EngineConfig {
   analysisMode: 'single' | 'multiWave';
   enabledWaves: WaveName[];
   scoreSamples: number;
-  fixStrategy: 'subtractive' | 'additive' | 'improved';
+  fixStrategy: 'subtractive' | 'additive';
   fixSemanticCheck: boolean;
   fixSelfCritique: boolean;
   fixReferenceGrounding: boolean;
@@ -103,11 +103,22 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   fixReferenceGrounding: true,
 };
 
-/** Cognitive codes that get severity downgraded for workflow/meta skill types. */
+/**
+ * Cognitive codes that get severity downgraded for workflow/meta skill types.
+ *
+ * Covers the codes emitted by processCognitiveLoad() plus sub-types that
+ * survive dedup/subsumption (delegated-decision, deep-decision-tree).
+ *
+ * Excludes `cognitive-constraint-overload` and `cognitive-priority-conflict`
+ * because they are subsumed by contradiction findings in dedup step 2
+ * (see analyzer.ts) and never appear in final results.
+ */
 export const COGNITIVE_DOWNGRADE_CODES = [
+  'cognitive-load',
   'cognitive-nested-conditions',
   'cognitive-sequencing',
-  'cognitive-load',
+  'cognitive-delegated-decision',
+  'cognitive-deep-decision-tree',
 ] as const;
 
 // ─── LLM response shapes (internal, used by Analyzer) ────────────────────────

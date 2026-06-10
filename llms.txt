@@ -32,7 +32,6 @@ automation path.
 - [src/core/prompts.ts](src/core/prompts.ts): Prompt loading from .md files.
 - [src/core/prompts/](src/core/prompts/): Editable .md prompts for all 8 waves.
 - [src/pricing.ts](src/pricing.ts): Live model pricing fetcher with static fallback.
-- [src/copilotPricing.ts](src/copilotPricing.ts): Static Copilot model pricing table.
 - [src/extension.ts](src/extension.ts): VS Code activation and commands.
 - [src/providers/vscodeLmProvider.ts](src/providers/vscodeLmProvider.ts):
   Copilot-backed provider path.

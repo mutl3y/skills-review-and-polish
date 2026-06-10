@@ -59,6 +59,7 @@ export class Engine {
         token: input.token,
       },
       input.customDiagnostics,
+      this.config.enabledWaves,
     );
   }
 

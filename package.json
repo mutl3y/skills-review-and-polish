@@ -278,11 +278,6 @@
         "category": "Skills Review and Polish"
       },
       {
-        "command": "skillsReviewAndPolish.inspectAPIs",
-        "title": "Inspect VS Code LM APIs (Debug)",
-        "category": "Skills Review and Polish"
-      },
-      {
         "command": "skillsReviewAndPolish.testModelSimplePrompt",
         "title": "Test Model with Simple JSON Prompt (Debug)",
         "category": "Skills Review and Polish"

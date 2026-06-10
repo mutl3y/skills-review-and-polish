@@ -17,8 +17,10 @@ export class SuggestionHoverProvider implements vscode.HoverProvider {
 
     if (diags.length === 0) return undefined;
 
-    const md = new vscode.MarkdownString('', true);
-    md.isTrusted = true;
+    // LLM-generated suggestions are plain text — no need to trust them as
+    // executable markdown. Setting isTrusted to false prevents any injected
+    // links or commands from being treated as safe.
+    const md = new vscode.MarkdownString('', false);
 
     for (const diag of diags) {
       const result: AnalysisResult | undefined = (

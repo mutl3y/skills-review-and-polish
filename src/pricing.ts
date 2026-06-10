@@ -147,7 +147,6 @@ async function fetchCopilotPricing(): Promise<Map<string, ModelPricing>> {
   // Static fallback — source: docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
   // Last updated: 2026-06-08
   // Canonical source of truth for Copilot model pricing.
-  // See also: src/copilotPricing.ts (static subset, retained for backward compatibility).
   const models = new Map<string, ModelPricing>();
   const staticData: Array<[string, number, number, number?]> = [
     ['GPT-4o mini',                   0.03,  0.12],
