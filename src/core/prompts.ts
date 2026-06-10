@@ -26,12 +26,12 @@ try {
 const PROMPT_FALLBACK = '(No prompt file found — analysis degraded.)';
 
 /**
- * Load a prompt .md file by name (without extension).
+ * Load a prompt .prompt file by name (without extension).
  * Returns a fallback string on I/O errors instead of throwing.
  */
 export function loadPrompt(name: string): string {
   try {
-    return fs.readFileSync(path.join(PROMPTS_DIR, `${name}.md`), 'utf8').trim();
+    return fs.readFileSync(path.join(PROMPTS_DIR, `${name}.prompt`), 'utf8').trim();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[SkillsReview] loadPrompt failed for "${name}": ${msg}`);

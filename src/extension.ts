@@ -25,27 +25,52 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
 }
 
 // ---------------------------------------------------------------------------
-// Extension-level state
+// Extension-level state — encapsulated in a class for testability.
+// Each activate() call creates a fresh instance; deactivate() disposes it.
+// Module-level functions reference `state` for mutable data.
 // ---------------------------------------------------------------------------
 
-let diagnostics: vscode.DiagnosticCollection;
-let statusBar: StatusBarManager;
-let codeLensProvider: ScoreCodeLensProvider;
+const FIX_SCHEME = 'skills-review-fix';
+const MAX_FIX_PREVIEW_ENTRIES = 20;
+const FIX_PREVIEW_MAX_AGE_MS = 10 * 60 * 1000;
 
-/** Stored extension context — set once in activate(), used by buildEngine to access SecretStorage. */
-let extensionContext: vscode.ExtensionContext;
+class ExtensionState {
+  diagnostics!: vscode.DiagnosticCollection;
+  statusBar!: StatusBarManager;
+  codeLensProvider!: ScoreCodeLensProvider;
+  extensionContext!: vscode.ExtensionContext;
+  currentVsCodeLmProvider: VsCodeLmProvider | undefined;
+  out!: vscode.LogOutputChannel;
+  logFilePath: string | undefined;
+  lastResults = new Map<string, AnalysisResult[]>();
+  analysisLocks = new Map<string, Promise<void>>();
+  disposed = false;
+  debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  fixPreviewContent = new Map<string, { text: string; ts: number }>();
+  cachedEngine: Engine | undefined;
+  cachedEngineConfigHash = '';
 
-/** Current VsCodeLmProvider instance — updated when buildEngine creates one, used for testing. */
-let currentVsCodeLmProvider: VsCodeLmProvider | undefined;
+  dispose(): void {
+    this.disposed = true;
+    this.diagnostics?.dispose();
+    this.statusBar?.dispose();
+    this.codeLensProvider?.dispose();
+    this.out?.dispose();
+    for (const t of this.debounceTimers.values()) clearTimeout(t);
+    this.debounceTimers.clear();
+    this.lastResults.clear();
+    this.analysisLocks.clear();
+    this.fixPreviewContent.clear();
+    this.cachedEngine = undefined;
+    Analyzer.clearHistory();
+  }
+}
+
+/** Active extension state — set by activate(), cleared by deactivate(). */
+let state: ExtensionState | undefined;
 
 /** Structured logger for extension-level code. */
 const logger = createLogger('extension');
-
-/** Shared output channel — visible in the Output panel (dropdown: "Skills Review"). */
-let out: vscode.LogOutputChannel;
-
-/** Absolute path to the on-disk debug log — set in activate(), tailable via `tail -f`. */
-let logFilePath: string | undefined;
 
 /** Append a timestamped line to both the VS Code output channel and the log file. */
 function log(level: 'info' | 'warn' | 'error' | 'debug', message: string): void {
@@ -54,45 +79,26 @@ function log(level: 'info' | 'warn' | 'error' | 'debug', message: string): void 
 
   const ts = new Date().toISOString();
   const line = `${ts} [${level.toUpperCase().padEnd(5)}] ${message}`;
-  if (level === 'error') out?.error(message);
-  else if (level === 'warn') out?.warn(message);
-  else if (level === 'debug') out?.debug(message);
-  else out?.info(message);
-  if (level === 'debug' && cfg.logLevel === 'debug' && logFilePath) {
-    try { fs.appendFileSync(logFilePath, line + '\n'); } catch { /* ignore */ }
+  if (level === 'error') state?.out?.error(message);
+  else if (level === 'warn') state?.out?.warn(message);
+  else if (level === 'debug') state?.out?.debug(message);
+  else state?.out?.info(message);
+  if (level === 'debug' && cfg.logLevel === 'debug' && state?.logFilePath) {
+    try { fs.appendFileSync(state.logFilePath, line + '\n'); } catch { /* ignore */ }
   }
 }
-
-/** Maps URI strings to the last set of AnalysisResults so fixIssue can use them. */
-const lastResults = new Map<string, AnalysisResult[]>();
-
-/** Serializes concurrent analyses for the same URI to prevent races on lastResults. */
-const analysisLocks = new Map<string, Promise<void>>();
-
-/** Whether the extension has been deactivated — prevents stale timer callbacks. */
-let disposed = false;
-
-/** onType debounce timers, keyed by URI string. */
-const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-/** Custom scheme for fix-preview diff documents. */
-const FIX_SCHEME = 'skills-review-fix';
-const fixPreviewContent = new Map<string, { text: string; ts: number }>();
-/** Maximum entries in the fix-preview cache to prevent unbounded memory growth. */
-const MAX_FIX_PREVIEW_ENTRIES = 20;
-/** Evict fix-preview entries older than this (10 minutes). */
-const FIX_PREVIEW_MAX_AGE_MS = 10 * 60 * 1000;
 
 /**
  * Evict stale fix-preview entries: per-document old entries and entries
  * older than FIX_PREVIEW_MAX_AGE_MS (handles forced reloads gracefully).
  */
 function evictStaleFixPreviews(docPath?: string): void {
+  if (!state) return;
   const now = Date.now();
-  for (const [key, entry] of fixPreviewContent) {
+  for (const [key, entry] of state.fixPreviewContent) {
     const expired = now - entry.ts > FIX_PREVIEW_MAX_AGE_MS;
     const staleDoc = docPath && key.startsWith(docPath + '?');
-    if (expired || staleDoc) fixPreviewContent.delete(key);
+    if (expired || staleDoc) state.fixPreviewContent.delete(key);
   }
 }
 
@@ -106,21 +112,17 @@ function getAcceptedFindingsPath(): string {
   return '';
 }
 
-/** Cached engine — rebuilt only when config changes. */
-let cachedEngine: Engine | undefined;
-let cachedEngineConfigHash = '';
-
 function computeConfigHash(cfg: ReturnType<typeof readConfig>, apiKey?: string): string {
   // Hash full API key (SHA-256 truncated) for reliable change detection on key rotation.
   const apiKeyDiscriminator = apiKey
     ? crypto.createHash('sha256').update(apiKey).digest('hex').slice(0, 8)
     : '';
-  // Include prompt file mtimes so edits to .md prompt files invalidate the cache.
+  // Include prompt file mtimes so edits to .prompt files invalidate the cache.
   // This prevents stale prompts from being reused after edits without extension restart.
   let promptMtimes = '';
   try {
     const promptsDir = path.join(path.dirname(require.resolve('./core/prompts')), 'prompts');
-    const files = fs.readdirSync(promptsDir).filter(f => f.endsWith('.md'));
+    const files = fs.readdirSync(promptsDir).filter(f => f.endsWith('.prompt'));
     promptMtimes = files.sort().map(f => {
       try { return `${f}:${fs.statSync(path.join(promptsDir, f)).mtimeMs}`; } catch { return f; }
     }).join(',');
@@ -133,7 +135,8 @@ function computeConfigHash(cfg: ReturnType<typeof readConfig>, apiKey?: string):
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
-  extensionContext = context;
+  state = new ExtensionState();
+  state.extensionContext = context;
   const cfg = readConfig();
 
   if (!cfg.enable) {
@@ -141,45 +144,38 @@ export function activate(context: vscode.ExtensionContext): void {
     return;
   }
 
-  out = vscode.window.createOutputChannel('Skills Review', { log: true });
-  diagnostics = createDiagnosticCollection();
-  statusBar = new StatusBarManager();
-  codeLensProvider = new ScoreCodeLensProvider();
+  state.out = vscode.window.createOutputChannel('Skills Review', { log: true });
+  state.diagnostics = createDiagnosticCollection();
+  state.statusBar = new StatusBarManager();
+  state.codeLensProvider = new ScoreCodeLensProvider();
 
   if (cfg.logLevel === 'debug') {
-    // Set up on-disk log file — use /tmp so it works even when the Extension
-    // Development Host opens without a workspace folder.
-    logFilePath = os.tmpdir() + '/skills-review-debug.log';
-    try { fs.writeFileSync(logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
+    state.logFilePath = os.tmpdir() + '/skills-review-debug.log';
+    try { fs.writeFileSync(state.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
   }
 
-  // Wire the core logger to the VS Code output channel + on-disk log file.
-  // Note: cfg is captured once at activation. Log-level changes require reload.
   setLogLevel(cfg.logLevel === 'debug' ? 'debug' : 'info');
   setTransport((line) => {
-    out?.appendLine(line);
-    if (cfg.logLevel === 'debug' && logFilePath) {
-      try { fs.appendFileSync(logFilePath, line + '\n'); } catch { /* ignore */ }
+    state?.out?.appendLine(line);
+    if (cfg.logLevel === 'debug' && state?.logFilePath) {
+      try { fs.appendFileSync(state.logFilePath, line + '\n'); } catch { /* ignore */ }
     }
   });
 
-  context.subscriptions.push(out, diagnostics, statusBar, codeLensProvider);
+  context.subscriptions.push(state.out, state.diagnostics, state.statusBar, state.codeLensProvider);
 
-  // --- Config watcher: invalidate cache immediately on settings change ---
   context.subscriptions.push(setupConfigWatcher());
   log('info', cfg.logLevel === 'debug'
-    ? `Extension activated — log level: ${cfg.logLevel}, log file: ${logFilePath ?? '(none)'}`
+    ? `Extension activated — log level: ${cfg.logLevel}, log file: ${state.logFilePath ?? '(none)'}`
     : `Extension activated — log level: ${cfg.logLevel}`);
 
-  // Document selector for all AI customization file patterns
   const docSelector: vscode.DocumentFilter[] = [{ language: 'markdown' }];
 
-  // --- Context keys ---
   const updateContext = (editor: vscode.TextEditor | undefined) => {
     const cfg = readConfig();
     const isCustomization =
       !!editor && isCustomizationPath(editor.document.uri.fsPath, cfg.include);
-    const hasDiagnostics = !!editor && !!(diagnostics.get(editor.document.uri)?.length);
+    const hasDiagnostics = !!editor && !!(state?.diagnostics.get(editor.document.uri)?.length);
     vscode.commands.executeCommand(
       'setContext',
       'skillsReviewAndPolish.isCustomization',
@@ -191,13 +187,12 @@ export function activate(context: vscode.ExtensionContext): void {
       !!hasDiagnostics,
     );
     if (isCustomization) {
-      statusBar.showIdle();
+      state?.statusBar.showIdle();
     }
   };
   context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateContext));
   updateContext(vscode.window.activeTextEditor);
 
-  // --- Commands ---
   context.subscriptions.push(
     vscode.commands.registerCommand('skillsReviewAndPolish.analyze', () => runAnalyze(false)),
     vscode.commands.registerCommand('skillsReviewAndPolish.rescan', () => runAnalyze(true)),
@@ -222,28 +217,23 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('skillsReviewAndPolish.syncMcpConfig', syncMcpConfig),
   );
 
-  // --- Providers ---
   context.subscriptions.push(
     vscode.languages.registerCodeActionsProvider(docSelector, new SkillsCodeActionProvider(), {
       providedCodeActionKinds: SkillsCodeActionProvider.providedCodeActionKinds,
     }),
-    vscode.languages.registerCodeLensProvider(docSelector, codeLensProvider),
+    vscode.languages.registerCodeLensProvider(docSelector, state.codeLensProvider),
     vscode.languages.registerHoverProvider(docSelector, new SuggestionHoverProvider()),
   );
 
-  // --- Fix-preview virtual document provider ---
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(FIX_SCHEME, {
       provideTextDocumentContent(uri: vscode.Uri): string {
-        // Reconstruct the full key including the query string (?before=… / ?after=…)
-        // because uri.path strips the query component.
         const key = uri.query ? `${uri.path}?${uri.query}` : uri.path;
-        return fixPreviewContent.get(key)?.text ?? '';
+        return state?.fixPreviewContent.get(key)?.text ?? '';
       },
     }),
   );
 
-  // --- Run-on-save ---
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const cfg = readConfig();
@@ -257,50 +247,47 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // --- onType debounce ---
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
       const cfg = readConfig();
       if (!cfg.enable || cfg.runOn !== 'onType') return;
       if (!isCustomizationPath(e.document.uri.fsPath, cfg.include)) return;
       const key = e.document.uri.toString();
-      const existing = debounceTimers.get(key);
+      const existing = state?.debounceTimers.get(key);
       if (existing !== undefined) clearTimeout(existing);
-      debounceTimers.set(
+      state?.debounceTimers.set(
         key,
         setTimeout(() => {
-          debounceTimers.delete(key);
+          state?.debounceTimers.delete(key);
           void analyzeDocument(e.document, undefined, 'onType');
         }, 2000),
       );
     }),
   );
 
-  // --- Evict stale state on document close ---
   context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument((doc) => {
       const key = doc.uri.toString();
-      lastResults.delete(key);
-      // Clean up fix preview entries for this document
-      for (const previewKey of fixPreviewContent.keys()) {
-        if (previewKey.startsWith(doc.uri.path)) {
-          fixPreviewContent.delete(previewKey);
+      state?.lastResults.delete(key);
+      if (state) {
+        for (const previewKey of state.fixPreviewContent.keys()) {
+          if (previewKey.startsWith(doc.uri.path)) {
+            state.fixPreviewContent.delete(previewKey);
+          }
         }
       }
     }),
   );
 
-  // --- Language model tools (Phase 5 — requires VS Code 1.95+) ---
   registerLanguageModelTools(context);
 
-  // --- Experimental inline rewrites (Phase 6 — off by default) ---
   {
     const cfg = readConfig();
     if (cfg.inlineRewrites) {
       context.subscriptions.push(
         createInlineRewriteProvider(
           () => buildEngine(),
-          (uri) => lastResults.get(uri.toString()) ?? [],
+          (uri) => state?.lastResults.get(uri.toString()) ?? [],
         ),
       );
     }
@@ -309,18 +296,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   log('info', 'Extension deactivating');
-  disposed = true;
-  diagnostics?.dispose();
-  statusBar?.dispose();
-  codeLensProvider?.dispose();
-  out?.dispose();
-  for (const t of debounceTimers.values()) clearTimeout(t);
-  debounceTimers.clear();
-  lastResults.clear();
-  analysisLocks.clear();
-  fixPreviewContent.clear();
-  cachedEngine = undefined;
-  Analyzer.clearHistory();
+  state?.dispose();
+  state = undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -328,16 +305,16 @@ export function deactivate(): void {
 // ---------------------------------------------------------------------------
 
 async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
-  const ctx = context ?? extensionContext;
+  const ctx = context ?? state?.extensionContext;
   if (!ctx) {
     throw new Error('buildEngine: ExtensionContext is not available yet. Ensure activate() has completed.');
   }
   const cfg = readConfig();
   const apiKey = ctx.secrets ? await ctx.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
   const hash = computeConfigHash(cfg, apiKey);
-  if (cachedEngine && cachedEngineConfigHash === hash) {
+  if (state?.cachedEngine && state.cachedEngineConfigHash === hash) {
     log('debug', 'buildEngine: using cached engine');
-    return cachedEngine;
+    return state.cachedEngine;
   }
   log('info', `buildEngine: provider=${cfg.provider} standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'}`);
 
@@ -352,10 +329,10 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
         cfg.model,
         cfg.deepModel || cfg.model,
       );
-      currentVsCodeLmProvider = vscodeLmProvider;
-      cachedEngine = new Engine(vscodeLmProvider, cfg);
-      cachedEngineConfigHash = hash;
-      return cachedEngine;
+      state!.currentVsCodeLmProvider = vscodeLmProvider;
+      state!.cachedEngine = new Engine(vscodeLmProvider, cfg);
+      state!.cachedEngineConfigHash = hash;
+      return state!.cachedEngine;
     }
     const model = cfg.fixModel || cfg.model || '';
     const provider =
@@ -363,10 +340,10 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
         ? new OpenRouterProvider({ apiKey, model })
         : new GitHubModelsProvider({ apiKey, model });
     log('info', `buildEngine: using external provider ${cfg.provider} model=${model}`);
-    currentVsCodeLmProvider = undefined;
-    cachedEngine = new Engine(provider, cfg);
-    cachedEngineConfigHash = hash;
-    return cachedEngine;
+    state!.currentVsCodeLmProvider = undefined;
+    state!.cachedEngine = new Engine(provider, cfg);
+    state!.cachedEngineConfigHash = hash;
+    return state!.cachedEngine;
   }
 
   log('info', 'buildEngine: using vscode-lm');
@@ -374,10 +351,10 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     cfg.model,
     cfg.deepModel || cfg.model,
   );
-  currentVsCodeLmProvider = vscodeLmProvider;
-  cachedEngine = new Engine(vscodeLmProvider, cfg);
-  cachedEngineConfigHash = hash;
-  return cachedEngine;
+  state!.currentVsCodeLmProvider = vscodeLmProvider;
+  state!.cachedEngine = new Engine(vscodeLmProvider, cfg);
+  state!.cachedEngineConfigHash = hash;
+  return state!.cachedEngine;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,7 +450,7 @@ async function analyzeDocument(
   const uriKey = doc.uri.toString();
 
   // Serialize concurrent analyses for the same URI to prevent races on lastResults.
-  const prev = analysisLocks.get(uriKey);
+  const prev = state?.analysisLocks.get(uriKey);
   if (prev) {
     log('debug', `analyzeDocument: waiting for in-flight analysis of ${filePath}`);
     await prev;
@@ -481,25 +458,25 @@ async function analyzeDocument(
 
   let resolveLock!: () => void;
   const lock = new Promise<void>((resolve) => { resolveLock = resolve; });
-  analysisLocks.set(uriKey, lock);
+  state!.analysisLocks.set(uriKey, lock);
 
   try {
-    if (disposed) {
+    if (state?.disposed) {
       log('debug', `analyzeDocument: skipping ${filePath} — extension disposed`);
       return;
     }
     log('info', `analyzeDocument: START ${filePath} (${doc.getText().length} chars)`);
     // Only reveal output panel for manual triggers — onType/onSave should not steal focus or cause layout flicker.
     if (triggerSource === 'manual') {
-      out.show(false);
+      state?.out?.show(false);
     }
 
-    statusBar.startAnalyzing();
+    state?.statusBar.startAnalyzing();
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Window, title: 'Skills Review: Analyzing…' },
       async () => {
         try {
-          const engine = await buildEngine(extensionContext);
+          const engine = await buildEngine(state?.extensionContext);
           const text = doc.getText();
           if (token?.isCancellationRequested) return;
           log('info', `analyzeDocument: calling engine.analyze on ${text.length} chars`);
@@ -510,10 +487,10 @@ async function analyzeDocument(
             log('debug', `  [${r.severity}] ${r.code} L${(r.range?.start?.line ?? 0) + 1}: ${r.message.slice(0, 120)}`);
           }
 
-          publishDiagnostics(diagnostics, doc.uri, results, cfg.severityOverrides);
+          publishDiagnostics(state!.diagnostics, doc.uri, results, cfg.severityOverrides);
 
           // Store for later fix commands
-          lastResults.set(uriKey, results);
+          state?.lastResults.set(uriKey, results);
 
           // Compute score inline (avoids a redundant second engine.analyze() call)
           const lineCount = text.split('\n').length;
@@ -522,10 +499,10 @@ async function analyzeDocument(
           log('info', `analyzeDocument: score=${score.score} grade=${score.grade} type=${skillType}`);
 
           if (cfg.showScoreCodeLens) {
-            codeLensProvider.update(doc.uri, score, results.length);
+            state?.codeLensProvider.update(doc.uri, score, results.length);
           }
 
-          statusBar.showResult(score.grade, results.length);
+          state?.statusBar.showResult(score.grade, results.length);
 
           vscode.commands.executeCommand(
             'setContext',
@@ -547,14 +524,14 @@ async function analyzeDocument(
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           log('error', `analyzeDocument: ERROR — ${message}`);
-          statusBar.showError(message);
+          state?.statusBar.showError(message);
           vscode.window.showWarningMessage(`Skills Review: ${message}`);
         }
       },
     );
   } finally {
     resolveLock();
-    analysisLocks.delete(uriKey);
+    state?.analysisLocks.delete(uriKey);
   }
 }
 
@@ -570,7 +547,7 @@ async function runFixAll(): Promise<void> {
   }
   const doc = editor.document;
   const cfg = readConfig();
-  const results = lastResults.get(doc.uri.toString()) ?? [];
+  const results = state?.lastResults.get(doc.uri.toString()) ?? [];
   const fixable = results.filter((r) => SURGICAL_FIXABLE_CODES.has(r.code ?? ''));
   if (fixable.length === 0) {
     vscode.window.showInformationMessage('Skills Review: No auto-fixable issues in this file.');
@@ -661,7 +638,7 @@ async function runFixIssue(
     },
     async () => {
       try {
-        const engine = await buildEngine(extensionContext);
+        const engine = await buildEngine(state?.extensionContext);
         const text = doc.getText();
 
         // Staleness check: verify the diagnostic's relevantText still exists in the current document.
@@ -813,13 +790,13 @@ async function showFixDiff(
   const docPath = originalDoc.uri.path;
   evictStaleFixPreviews(docPath);
   // Enforce max cache size — evict oldest entries (Map preserves insertion order)
-  while (fixPreviewContent.size > MAX_FIX_PREVIEW_ENTRIES) {
-    const oldest = fixPreviewContent.keys().next().value;
-    if (oldest !== undefined) fixPreviewContent.delete(oldest);
+  while (state!.fixPreviewContent.size > MAX_FIX_PREVIEW_ENTRIES) {
+    const oldest = state!.fixPreviewContent.keys().next().value;
+    if (oldest !== undefined) state!.fixPreviewContent.delete(oldest);
   }
 
-  fixPreviewContent.set(beforeKey, { text: originalDoc.getText(), ts: Date.now() });
-  fixPreviewContent.set(afterKey, { text: fixedText, ts: Date.now() });
+  state!.fixPreviewContent.set(beforeKey, { text: originalDoc.getText(), ts: Date.now() });
+  state!.fixPreviewContent.set(afterKey, { text: fixedText, ts: Date.now() });
   const beforeUri = vscode.Uri.parse(`${FIX_SCHEME}:${beforeKey}`);
   const afterUri  = vscode.Uri.parse(`${FIX_SCHEME}:${afterKey}`);
   log('info', `showFixDiff: opening diff view "${title}"`);
@@ -1107,7 +1084,7 @@ async function testModelSimplePrompt(): Promise<void> {
 
   if (cfg.provider !== 'vscode-lm') {
     // External provider — test directly via the provider's API
-    const apiKey = extensionContext ? await extensionContext.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
+    const apiKey = state?.extensionContext ? await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
     if (!apiKey) {
       vscode.window.showErrorMessage(
         `Cannot test "${cfg.provider}" provider — no API key stored. Run "Skills Review: Set API Key" first.`,
@@ -1150,7 +1127,7 @@ async function testModelSimplePrompt(): Promise<void> {
   }
 
   // vscode-lm provider
-  let provider = currentVsCodeLmProvider;
+  let provider = state?.currentVsCodeLmProvider;
   
   // If no provider cached, create one using current config
   if (!provider) {
@@ -1187,7 +1164,7 @@ async function setApiKey(): Promise<void> {
     prompt: 'Stored in VS Code SecretStorage (never written to settings).',
   });
   if (key) {
-    await extensionContext.secrets.store('skillsReviewAndPolish.apiKey', key);
+    await state!.extensionContext.secrets.store('skillsReviewAndPolish.apiKey', key);
     vscode.window.showInformationMessage('Skills Review: API key saved to SecretStorage.');
   }
 }
