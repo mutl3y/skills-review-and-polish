@@ -46,6 +46,13 @@ automation path.
 - [src/mcp/server.integration.test.ts](src/mcp/server.integration.test.ts): End-to-end MCP protocol tests.
 - [docs/plan/MCP-IMPROVEMENT-PLAN.md](docs/plan/MCP-IMPROVEMENT-PLAN.md): MCP improvement plan (all waves complete).
 
+## Skills
+
+- [.github/skills/human-in-the-loop/SKILL.md](.github/skills/human-in-the-loop/SKILL.md):
+  Collaboration framework with quality gates, test failure recovery, commit rhythm, and opt-in autopilot.
+- [.github/skills/markdown-style/SKILL.md](.github/skills/markdown-style/SKILL.md):
+  Markdown formatting standards and linting rules.
+
 ## Examples and Fixtures
 
 - [tests/fixtures/README.md](tests/fixtures/README.md): Fixture overview.

@@ -263,7 +263,7 @@ describe('extension activation wiring', () => {
 
     await selectModelCommand();
 
-    expect(mocks.showWarningMessage).toHaveBeenCalledWith('No language models available. Sign in to GitHub Copilot.');
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith('No language models available. Sign in to GitHub Copilot or configure an external provider.');
   });
 
   it('saves a validated model selection and reports the result', async () => {
@@ -844,7 +844,7 @@ describe('selectModel - edge cases', () => {
 
     await selectFixModelCommand();
 
-    expect(mocks.showWarningMessage).toHaveBeenCalledWith('No language models available. Sign in to GitHub Copilot.');
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith('No language models available. Sign in to GitHub Copilot or configure an external provider.');
   });
 });
 

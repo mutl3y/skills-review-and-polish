@@ -12,14 +12,9 @@
  */
 import { test, expect, Page, BrowserContext } from '@playwright/test';
 import { readFileSync } from 'fs';
-import { loadAuthState, hasAuthState, AUTH_STATE_FILE } from './setup';
+import { loadAuthState, hasAuthState, AUTH_STATE_FILE, BASE_URL, TOKEN_FILE, VSCODE_URL } from './setup';
 
 test.describe.configure({ mode: 'serial' });
-
-const BASE_URL = process.env.EXT_HOST_URL ?? 'http://localhost:9200';
-const TOKEN_FILE = process.env.VSCODE_TOKEN_FILE ?? '/home/vscode/.vscode-token';
-const FOLDER = '/workspace/skills-review-and-polish';
-const VSCODE_URL = `${BASE_URL}/?folder=${encodeURIComponent(FOLDER)}`;
 
 let page: Page;
 let context: BrowserContext;
@@ -54,9 +49,9 @@ async function openCommandPalette(page: Page) {
 async function runCommand(page: Page, command: string) {
   await openCommandPalette(page);
   const titlePart = command.split(':')[1]?.trim() ?? command;
-  await page.fill('.quick-input-box input', `> ${titlePart}`);
+  await page.keyboard.type(titlePart, { delay: 30 });
   const item = page.locator('.quick-input-list .monaco-list-row .label-name', { hasText: titlePart });
-  await expect(item.first()).toBeVisible({ timeout: 1_000 });
+  await expect(item.first()).toBeVisible({ timeout: 5_000 });
   await page.keyboard.press('Enter');
 }
 
@@ -143,11 +138,25 @@ test('Analyze command produces diagnostics for contradiction fixture', async () 
 test('Problems panel shows contradiction diagnostics', async () => {
   // Open the Problems panel
   await page.keyboard.press('Control+Shift+M');
-  await page.waitForSelector('.markers-panel', { timeout: 3_000 });
+  await page.waitForSelector('.markers-panel', { timeout: 5_000 });
 
-  // Verify problems exist in the panel
+  // Wait for diagnostics to appear (may need a moment after analysis completes)
   const problemItems = page.locator('.markers-panel .monaco-list-row');
-  await expect(problemItems.first()).toBeVisible({ timeout: 5_000 });
+  try {
+    await expect(problemItems.first()).toBeVisible({ timeout: 15_000 });
+  } catch {
+    // Diagnostics may not have rendered yet — reopen fixture and retry
+    await page.keyboard.press('Escape');
+    await openCommandPalette(page);
+    const relPath = 'tests/fixtures/primary/test-contradictions-direct/SKILL.md';
+    await page.fill('.quick-input-box input', relPath);
+    await page.waitForSelector('.quick-input-list .monaco-list-row', { timeout: 3_000 });
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.monaco-editor.no-user-select.vs.focused', { timeout: 5_000 });
+    await page.keyboard.press('Control+Shift+M');
+    await page.waitForSelector('.markers-panel', { timeout: 5_000 });
+    await expect(problemItems.first()).toBeVisible({ timeout: 15_000 });
+  }
   const count = await problemItems.count();
   expect(count).toBeGreaterThan(0);
 });

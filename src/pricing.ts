@@ -8,6 +8,10 @@
  * @module pricing
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -34,9 +38,21 @@ export interface PricingCache {
 
 const COPILOT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const OPENROUTER_CACHE_TTL_MS = 60 * 60 * 1000;   // 1 hour
+const OPENROUTER_DISK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const OPENROUTER_CACHE_FILE = path.join(
+  os.tmpdir(),
+  'skills-review-and-polish-openrouter-pricing-cache-v1.json',
+);
 
 let copilotCache: PricingCache | null = null;
 let openrouterCache: PricingCache | null = null;
+let openrouterFetchInFlight: Promise<Map<string, ModelPricing>> | null = null;
+
+interface SerializedOpenRouterCache {
+  fetchedAt: number;
+  crc32: string;
+  entries: Array<[string, ModelPricing]>;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -325,15 +341,50 @@ async function fetchOpenRouterPricing(): Promise<Map<string, ModelPricing>> {
     return openrouterCache.models;
   }
 
-  const resp = await fetchWithTimeout('https://openrouter.ai/api/v1/models', {
-    headers: { 'User-Agent': 'skills-review-and-polish' },
-  });
-  if (!resp.ok) throw new Error(`OpenRouter pricing fetch failed: HTTP ${resp.status}`);
-  const json = (await resp.json()) as OpenRouterModelsResponse;
+  // Keep pricing warm across extension-host restarts for a short window.
+  const diskCache = readOpenRouterDiskCache();
+  if (diskCache && Date.now() - diskCache.fetchedAt < OPENROUTER_DISK_CACHE_TTL_MS) {
+    openrouterCache = diskCache;
+    return diskCache.models;
+  }
 
-  const models = parseOpenRouterResponse(json);
-  openrouterCache = { models, fetchedAt: Date.now() };
-  return models;
+  // Deduplicate concurrent fetches so opening picker multiple times rapidly
+  // does not fan out duplicate network requests.
+  if (openrouterFetchInFlight) {
+    return openrouterFetchInFlight;
+  }
+
+  openrouterFetchInFlight = (async () => {
+    const resp = await fetchWithTimeout('https://openrouter.ai/api/v1/models', {
+      headers: { 'User-Agent': 'skills-review-and-polish' },
+    });
+    if (!resp.ok) throw new Error(`OpenRouter pricing fetch failed: HTTP ${resp.status}`);
+    let raw: string;
+    let json: OpenRouterModelsResponse;
+
+    // Support environments/mocks that only expose json() while still
+    // computing a stable payload checksum when text() is available.
+    if (typeof resp.text === 'function') {
+      raw = await resp.text();
+      json = JSON.parse(raw) as OpenRouterModelsResponse;
+    } else {
+      json = (await resp.json()) as OpenRouterModelsResponse;
+      raw = JSON.stringify(json);
+    }
+
+    const models = parseOpenRouterResponse(json);
+    const crc32 = computeCrc32(raw);
+
+    openrouterCache = { models, fetchedAt: Date.now() };
+    writeOpenRouterDiskCache(openrouterCache, crc32);
+    return models;
+  })();
+
+  try {
+    return await openrouterFetchInFlight;
+  } finally {
+    openrouterFetchInFlight = null;
+  }
 }
 
 interface OpenRouterModelsResponse {
@@ -374,6 +425,54 @@ function parseOpenRouterResponse(json: OpenRouterModelsResponse): Map<string, Mo
   }
 
   return models;
+}
+
+function readOpenRouterDiskCache(): PricingCache | null {
+  try {
+    if (!fs.existsSync(OPENROUTER_CACHE_FILE)) return null;
+    const raw = fs.readFileSync(OPENROUTER_CACHE_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as SerializedOpenRouterCache;
+    if (!parsed || !Array.isArray(parsed.entries) || typeof parsed.fetchedAt !== 'number') {
+      return null;
+    }
+    return {
+      models: new Map(parsed.entries),
+      fetchedAt: parsed.fetchedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeOpenRouterDiskCache(cache: PricingCache, crc32: string): void {
+  try {
+    const payload: SerializedOpenRouterCache = {
+      fetchedAt: cache.fetchedAt,
+      crc32,
+      entries: Array.from(cache.models.entries()),
+    };
+    fs.writeFileSync(OPENROUTER_CACHE_FILE, JSON.stringify(payload), 'utf8');
+  } catch {
+    // Ignore cache-write failures; pricing fetch should never fail because cache persistence failed.
+  }
+}
+
+/**
+ * Fast CRC-32 checksum used to detect upstream payload changes between fetches.
+ * We store it alongside cached data for lightweight change tracking.
+ */
+function computeCrc32(input: string): string {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < input.length; i += 1) {
+    crc ^= input.charCodeAt(i);
+    for (let j = 0; j < 8; j += 1) {
+      const lsb = crc & 1;
+      crc >>>= 1;
+      if (lsb) crc ^= 0xEDB88320;
+    }
+  }
+  const normalized = (crc ^ 0xFFFFFFFF) >>> 0;
+  return normalized.toString(16).padStart(8, '0');
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +517,14 @@ export function normalizeModelName(name: string): string {
 export function _resetCaches(): void {
   copilotCache = null;
   openrouterCache = null;
+  openrouterFetchInFlight = null;
+  try {
+    if (fs.existsSync(OPENROUTER_CACHE_FILE)) {
+      fs.unlinkSync(OPENROUTER_CACHE_FILE);
+    }
+  } catch {
+    // Ignore reset cleanup failures in tests.
+  }
 }
 
 /** @internal Expose parseCopilotHtml for unit testing. */

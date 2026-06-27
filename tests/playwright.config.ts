@@ -16,10 +16,11 @@ function findChromiumExecutable(): string | undefined {
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
+  workers: 1,  // single worker — all tests share the same VS Code web instance
   use: {
     ignoreHTTPSErrors: true,
     headless: true,
-    baseURL: 'http://localhost:9200',
+    baseURL: 'https://192.168.0.29:8550',
     launchOptions: {
       executablePath: findChromiumExecutable(),
       args: ['--no-sandbox', '--disable-setuid-sandbox'],

@@ -159,3 +159,42 @@
 - `EngineConfig` was defined in both `src/core/types.ts` and `src/mcp/server.ts` with different shapes. Someone will inevitably import the wrong one.
 - **Fix:** Rename the MCP-local version to `McpEngineConfig`.
 - **General principle:** Two types with the same name in the same codebase is a bug waiting to happen. Rename immediately.
+
+---
+
+## Playwright E2E test learnings (2026-06-27)
+
+> All 43 e2e tests were broken after re-capturing auth state. Root cause was a
+> mismatch between the browser origin and the test origin. Key takeaways below.
+
+### Auth state origin must match the test target URL exactly
+
+- Playwright's `storageState` captures cookies with their **domain, secure flag, and origin**. Cookies set on `https://192.168.0.29:8550` will NOT be sent to `http://localhost:9200` — different domain, different protocol, different port.
+- **Symptom:** Extension commands don't appear in the command palette. The extension loads (VS Code server serves it) but Copilot auth fails silently, so `vscode.lm.selectChatModels()` returns 0 models and the model picker closes immediately.
+- **Fix:** Point tests at the same origin the browser uses. If your browser opens `https://192.168.0.29:8550`, the tests must too. Don't try to "fix" the storage-state file by editing domain/origin — the `secrets.provider` localStorage value is encrypted per-origin and won't decrypt on a different origin.
+- **General principle:** When Playwright tests interact with authenticated web apps, the test `baseURL` must be byte-identical to the origin where auth was captured. Protocol, hostname, and port all matter.
+
+### Centralize test URLs in one place
+
+- The test URL was hardcoded in 6 files (4 test files + `capture-auth.ts` + `playwright.config.ts`). Changing it required editing all 6.
+- **Fix:** Define `BASE_URL`, `TOKEN_FILE`, `FOLDER`, and `VSCODE_URL` in `setup.ts` and import them everywhere. One place to change.
+- **General principle:** Any constant shared across test files belongs in a shared setup module. Hardcoded URLs in test files are a maintenance trap.
+
+### The extension must be installed on the VS Code server, not just loaded via `extensionDevelopmentPath`
+
+- VS Code's `extensionDevelopmentPath` (used by F5 debug) loads the extension from disk for the debug session only. The VS Code server process on a different port doesn't have it.
+- **Symptom:** Same as auth failure — commands don't appear — but the cause is different. The extension simply isn't installed.
+- **Fix:** Run `scripts/rebuild-ext.sh` to compile, package, and install the VSIX. The VS Code server auto-detects newly installed extensions.
+- **General principle:** E2E tests run against the installed extension, not the dev-mode extension. Always install the VSIX before running Playwright tests.
+
+### `OPENROUTER_API_KEY` must be sourced from `.bashrc` before running tests
+
+- The key was added to `~/.bashrc` via `export`, but existing terminal sessions don't pick up new exports.
+- **Fix:** `source ~/.bashrc && npm run test:e2e` in the terminal command. Or use a `.env` file with Playwright's `dotenv` support.
+- **General principle:** Environment variables added to shell config files don't propagate to already-running shells. Always source or restart.
+
+### The model picker only lists `vscode.lm` models — external providers need their own model list
+
+- `selectModel()` calls `vscode.lm.selectChatModels()` which returns Copilot models only. Setting the provider to OpenRouter and storing an API key doesn't populate the picker.
+- **Fix:** When `vscode.lm` returns 0 models and an external provider has an API key, fetch models from that provider's API (e.g., `GET /api/v1/models` for OpenRouter) and display them in the picker.
+- **General principle:** The model picker and the analysis engine are separate concerns. The picker must independently discover available models regardless of which provider is configured for analysis.

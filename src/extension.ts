@@ -1144,17 +1144,35 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
   picker.show();
 
   // Fetch models and pricing in parallel while the picker is visible
+  const cfg = readConfig();
   const [lmModels, pricingMap] = await Promise.all([
     vscode.lm.selectChatModels(),
     fetchPricing(),
   ]);
 
-  picker.busy = false;
-  log('debug', `selectModel: fetched ${pricingMap.size} pricing entries, ${lmModels.length} models`);
+  // If Copilot returned 0 models (not signed in) but we have an active
+  // external provider with an API key, fetch models from that provider
+  // so the picker always shows something useful.
+  let externalModels: Array<{ id: string; name: string }> = [];
+  if (lmModels.length === 0 && state?.extensionContext?.secrets) {
+    const apiKey = await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey');
+    if (apiKey && (cfg.provider === 'openrouter' || cfg.provider === 'githubModels')) {
+      try {
+        const models = await fetchExternalModels(cfg.provider, apiKey);
+        externalModels = models;
+        log('info', `selectModel: fetched ${externalModels.length} models from ${cfg.provider}`);
+      } catch (err) {
+        log('error', `selectModel: failed to fetch ${cfg.provider} models: ${err}`);
+      }
+    }
+  }
 
-  if (lmModels.length === 0) {
+  picker.busy = false;
+  log('debug', `selectModel: fetched ${pricingMap.size} pricing entries, ${lmModels.length} vscode.lm models, ${externalModels.length} external models`);
+
+  if (lmModels.length === 0 && externalModels.length === 0) {
     picker.hide();
-    vscode.window.showWarningMessage('No language models available. Sign in to GitHub Copilot.');
+    vscode.window.showWarningMessage('No language models available. Sign in to GitHub Copilot or configure an external provider.');
     return;
   }
 
@@ -1171,7 +1189,6 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
   }
 
   // Sort and filter models
-  const cfg = readConfig();
   const visibleModels = lmModels
     .filter((m) => m.vendor !== 'copilotcli')
     .sort((a, b) => {
@@ -1188,39 +1205,55 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
       return priceA - priceB;
     });
 
-  if (visibleModels.length === 0) {
+  // Build picker items — prefer vscode.lm models, fall back to external
+  const hasVscodeModels = visibleModels.length > 0;
+  let items: Array<vscode.QuickPickItem & { modelId: string; name: string }>;
+
+  if (hasVscodeModels) {
+    items = visibleModels.map((m) => {
+      const pricing = pricingForModel(m.name, pricingMap);
+      const multiplier = m.vendor === 'copilot' ? modelToMultiplier.get(m.id) : undefined;
+      const vendor = m.vendor === 'copilot' ? '🟢' : '🔵';
+      
+      let costHint = '';
+      if (pricing && multiplier !== undefined) {
+        costHint = `  💰 ${formatPricing(pricing)} · ${multiplier}x`;
+      } else if (pricing) {
+        costHint = `  💰 ${formatPricing(pricing)}`;
+      } else if (multiplier !== undefined) {
+        costHint = `  ${multiplier}x`;
+      } else {
+        costHint = '  ❓ cost unknown';
+      }
+
+      return {
+        label: `${vendor} ${m.name}`,
+        description: costHint,
+        detail: `     ${m.id} · ${m.vendor}`,
+        modelId: m.id,
+        name: m.name,
+      } as vscode.QuickPickItem & { modelId: string; name: string };
+    });
+  } else if (externalModels.length > 0) {
+    // Show external models with pricing from the pricing map
+    items = externalModels.map((m) => {
+      const pricing = pricingMap.get(m.id) ?? pricingMap.get(normalizeModelName(m.name));
+      const costHint = pricing ? `  💰 ${formatPricing(pricing)}` : '  ❓ cost unknown';
+      return {
+        label: `🔵 ${m.name}`,
+        description: costHint,
+        detail: `     ${m.id} · ${cfg.provider}`,
+        modelId: m.id,
+        name: m.name,
+      } as vscode.QuickPickItem & { modelId: string; name: string };
+    });
+  } else {
     picker.hide();
     vscode.window.showWarningMessage(
       'No models available. Ensure you are signed in to GitHub Copilot or have configured an external provider.',
     );
     return;
   }
-
-  // Build picker items with pricing annotations
-  const items = visibleModels.map((m) => {
-    const pricing = pricingForModel(m.name, pricingMap);
-    const multiplier = m.vendor === 'copilot' ? modelToMultiplier.get(m.id) : undefined;
-    const vendor = m.vendor === 'copilot' ? '🟢' : '🔵';
-    
-    let costHint = '';
-    if (pricing && multiplier !== undefined) {
-      costHint = `  💰 ${formatPricing(pricing)} · ${multiplier}x`;
-    } else if (pricing) {
-      costHint = `  💰 ${formatPricing(pricing)}`;
-    } else if (multiplier !== undefined) {
-      costHint = `  ${multiplier}x`;
-    } else {
-      costHint = '  ❓ cost unknown';
-    }
-
-    return {
-      label: `${vendor} ${m.name}`,
-      description: costHint,
-      detail: `     ${m.id} · ${m.vendor}`,
-      modelId: m.id,
-      name: m.name,
-    } as vscode.QuickPickItem & { modelId: string; name: string };
-  });
 
   const sortLabel = cfg.pickerSortBy === 'multiplier' ? 'by multiplier' : cfg.pickerSortBy === 'name' ? 'alphabetical' : 'by cost';
   picker.title = `Select ${targetLabel} model (${sortLabel})`;
@@ -1468,6 +1501,26 @@ interface FixToolInput {
   filePath?: string;
   diagnosticCode: string;
   relevantText: string;
+}
+
+/**
+ * Fetch models from an external provider's API for the model picker.
+ * Returns model entries that can be displayed in the quick-pick.
+ */
+async function fetchExternalModels(
+  provider: 'openrouter' | 'githubModels',
+  apiKey: string,
+): Promise<Array<{ id: string; name: string }>> {
+  if (provider === 'openrouter') {
+    const resp = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const json = (await resp.json()) as { data?: Array<{ id: string; name?: string }> };
+    return (json.data ?? []).map(m => ({ id: m.id, name: m.name ?? m.id }));
+  }
+  // GitHub Models — placeholder until we have a models list endpoint
+  return [];
 }
 
 export function registerLanguageModelTools(

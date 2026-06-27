@@ -57,3 +57,5 @@ test-results
 
 # Playwright auth state (encrypted browser session data — developer-specific)
 tests/e2e/auth-state/
+scripts/rebuild-ext.sh
+.skills-review.json
