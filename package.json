@@ -2,7 +2,7 @@
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems, and offers safe one-click fixes.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",
@@ -58,7 +58,11 @@
         },
         "skillsReviewAndPolish.pickerSortBy": {
           "type": "string",
-          "enum": ["price", "multiplier", "name"],
+          "enum": [
+            "price",
+            "multiplier",
+            "name"
+          ],
           "default": "price",
           "description": "How to sort models in the picker. 'price' = per-million-token cost (cheapest first), 'multiplier' = Copilot premium request multiplier (lowest first), 'name' = alphabetical."
         },
@@ -81,10 +85,11 @@
           "type": "string",
           "enum": [
             "single",
+            "focused",
             "multiWave"
           ],
           "default": "multiWave",
-          "description": "'multiWave' runs 6 focused passes (best quality). 'single' runs one combined prompt (cheaper/faster)."
+          "description": "'multiWave' runs 6 focused passes (best quality). 'focused' runs 2 high-signal passes — contradictions + ambiguities (faster, good quality). 'single' runs one combined prompt (cheapest/fastest, lower recall)."
         },
         "skillsReviewAndPolish.enabledWaves": {
           "type": "array",
@@ -216,10 +221,11 @@
           "type": "string",
           "enum": [
             "info",
-            "debug"
+            "debug",
+            "trace"
           ],
           "default": "info",
-          "description": "Set the verbosity for extension logging. 'debug' enables detailed LM prompt/response traces and the debug log file."
+          "description": "Set the verbosity for extension logging. 'debug' shows wave lifecycle and model selection. 'trace' adds raw LLM request/response content — use for debugging 0-result or parse failures."
         }
       }
     },
@@ -447,6 +453,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "mcp-remote": "^0.1.38",
     "picomatch": "^4.0.4"
   }
 }

@@ -86,4 +86,50 @@ describe('isCustomizationPath', () => {
     expect(isCustomizationPath('/tmp/notes/anything.md', ['**/notes/*.md'])).toBe(true);
     expect(isCustomizationPath('/tmp/notes/anything.txt', ['**/notes/*.md'])).toBe(false);
   });
+
+  it('returns false for non-matching paths', () => {
+    expect(isCustomizationPath('/tmp/README.md', DEFAULT_INCLUDE)).toBe(false);
+    expect(isCustomizationPath('/tmp/index.ts', DEFAULT_INCLUDE)).toBe(false);
+  });
+
+  it('returns false (no match) for a malformed glob without throwing', () => {
+    // picomatch throws on '[invalid' — the catch branch must return false
+    expect(() => isCustomizationPath('/tmp/SKILL.md', ['[invalid'])).not.toThrow();
+    expect(isCustomizationPath('/tmp/SKILL.md', ['[invalid'])).toBe(false);
+  });
+});
+
+describe('readConfig — branch coverage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearConfigCache();
+  });
+
+  it('falls back to ALL_WAVES when enabledWaves is an empty array', () => {
+    const get = vi.fn((key: string, fallback?: unknown) => {
+      if (key === 'enabledWaves') return [];
+      return fallback;
+    });
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get } as any);
+    const config = readConfig();
+    expect(config.enabledWaves.length).toBeGreaterThan(0);
+  });
+
+  it('returns cached config on second call without re-reading settings', () => {
+    const get = vi.fn((key: string, fallback?: unknown) => fallback);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get } as any);
+    readConfig();
+    readConfig();
+    // getConfiguration should only be called once (cache hit on second call)
+    expect(vi.mocked(vscode.workspace.getConfiguration)).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-reads settings after clearConfigCache()', () => {
+    const get = vi.fn((key: string, fallback?: unknown) => fallback);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get } as any);
+    readConfig();
+    clearConfigCache();
+    readConfig();
+    expect(vi.mocked(vscode.workspace.getConfiguration)).toHaveBeenCalledTimes(2);
+  });
 });

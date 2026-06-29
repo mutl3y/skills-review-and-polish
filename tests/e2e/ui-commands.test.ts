@@ -14,7 +14,7 @@
  */
 import { test, expect, Page, BrowserContext } from '@playwright/test';
 import { readFileSync } from 'fs';
-import { hasAuthState, AUTH_STATE_FILE, BASE_URL, TOKEN_FILE, VSCODE_URL } from './setup';
+import { BASE_URL, TOKEN_FILE, VSCODE_URL } from './setup';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -24,34 +24,31 @@ let context: BrowserContext;
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 async function waitForVSCode(page: Page) {
-  await page.waitForSelector('.monaco-workbench', { timeout: 30_000 });
+  await page.waitForSelector('.monaco-workbench', { timeout: 10_000 });
   const trustBtn = page.getByRole('button', { name: 'Yes, I trust the authors' });
   try {
-    await trustBtn.waitFor({ state: 'visible', timeout: 6_000 });
+    await trustBtn.waitFor({ state: 'visible', timeout: 2_000 });
     await trustBtn.click();
-    await page.locator('.monaco-dialog-modal-block').waitFor({ state: 'hidden', timeout: 5_000 });
+    await page.locator('.monaco-dialog-modal-block').waitFor({ state: 'hidden', timeout: 2_000 });
   } catch { /* already trusted */ }
   await page.waitForFunction(() => {
-    const workbench = document.querySelector('.monaco-workbench');
-    const activityBar = document.querySelector('.monaco-workbench .part.activitybar');
-    return !!workbench && !!activityBar;
-  }, { timeout: 30_000 });
+    return !!document.querySelector('.monaco-workbench .part.activitybar');
+  }, { timeout: 8_000 });
 }
 
 async function openCommandPalette(page: Page) {
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Control+Shift+P');
-  await page.waitForSelector('.quick-input-box input', { timeout: 5_000 });
-  await page.waitForTimeout(300);
+  await page.waitForSelector('.quick-input-box input', { timeout: 3_000 });
 }
 
 async function runCommand(page: Page, command: string) {
   await openCommandPalette(page);
   const titlePart = command.split(':')[1]?.trim() ?? command;
-  await page.keyboard.type(titlePart, { delay: 30 });
+  await page.keyboard.type(titlePart, { delay: 20 });
   const item = page.locator('.quick-input-list .monaco-list-row .label-name', { hasText: titlePart });
-  await expect(item.first()).toBeVisible({ timeout: 5_000 });
+  await expect(item.first()).toBeVisible({ timeout: 3_000 });
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(300);
 }
 
 async function closeAllEditors(page: Page) {
@@ -59,34 +56,30 @@ async function closeAllEditors(page: Page) {
   await page.fill('.quick-input-box input', '> Close All');
   await page.waitForSelector('.quick-input-list .monaco-list-row', { timeout: 2_000 });
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(500);
 }
 
 async function openFixture(page: Page, name: string) {
   await closeAllEditors(page);
   await openCommandPalette(page);
   await page.fill('.quick-input-box input', `tests/fixtures/primary/${name}/SKILL.md`);
-  await page.waitForSelector('.quick-input-list .monaco-list-row', { timeout: 3_000 });
+  await page.waitForSelector('.quick-input-list .monaco-list-row', { timeout: 2_000 });
   await page.keyboard.press('Enter');
-  await page.waitForSelector('.monaco-editor.no-user-select.vs.focused', { timeout: 5_000 });
+  await page.waitForSelector('.monaco-editor', { timeout: 4_000 });
 }
 
 // ── setup / teardown ─────────────────────────────────────────────────────────
 
 test.beforeAll(async ({ browser }) => {
-  const contextOptions: any = {};
-  if (hasAuthState()) {
-    contextOptions.storageState = AUTH_STATE_FILE;
-  }
-  context = await browser.newContext(contextOptions);
+  // No auth state needed — all tests are pure UI (no Copilot/LLM calls)
+  context = await browser.newContext();
   page = await context.newPage();
 
   let token = '';
   try { token = readFileSync(TOKEN_FILE, 'utf8').trim(); } catch { /* no token */ }
 
   const url = token ? `${BASE_URL}/?tkn=${token}` : BASE_URL;
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10_000 });
-  await page.goto(VSCODE_URL, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  await page.goto(VSCODE_URL, { waitUntil: 'domcontentloaded' });
   await waitForVSCode(page);
 });
 

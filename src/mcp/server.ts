@@ -360,7 +360,8 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
         }
       }
       // Default: use GitHub Models (works for both vscode-lm and githubModels)
-      const apiKey = process.env.GITHUB_TOKEN?.trim();
+      // Prefer GITHUB_MODELS_TOKEN (fine-grained PAT) over GITHUB_TOKEN (Codespaces OAuth)
+      const apiKey = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
       if (apiKey) {
         return {
           engine: new Engine(new GitHubModelsProvider({ apiKey, model })),
@@ -373,13 +374,14 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
   }
 
   // Priority 2: env vars (existing logic)
-  const githubToken = process.env.GITHUB_TOKEN?.trim();
+  // Prefer GITHUB_MODELS_TOKEN (fine-grained PAT) over GITHUB_TOKEN (Codespaces OAuth)
+  const githubToken = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
   if (githubToken) {
     const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
     const provider = new GitHubModelsProvider({ apiKey: githubToken, model });
     return {
       engine: new Engine(provider),
-      config: { provider: 'githubModels', model, configSource: 'env:GITHUB_TOKEN' } as McpEngineConfig,
+      config: { provider: 'githubModels', model, configSource: process.env.GITHUB_MODELS_TOKEN ? 'env:GITHUB_MODELS_TOKEN' : 'env:GITHUB_TOKEN' } as McpEngineConfig,
     };
   }
 
@@ -557,7 +559,7 @@ export function createMcpToolRegistry({
       try {
         const handler = TOOL_HANDLERS[name];
         if (!handler) throw new Error(`Unknown tool: ${name}`);
-        return await handler(args, { getEngine, resolvedConfig });
+        return await handler(args, { getEngine, get resolvedConfig() { return resolvedConfig; } });
       } catch (error) {
         // Catch ALL errors (validation, unknown tools, LLM failures, I/O)
         // and return a structured error instead of crashing the MCP server.

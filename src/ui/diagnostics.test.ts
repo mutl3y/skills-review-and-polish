@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as vscode from 'vscode';
-import { publishDiagnostics } from './diagnostics';
+import { publishDiagnostics, createDiagnosticCollection } from './diagnostics';
 
 vi.mock('vscode', () => {
   class Diagnostic {
@@ -100,5 +100,37 @@ describe('publishDiagnostics', () => {
 
     const [_, diags] = set.mock.calls[0];
     expect(diags[0].severity).toBe(vscode.DiagnosticSeverity.Warning);
+  });
+});
+
+describe('publishDiagnostics — additional severity branches', () => {
+  it('maps hint severity to DiagnosticSeverity.Hint', () => {
+    const set = vi.fn();
+    publishDiagnostics({ set } as any, { fsPath: '/tmp/skill.md' } as any, [{
+      code: 'x', message: 'msg', severity: 'hint', analyzer: 'a',
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+    }], {});
+    const diags = set.mock.calls[0][1];
+    expect(diags[0].severity).toBe(vscode.DiagnosticSeverity.Hint);
+  });
+
+  it('maps info severity to DiagnosticSeverity.Information', () => {
+    const set = vi.fn();
+    publishDiagnostics({ set } as any, { fsPath: '/tmp/skill.md' } as any, [{
+      code: 'x', message: 'msg', severity: 'info', analyzer: 'a',
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+    }]);
+    const diags = set.mock.calls[0][1];
+    expect(diags[0].severity).toBe(vscode.DiagnosticSeverity.Information);
+  });
+});
+
+describe('createDiagnosticCollection', () => {
+  it('delegates to vscode.languages.createDiagnosticCollection', () => {
+    const mockCollection = { set: vi.fn(), dispose: vi.fn() };
+    vi.mocked(vscode.languages.createDiagnosticCollection).mockReturnValue(mockCollection as any);
+    const result = createDiagnosticCollection();
+    expect(vscode.languages.createDiagnosticCollection).toHaveBeenCalledWith('skillsReviewAndPolish');
+    expect(result).toBe(mockCollection);
   });
 });

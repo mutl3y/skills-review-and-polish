@@ -15,6 +15,7 @@ import {
 import { Analyzer, CustomDiagnosticConfig } from './analyzer';
 import { scoreSkill, parseSkillType, ScoreResult } from './scoring';
 import { SurgicalFixer, SurgicalFixOptions } from './fixer';
+import { createLogger } from './logger';
 
 export * from './types';
 export * from './analyzer';
@@ -57,7 +58,32 @@ export class Engine {
     customDiagnostics?: CustomDiagnosticConfig[],
     enabledWavesOverride?: WaveName[],
   ): Promise<AnalysisResult[]> {
-    const waves = enabledWavesOverride ?? this.config.enabledWaves;
+    // If an explicit override was provided (e.g. from the wave-picker modal or MCP),
+    // always honour it regardless of analysisMode.
+    let waves: WaveName[];
+    if (enabledWavesOverride) {
+      waves = enabledWavesOverride;
+    } else if (this.config.analysisMode === 'single') {
+      // 'single' mode: one combined LLM call covering all 6 categories.
+      // Lower recall than multiWave but only 1 API call.
+      const log = createLogger('engine');
+      log.info('analysisMode=single: running combined single-pass wave');
+      return this.analyzer.analyzeSinglePassWave(
+        {
+          text: input.text,
+          filePath: input.filePath,
+          acceptedFindingsPath: input.acceptedFindingsPath,
+          token: input.token,
+        },
+      );
+    } else if (this.config.analysisMode === 'focused') {
+      // 'focused' mode: 2 focused calls for the highest-signal waves.
+      const log = createLogger('engine');
+      log.info('analysisMode=focused: restricting to contradictions+ambiguities waves');
+      waves = ['contradictions', 'ambiguities'];
+    } else {
+      waves = this.config.enabledWaves;
+    }
     return this.analyzer.analyze(
       {
         text: input.text,

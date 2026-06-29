@@ -723,3 +723,104 @@ describe('VsCodeLmProvider.selectModel()', () => {
    * See: docs/VSCODE-LM-STREAMING-FIX.md
    */
 });
+
+// ─── invalidate() ──────────────────────────────────────────────────────────
+
+describe('VsCodeLmProvider.invalidate()', () => {
+  let selectChatModels: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    selectChatModels = vi.mocked(vscode.lm.selectChatModels);
+  });
+
+  it('forces model re-selection on next complete() call', async () => {
+    const model = {
+      id: 'gpt-5-mini', name: 'GPT-5 Mini', vendor: 'copilot', pricing: '0x', family: 'gpt',
+      sendRequest: vi.fn().mockResolvedValue({
+        text: true,
+        stream: (async function*() { yield '{}'; })(),
+      }),
+      dispose: vi.fn(),
+    };
+    selectChatModels.mockResolvedValue([model]);
+    vi.mocked(vscode.LanguageModelChatMessage.User).mockReturnValue({} as any);
+
+    const provider = new VsCodeLmProvider('gpt-5-mini', '');
+    const req = { prompt: 'p', systemPrompt: 's', modelTier: 'standard' as const };
+
+    await provider.complete(req);
+    const firstCallCount = selectChatModels.mock.calls.length;
+
+    // After invalidate(), selectChatModels should be called again
+    provider.invalidate();
+    await provider.complete(req);
+
+    expect(selectChatModels.mock.calls.length).toBeGreaterThan(firstCallCount);
+  });
+});
+
+// ─── complete() retry path ─────────────────────────────────────────────────
+
+describe('VsCodeLmProvider.complete() retry path', () => {
+  let selectChatModels: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    selectChatModels = vi.mocked(vscode.lm.selectChatModels);
+    vi.mocked(vscode.LanguageModelChatMessage.User).mockReturnValue({} as any);
+  });
+
+  function makeModel(sendRequest: ReturnType<typeof vi.fn>) {
+    return {
+      id: 'gpt-5-mini', name: 'GPT-5 Mini', vendor: 'copilot', pricing: '0x', family: 'gpt',
+      sendRequest,
+      dispose: vi.fn(),
+    };
+  }
+
+  it('retries with a fresh model when first sendRequest throws', async () => {
+    const freshResponse = {
+      text: true,
+      stream: (async function*() { yield '{"ok":true}'; })(),
+    };
+    const sendRequestFirst = vi.fn().mockRejectedValueOnce(new Error('connection reset'));
+    const sendRequestFresh = vi.fn().mockResolvedValue(freshResponse);
+    const stalModel = makeModel(sendRequestFirst);
+    const freshModel = makeModel(sendRequestFresh);
+
+    // First selectChatModels call (cache miss) returns stale model
+    // Second call (after cache invalidation) returns fresh model
+    selectChatModels
+      .mockResolvedValueOnce([stalModel])
+      .mockResolvedValueOnce([stalModel])   // first call in selectModel (all models)
+      .mockResolvedValueOnce([freshModel])  // retry: all models
+      .mockResolvedValueOnce([freshModel]); // retry: specific model id
+
+    const provider = new VsCodeLmProvider('gpt-5-mini', '');
+    const result = await provider.complete({ prompt: 'p', systemPrompt: 's', modelTier: 'standard' });
+
+    expect(sendRequestFresh).toHaveBeenCalled();
+    expect(result.error).toBeUndefined();
+  });
+
+  it('returns error when retry also fails to find a fresh model', async () => {
+    const sendRequest = vi.fn().mockRejectedValue(new Error('network down'));
+    const model = makeModel(sendRequest);
+
+    // selectModel('gpt-5-mini') makes TWO selectChatModels calls:
+    //   1. selectChatModels()          → all models
+    //   2. selectChatModels({ id })    → specific model
+    // On retry, only the first call fires (returns empty → selectModel returns undefined)
+    selectChatModels
+      .mockResolvedValueOnce([model])  // initial: all models
+      .mockResolvedValueOnce([model])  // initial: specific model
+      .mockResolvedValueOnce([]);       // retry: no models → undefined
+
+    const provider = new VsCodeLmProvider('gpt-5-mini', '');
+    const result = await provider.complete({ prompt: 'p', systemPrompt: 's', modelTier: 'standard' });
+
+    expect(result.error).toContain('Retry failed');
+    expect(result.text).toBe('{}');
+  });
+});

@@ -66,7 +66,7 @@ export interface LlmResponse {
 
 /** Single configuration object the core reads, regardless of host. */
 export interface EngineConfig {
-  analysisMode: 'single' | 'multiWave';
+  analysisMode: 'single' | 'focused' | 'multiWave';
   enabledWaves: WaveName[];
   scoreSamples: number;
   fixStrategy: 'subtractive' | 'additive';

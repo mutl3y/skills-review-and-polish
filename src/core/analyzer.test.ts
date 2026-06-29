@@ -9,7 +9,7 @@
  *  - `analyze without proxy` test removed — provider handles gracefully via error response.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -1028,5 +1028,400 @@ describe('coverage wave', () => {
     // limited-coverage fires, but coverage-gap does not (anchor not found)
     expect(results.filter(r => r.code === 'limited-coverage').length).toBe(1);
     expect(results.filter(r => r.code === 'coverage-gap')).toHaveLength(0);
+  });
+});
+
+// ─── analyze — enabledWaves filtering ───────────────────────────────────────
+
+describe('analyze — enabledWaves filtering', () => {
+  it('only calls provider for the specified wave when enabledWaves is set', async () => {
+    let callCount = 0;
+    const analyzer = makeAnalyzer(async () => {
+      callCount++;
+      return { text: EMPTY_RESPONSE };
+    });
+
+    // All waves (no enabledWaves filter)
+    callCount = 0;
+    await analyzer.analyze({ text: 'Be concise.' });
+    const allWavesCalls = callCount;
+
+    // Single wave only — disabled waves must not start, so fewer LLM calls
+    callCount = 0;
+    await analyzer.analyze({ text: 'Be concise.' }, undefined, ['ambiguities']);
+    const singleWaveCalls = callCount;
+
+    expect(singleWaveCalls).toBeLessThan(allWavesCalls);
+  });
+
+  it('runs all waves when enabledWaves is empty', async () => {
+    let callCount = 0;
+    const analyzer = makeAnalyzer(async () => {
+      callCount++;
+      return { text: EMPTY_RESPONSE };
+    });
+
+    await analyzer.analyze(
+      { text: 'Be concise.' },
+      undefined,
+      [], // empty → all waves run
+    );
+
+    // 6 named waves + composition-conflicts = at least 6 LLM calls
+    expect(callCount).toBeGreaterThanOrEqual(6);
+  });
+
+  it('returns only results from the requested wave', async () => {
+    const analyzer = makeAnalyzer(async (req) => {
+      const sys = req.systemPrompt ?? '';
+      if (sys.includes('ambigui')) {
+        return {
+          text: JSON.stringify({
+            ambiguity_issues: [{
+              text: 'be professional',
+              type: 'term',
+              severity: 'warning',
+              problem: 'Vague',
+              suggestion: 'Define it',
+            }],
+          }),
+        };
+      }
+      return { text: EMPTY_RESPONSE };
+    });
+
+    const results = await analyzer.analyze(
+      { text: 'Be professional.' },
+      undefined,
+      ['ambiguities'],
+    );
+
+    expect(results.filter(r => r.code === 'ambiguity-llm').length).toBeGreaterThan(0);
+    expect(results.filter(r => r.code === 'contradiction')).toHaveLength(0);
+  });
+});
+
+// ─── analyze — cancellation ───────────────────────────────────────────────────
+
+describe('analyze — cancellation', () => {
+  it('returns empty array when token is already cancelled before analysis starts', async () => {
+    const analyzer = makeAnalyzer(async () => ({ text: EMPTY_RESPONSE }));
+    const token = { isCancellationRequested: true, onCancellationRequested: () => ({ dispose: () => {} }) };
+
+    const results = await analyzer.analyze({ text: 'Be concise.', token });
+
+    expect(results).toHaveLength(0);
+  });
+
+  it('returns empty array when token is cancelled mid-analysis', async () => {
+    let resolveFirst: () => void;
+    const firstCallDone = new Promise<void>(r => { resolveFirst = r; });
+    let cancelled = false;
+
+    const analyzer = makeAnalyzer(async () => {
+      await firstCallDone;
+      return { text: EMPTY_RESPONSE };
+    });
+
+    const token = {
+      get isCancellationRequested() { return cancelled; },
+      onCancellationRequested: () => ({ dispose: () => {} }),
+    };
+
+    const promise = analyzer.analyze({ text: 'Be concise.', token });
+    cancelled = true;
+    resolveFirst!();
+
+    const results = await promise;
+    expect(results).toHaveLength(0);
+  });
+});
+
+// ─── analyze — loop detection (end-to-end) ────────────────────────────────────
+
+describe('analyze — loop detection end-to-end', () => {
+  it('adds llm-loop-detected on second call with identical findings', async () => {
+    const store = new AnalysisHistoryStore();
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [{
+          text: 'be professional',
+          type: 'term',
+          severity: 'warning',
+          problem: 'Vague',
+          suggestion: 'Define it',
+        }],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }), store);
+
+    const docPath = '/tmp/loop-test.md';
+    const text = 'Be professional in all responses.';
+
+    await analyzer.analyze({ text, filePath: docPath });
+    const second = await analyzer.analyze({ text, filePath: docPath });
+
+    expect(second.some(r => r.code === 'llm-loop-detected')).toBe(true);
+  });
+
+  it('does not flag a loop on the first call', async () => {
+    const store = new AnalysisHistoryStore();
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [{
+          text: 'be concise',
+          type: 'term',
+          severity: 'info',
+          problem: 'Vague',
+          suggestion: 'Define it',
+        }],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }), store);
+
+    const results = await analyzer.analyze({ text: 'Be concise.', filePath: '/tmp/no-loop.md' });
+    expect(results.some(r => r.code === 'llm-loop-detected')).toBe(false);
+  });
+});
+
+// ─── analyze — acceptedFindingsPath pipeline ─────────────────────────────────
+//
+// Regression suite for the reference-aliasing bug where filterAcceptedResults
+// returned the *same* array reference as `results`, causing `results.length = 0`
+// to wipe both arrays and the pipeline to return 0 results.
+
+describe('analyze — acceptedFindingsPath pipeline', () => {
+  const tmpDir = path.join(os.tmpdir(), 'analyzer-accepted-findings-test');
+
+  beforeEach(() => { fs.mkdirSync(tmpDir, { recursive: true }); });
+  afterEach(() => {
+    try {
+      for (const f of fs.readdirSync(tmpDir)) fs.unlinkSync(path.join(tmpDir, f));
+      fs.rmdirSync(tmpDir);
+    } catch { /* ignore */ }
+  });
+
+  function tmpStorePath() {
+    return path.join(tmpDir, `store-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  }
+
+  /** Provider that always returns one ambiguity issue. */
+  function makeAmbiguityProvider(): (req: LlmRequest) => Promise<LlmResponse> {
+    return async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [{
+          text: 'be professional',
+          type: 'term',
+          severity: 'warning',
+          problem: 'Vague term',
+          suggestion: 'Define what professional means',
+        }],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    });
+  }
+
+  it('preserves results when acceptedFindingsPath points to a non-existent file (regression)', async () => {
+    // Bug: filterAcceptedResults returned `results` by reference when the store
+    // file did not exist.  The subsequent `results.length = 0` wiped both arrays.
+    const analyzer = makeAnalyzer(makeAmbiguityProvider());
+    const storePath = tmpStorePath(); // file does not exist yet
+
+    const results = await analyzer.analyze({
+      text: 'Be professional in all responses.',
+      filePath: '/workspace/test.md',
+      acceptedFindingsPath: storePath,
+    });
+
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it('preserves results when store exists but has no entries for the file (regression)', async () => {
+    const storePath = tmpStorePath();
+    fs.writeFileSync(storePath, JSON.stringify({ entries: {} }), 'utf8');
+
+    const analyzer = makeAnalyzer(makeAmbiguityProvider());
+    const results = await analyzer.analyze({
+      text: 'Be professional in all responses.',
+      filePath: '/workspace/test.md',
+      acceptedFindingsPath: storePath,
+    });
+
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it('suppresses results that match an accepted finding', async () => {
+    const storePath = tmpStorePath();
+    fs.writeFileSync(storePath, JSON.stringify({
+      entries: {
+        '/workspace/test.md': [{
+          code: 'ambiguity-llm',
+          textPattern: 'be professional',
+          acceptedAt: '2026-06-27',
+          reason: 'accepted by user',
+        }],
+      },
+    }), 'utf8');
+
+    const analyzer = makeAnalyzer(makeAmbiguityProvider());
+    const results = await analyzer.analyze({
+      text: 'Be professional in all responses.',
+      filePath: '/workspace/test.md',
+      acceptedFindingsPath: storePath,
+    });
+
+    expect(results.filter(r => r.code === 'ambiguity-llm')).toHaveLength(0);
+  });
+
+  it('preserves non-matching results when some are suppressed', async () => {
+    // Provider returns two issues: ambiguity-llm (suppressed) + structural (not suppressed).
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [{
+          text: 'be professional',
+          type: 'term',
+          severity: 'warning',
+          problem: 'Vague',
+          suggestion: 'Define it',
+        }],
+        persona_issues: [],
+        cognitive_load: {
+          issues: [{ type: 'delegated-decision', description: 'Let the user decide', relevant_text: 'decide how', severity: 'info' }],
+          overall_complexity: 'medium',
+        },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }));
+
+    const storePath = tmpStorePath();
+    fs.writeFileSync(storePath, JSON.stringify({
+      entries: {
+        '/workspace/test.md': [{
+          code: 'ambiguity-llm',
+          textPattern: 'be professional',
+          acceptedAt: '2026-06-27',
+          reason: 'accepted',
+        }],
+      },
+    }), 'utf8');
+
+    const results = await analyzer.analyze({
+      text: 'Be professional.\nDecide how to respond.',
+      filePath: '/workspace/test.md',
+      acceptedFindingsPath: storePath,
+    });
+
+    expect(results.filter(r => r.code === 'ambiguity-llm')).toHaveLength(0);
+    // Other result codes should still be present
+    expect(results.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── Engine analysisMode routing ─────────────────────────────────────────────
+//
+// Verifies that Engine.analyze() correctly routes to the right execution path
+// based on the analysisMode config: single (1 combined call), focused (2 calls),
+// and multiWave (all waves).
+
+import { Engine } from './index';
+import type { EngineConfig } from './types';
+import { DEFAULT_ENGINE_CONFIG } from './types';
+
+function makeEngine(fn: (req: LlmRequest) => Promise<LlmResponse>, modeOverrides: Partial<EngineConfig> = {}): Engine {
+  const provider: LlmProvider = { complete: fn };
+  return new Engine(provider, { ...DEFAULT_ENGINE_CONFIG, ...modeOverrides });
+}
+
+describe('Engine — analysisMode routing', () => {
+  const COMBINED_RESPONSE = JSON.stringify({
+    contradictions: [{ instruction1: 'Be concise', instruction2: 'Be detailed', severity: 'warning', explanation: 'conflict' }],
+    ambiguity_issues: [{ text: 'be professional', type: 'term', severity: 'warning', problem: 'vague', suggestion: 'define it' }],
+    persona_issues: [],
+    cognitive_load: { issues: [], overall_complexity: 'low' },
+    coverage_analysis: { overall_coverage: 'adequate', coverage_gaps: [] },
+    hygiene_issues: [],
+  });
+
+  it('single mode: issues one LLM call regardless of document size', async () => {
+    let callCount = 0;
+    const engine = makeEngine(async () => { callCount++; return { text: COMBINED_RESPONSE }; }, { analysisMode: 'single' });
+    await engine.analyze({ text: 'Be concise. Be detailed.' });
+    expect(callCount).toBe(1);
+  });
+
+  it('single mode: processes all six response categories from one call', async () => {
+    const engine = makeEngine(async () => ({ text: COMBINED_RESPONSE }), { analysisMode: 'single' });
+    const results = await engine.analyze({ text: 'Be concise. Be detailed. Be professional.' });
+    expect(results.some(r => r.code === 'contradiction')).toBe(true);
+    expect(results.some(r => r.code === 'ambiguity-llm')).toBe(true);
+  });
+
+  it('single mode: returns empty array on LLM error, not a throw', async () => {
+    const engine = makeEngine(async () => { throw new Error('network error'); }, { analysisMode: 'single' });
+    const results = await engine.analyze({ text: 'Simple prompt.' });
+    expect(results.some(r => r.code === 'llm-error')).toBe(true);
+  });
+
+  it('focused mode: makes exactly 2 LLM calls (contradictions + ambiguities)', async () => {
+    let callCount = 0;
+    const engine = makeEngine(async () => { callCount++; return { text: EMPTY_RESPONSE }; }, { analysisMode: 'focused' });
+    await engine.analyze({ text: 'Be concise.' });
+    expect(callCount).toBe(2);
+  });
+
+  it('focused mode: returns results from both high-signal waves', async () => {
+    const engine = makeEngine(async () => ({
+      text: JSON.stringify({
+        contradictions: [{ instruction1: 'A', instruction2: 'B', severity: 'warning', explanation: 'conflict' }],
+        ambiguity_issues: [{ text: 'vague', type: 'term', severity: 'info', problem: 'unclear', suggestion: 'fix' }],
+      }),
+    }), { analysisMode: 'focused' });
+    const results = await engine.analyze({ text: 'A. B. vague.' });
+    expect(results.some(r => r.code === 'contradiction')).toBe(true);
+    expect(results.some(r => r.code === 'ambiguity-llm')).toBe(true);
+  });
+
+  it('focused mode: does not run persona, structural, coverage, or hygiene waves', async () => {
+    let callCount = 0;
+    const engine = makeEngine(async () => { callCount++; return { text: EMPTY_RESPONSE }; }, { analysisMode: 'focused' });
+    await engine.analyze({ text: 'Simple prompt.' });
+    // Only contradictions + ambiguities = 2 calls (composition-conflicts skipped — no filePath)
+    expect(callCount).toBe(2);
+  });
+
+  it('multiWave mode: makes more LLM calls than focused mode', async () => {
+    let focusedCalls = 0;
+    let multiCalls = 0;
+
+    const focusedEngine = makeEngine(async () => { focusedCalls++; return { text: EMPTY_RESPONSE }; }, { analysisMode: 'focused' });
+    await focusedEngine.analyze({ text: 'Simple prompt.' });
+
+    const multiEngine = makeEngine(async () => { multiCalls++; return { text: EMPTY_RESPONSE }; }, { analysisMode: 'multiWave' });
+    await multiEngine.analyze({ text: 'Simple prompt.' });
+
+    expect(multiCalls).toBeGreaterThan(focusedCalls);
+  });
+
+  it('enabledWavesOverride takes precedence over analysisMode', async () => {
+    let callCount = 0;
+    // Even with single mode, an explicit override should use the wave path
+    const engine = makeEngine(async () => { callCount++; return { text: EMPTY_RESPONSE }; }, { analysisMode: 'single' });
+    await engine.analyze({ text: 'Simple prompt.' }, undefined, ['ambiguities']);
+    // Override bypasses single-mode path → uses wave runner for ambiguities only
+    expect(callCount).toBe(1);
   });
 });

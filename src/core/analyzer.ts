@@ -97,6 +97,7 @@ const SYSTEM_PROMPT_PERSONA = loadPrompt('persona');
 const SYSTEM_PROMPT_STRUCTURAL_QUALITY = loadPrompt('structural-quality');
 const SYSTEM_PROMPT_COVERAGE = loadPrompt('coverage');
 const SYSTEM_PROMPT_HYGIENE = loadPrompt('hygiene');
+const SYSTEM_PROMPT_SINGLE_PASS = loadPrompt('single-pass');
 
 // ─── History store ───────────────────────────────────────────────────────────
 
@@ -193,25 +194,28 @@ export class Analyzer {
       if (token?.isCancellationRequested) return results;
       const skillMetadata = this.parseSkillMetadata(input.text);
 
-      // All wave definitions — filtered by enabledWaves when provided.
-      const allPhases: Array<{ name: string; waveName?: WaveName; promise: Promise<AnalysisResult[]> }> = [
-        { name: 'contradictions',         waveName: 'contradictions',   promise: this.analyzeContradictionsWave(input, token) },
-        { name: 'ambiguities',            waveName: 'ambiguities',      promise: this.analyzeAmbiguitiesWave(input, token) },
-        { name: 'persona',                waveName: 'persona',          promise: this.analyzePersonaWave(input, token) },
-        { name: 'structural',             waveName: 'structural',       promise: this.analyzeStructuralWave(input, token) },
-        { name: 'coverage',               waveName: 'coverage',         promise: this.analyzeCoverageWave(input, token) },
-        { name: 'hygiene',                waveName: 'hygiene',          promise: this.analyzeHygieneWave(input, token) },
-        { name: 'composition-conflicts', promise: this.analyzeCompositionConflicts(input, token) },
+      // All wave definitions — use lazy runners so disabled waves are never started.
+      const allPhaseConfigs: Array<{ name: string; waveName?: WaveName; run: () => Promise<AnalysisResult[]> }> = [
+        { name: 'contradictions',        waveName: 'contradictions', run: () => this.analyzeContradictionsWave(input, token) },
+        { name: 'ambiguities',           waveName: 'ambiguities',    run: () => this.analyzeAmbiguitiesWave(input, token) },
+        { name: 'persona',               waveName: 'persona',        run: () => this.analyzePersonaWave(input, token) },
+        { name: 'structural',            waveName: 'structural',     run: () => this.analyzeStructuralWave(input, token) },
+        { name: 'coverage',              waveName: 'coverage',       run: () => this.analyzeCoverageWave(input, token) },
+        { name: 'hygiene',               waveName: 'hygiene',        run: () => this.analyzeHygieneWave(input, token) },
+        { name: 'composition-conflicts',                             run: () => this.analyzeCompositionConflicts(input, token) },
         ...(customDiagnostics?.length
-          ? [{ name: 'custom-diagnostics', promise: this.analyzeCustomDiagnosticsWave(input, customDiagnostics, token) }]
+          ? [{ name: 'custom-diagnostics', run: () => this.analyzeCustomDiagnosticsWave(input, customDiagnostics, token) }]
           : []),
       ];
 
       // Filter waves based on enabledWaves config. Non-wave phases (composition-conflicts,
-      // custom-diagnostics) always run.
-      const phases = enabledWaves && enabledWaves.length > 0
-        ? allPhases.filter(p => !p.waveName || enabledWaves.includes(p.waveName))
-        : allPhases;
+      // custom-diagnostics) always run.  Filtering happens before promises are
+      // created so disabled waves are never invoked.
+      const activeConfigs = enabledWaves && enabledWaves.length > 0
+        ? allPhaseConfigs.filter(p => !p.waveName || enabledWaves.includes(p.waveName))
+        : allPhaseConfigs;
+
+      const phases = activeConfigs.map(c => ({ name: c.name, promise: c.run() }));
 
       const settled = await Promise.allSettled(phases.map(p => p.promise));
       const rateLimitedWaves: string[] = [];
@@ -249,7 +253,9 @@ export class Analyzer {
       }
 
       // Deterministic cross-wave deduplication.
+      this.log.trace('pipeline: before consolidation', { count: results.length });
       const consolidated = this.runConsolidationPass(results);
+      this.log.trace('pipeline: after consolidation', { count: consolidated.length });
       results.length = 0;
       results.push(...consolidated);
 
@@ -257,11 +263,16 @@ export class Analyzer {
       if (input.acceptedFindingsPath && input.filePath) {
         const before = results.length;
         const filtered = filterAcceptedResults(results, input.filePath, input.acceptedFindingsPath);
+        this.log.trace('pipeline: after accepted-findings filter', { before, after: filtered.length, path: input.acceptedFindingsPath });
         if (filtered.length < before) {
           this.log.debug(`Accepted findings: suppressed ${before - filtered.length} of ${before} result(s)`);
         }
+        // filterAcceptedResults may return the same array reference when nothing
+        // is suppressed.  Snapshot before the destructive clear to avoid wiping
+        // `filtered` (and therefore `results`) simultaneously.
+        const filteredSnapshot = filtered === results ? filtered.slice() : filtered;
         results.length = 0;
-        results.push(...filtered);
+        results.push(...filteredSnapshot);
       }
 
       // Loop detection.
@@ -279,13 +290,40 @@ export class Analyzer {
 
       this.recordAnalysisHistory(docKey, recommendations, skillMetadata, input.text);
     } catch (error) {
+      this.log.trace('pipeline: caught error in try block', { error: String(error) });
       results.push(this.makeLLMErrorDiagnostic(error));
     }
 
+    this.log.trace('pipeline: returning results', { count: results.length });
     return results;
   }
 
   // ── Wave runners ─────────────────────────────────────────────────────────
+
+  /** Single-pass wave: one LLM call covering all 6 analysis categories. */
+  async analyzeSinglePassWave(input: AnalyzerInput, token?: CancellationToken): Promise<AnalysisResult[]> {
+    this.log.debug('wave started', { wave: 'single-pass', tier: 'deep' });
+    if (token?.isCancellationRequested) { this.log.debug('wave skipped (cancelled)', { wave: 'single-pass' }); return []; }
+    const results: AnalysisResult[] = [];
+    try {
+      const response = await this.callLLM(this.buildUserPrompt(input.text), SYSTEM_PROMPT_SINGLE_PASS, 'deep', token);
+      try {
+        const parsed = this.extractJSON<LLMCombinedAnalysisResponse>(response);
+        this.processContradictions(input.text, parsed.contradictions ?? [], results);
+        this.processAmbiguity(input.text, parsed.ambiguity_issues ?? [], results);
+        this.processPersona(input.text, parsed.persona_issues ?? [], results);
+        this.processCognitiveLoad(input.text, parsed.cognitive_load, results);
+        this.processCoverage(input.text, parsed.coverage_analysis, results);
+        this.processHygiene(input.text, parsed.hygiene_issues ?? [], results);
+      } catch (error) {
+        results.push(this.makeParseErrorDiagnostic(error));
+      }
+    } catch (error) {
+      results.push(this.makeLLMErrorDiagnostic(error, 'single-pass'));
+    }
+    this.log.debug('wave completed', { wave: 'single-pass', issues: results.length });
+    return results;
+  }
 
   private async analyzeContradictionsWave(input: AnalyzerInput, token?: CancellationToken): Promise<AnalysisResult[]> {
     this.log.debug('wave started', { wave: 'contradictions', tier: 'deep' });

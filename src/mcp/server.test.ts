@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 vi.mock('../core/index', () => ({
   Engine: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock('../core/fixer', () => ({
   }),
 }));
 
-import { createMcpToolRegistry, sanitizeErrorMessage } from './server';
+import { createMcpToolRegistry, sanitizeErrorMessage, _resetAnalyzeCooldown } from './server';
 import { SurgicalFixer } from '../core/fixer';
 
 describe('accept_finding input validation', () => {
@@ -532,5 +532,98 @@ describe('sanitizeErrorMessage', () => {
 
   it('strips secret patterns', () => {
     expect(sanitizeErrorMessage('secret=abcdef123456')).toBe('secret=[REDACTED]');
+  });
+});
+
+// ─── handleFix duplicate anchor guard ───────────────────────────────────────────
+
+describe('handleFix — duplicate anchor guard', () => {
+  beforeEach(() => { _resetAnalyzeCooldown(); });
+
+  it('returns error when relevantText appears multiple times and no line provided', async () => {
+    const registry = createMcpToolRegistry({
+      buildEngine: () => ({
+        engine: { analyze: vi.fn().mockResolvedValue([]), score: vi.fn(), provider: {} } as any,
+        config: { provider: 'githubModels', model: 'test', configSource: 'test' },
+      }),
+    });
+
+    const result = await registry.callTool('fix', {
+      text: 'Be concise. Be concise. Be accurate.',
+      diagnosticCode: 'ambiguity-llm',
+      relevantText: 'Be concise',
+      // line intentionally omitted
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.status).toBe('error');
+    expect(parsed.error).toContain('appears 2 times');
+  });
+
+  it('allows fix when relevantText appears once (no line needed)', async () => {
+    const registry = createMcpToolRegistry({
+      buildEngine: () => ({
+        engine: { analyze: vi.fn().mockResolvedValue([]), score: vi.fn(), provider: { complete: vi.fn().mockResolvedValue({ text: JSON.stringify({ accepted: true, fixed: 'Be accurate.' }) }) } } as any,
+        config: { provider: 'githubModels', model: 'test', configSource: 'test' },
+      }),
+    });
+
+    // Should NOT return the duplicate anchor error
+    const result = await registry.callTool('fix', {
+      text: 'Be concise. Be accurate.',
+      diagnosticCode: 'ambiguity-llm',
+      relevantText: 'Be concise',
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.status).not.toBe('error');
+  });
+
+  it('allows fix when relevantText appears multiple times but line is provided', async () => {
+    const registry = createMcpToolRegistry({
+      buildEngine: () => ({
+        engine: { analyze: vi.fn().mockResolvedValue([]), score: vi.fn(), provider: { complete: vi.fn().mockResolvedValue({ text: JSON.stringify({ accepted: false, fixed: '' }) }) } } as any,
+        config: { provider: 'githubModels', model: 'test', configSource: 'test' },
+      }),
+    });
+
+    const result = await registry.callTool('fix', {
+      text: 'Be concise. Be concise.',
+      diagnosticCode: 'ambiguity-llm',
+      relevantText: 'Be concise',
+      line: 0,  // explicit line disambiguates
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.status).not.toBe('error');
+  });
+});
+
+// ─── handleAnalyze cooldown ─────────────────────────────────────────────────────
+
+describe('handleAnalyze — cooldown', () => {
+  it('waits between rapid back-to-back analyze calls', async () => {
+    _resetAnalyzeCooldown();
+    vi.useFakeTimers();
+
+    const registry = createMcpToolRegistry({
+      buildEngine: () => ({
+        engine: { analyze: vi.fn().mockResolvedValue([]), score: vi.fn(), provider: {} } as any,
+        config: { provider: 'githubModels', model: 'test', configSource: 'test' },
+      }),
+    });
+
+    // First call — sets the timestamp
+    const first = registry.callTool('analyze', { text: 'doc one.' });
+    await vi.runAllTimersAsync();
+    await first;
+
+    // Second call immediately — enters the cooldown delay branch
+    const second = registry.callTool('analyze', { text: 'doc two.' });
+    // Fast-forward past the 5s cooldown window so setTimeout resolves
+    await vi.runAllTimersAsync();
+    await second;
+
+    vi.useRealTimers();
   });
 });

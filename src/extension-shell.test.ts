@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { activate, deactivate } from './extension';
 
@@ -360,6 +361,54 @@ describe('extension activation wiring', () => {
     expect(update).toHaveBeenCalledWith('model', 'qwen/qwen3-8b', expect.anything());
     // Since vendor is 'copilot', provider should stay vscode-lm (no change expected)
     // Only non-copilot vscode.lm vendors trigger a switch to 'openrouter'
+  });
+
+  it('auto-syncs .skills-review.json after model selection', async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const lmModels = [{ id: 'gpt-4o-mini', name: 'GPT-4o mini', vendor: 'copilot', pricing: '1x' }];
+    mocks.selectChatModels
+      .mockResolvedValueOnce(lmModels)
+      .mockResolvedValueOnce([{ id: 'gpt-4o-mini', name: 'GPT-4o mini', vendor: 'copilot' }]);
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get: vi.fn(() => 'vscode-lm'), update } as any);
+    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, model: 'gpt-4o-mini', provider: 'vscode-lm' });
+
+    // Provide a workspace folder so syncMcpConfig knows where to write
+    Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+      get: () => [{ uri: { fsPath: '/workspace/test' } }],
+      configurable: true,
+    });
+
+    const pickedItem = { label: 'GPT-4o mini', modelId: 'gpt-4o-mini', name: 'GPT-4o mini' };
+    (vscode.window.createQuickPick as any).mockImplementation(() => ({
+      title: '', placeholder: '', items: [] as any[], selectedItems: [pickedItem], busy: false,
+      onDidAccept: vi.fn((cb: () => void) => { setTimeout(cb, 0); return { dispose: vi.fn() }; }),
+      onDidChangeSelection: vi.fn(() => ({ dispose: vi.fn() })),
+      onDidHide: vi.fn(() => ({ dispose: vi.fn() })),
+      show: vi.fn(), hide: vi.fn(), dispose: vi.fn(),
+    }));
+
+    activate({ subscriptions: [] } as any);
+    const selectModelCommand = mocks.registerCommand.mock.calls.find(([name]) => name === 'skillsReviewAndPolish.selectAnalysisModel')?.[1];
+    await selectModelCommand();
+
+    // Allow the detached syncMcpConfig promise to settle
+    await new Promise(r => setTimeout(r, 20));
+
+    // Find the writeFileSync call targeting .skills-review.json.tmp
+    const writeCall = vi.mocked(fs.writeFileSync).mock.calls
+      .find(([p]) => String(p).includes('.skills-review.json'));
+    expect(writeCall).toBeDefined();
+    const written = JSON.parse(String(writeCall![1]));
+    expect(written.model).toBe('gpt-4o-mini');
+    expect(written.provider).toBe('vscode-lm');
+
+    // Cleanup: restore workspaceFolders to a plain writable property
+    Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
   });
 
   it('stores an API key from the prompt flow', async () => {

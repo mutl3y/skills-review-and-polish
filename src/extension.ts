@@ -188,15 +188,15 @@ export function activate(context: vscode.ExtensionContext): void {
   state.statusBar = new StatusBarManager();
   state.codeLensProvider = new ScoreCodeLensProvider();
 
-  if (cfg.logLevel === 'debug') {
+  if (cfg.logLevel === 'debug' || cfg.logLevel === 'trace') {
     state.logFilePath = os.tmpdir() + '/skills-review-debug.log';
     try { fs.writeFileSync(state.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
   }
 
-  setLogLevel(cfg.logLevel === 'debug' ? 'debug' : 'info');
+  setLogLevel(cfg.logLevel === 'trace' ? 'trace' : cfg.logLevel === 'debug' ? 'debug' : 'info');
   setTransport((line) => {
     state?.out?.appendLine(line);
-    if (cfg.logLevel === 'debug' && state?.logFilePath) {
+    if ((cfg.logLevel === 'debug' || cfg.logLevel === 'trace') && state?.logFilePath) {
       try { fs.appendFileSync(state.logFilePath, line + '\n'); } catch { /* ignore */ }
     }
   });
@@ -209,8 +209,18 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   context.subscriptions.push(setupConfigWatcher());
+  // Propagate logLevel changes from settings to the logger at runtime (no restart needed).
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('skillsReviewAndPolish.logLevel')) {
+        const newCfg = readConfig();
+        setLogLevel(newCfg.logLevel === 'trace' ? 'trace' : newCfg.logLevel === 'debug' ? 'debug' : 'info');
+        log('info', `logLevel changed to ${newCfg.logLevel}`);
+      }
+    }),
+  );
   const extVersion = context.extension?.packageJSON?.version ?? 'unknown';
-  log('info', cfg.logLevel === 'debug'
+  log('info', (cfg.logLevel === 'debug' || cfg.logLevel === 'trace')
     ? `Extension activated — version: ${extVersion}, log level: ${cfg.logLevel}, log file: ${state.logFilePath ?? '(none)'}`
     : `Extension activated — version: ${extVersion}, log level: ${cfg.logLevel}`);
 
@@ -602,25 +612,29 @@ async function selectProvider(): Promise<void> {
 
 async function toggleLogLevel(): Promise<void> {
   const cfg = readConfig();
-  const newLevel: 'info' | 'debug' = cfg.logLevel === 'debug' ? 'info' : 'debug';
+  // Cycle: info → debug → trace → info
+  const newLevel: 'info' | 'debug' | 'trace' =
+    cfg.logLevel === 'info' ? 'debug' : cfg.logLevel === 'debug' ? 'trace' : 'info';
 
   await vscode.workspace.getConfiguration('skillsReviewAndPolish')
     .update('logLevel', newLevel, vscode.ConfigurationTarget.Global);
 
   // Update the runtime transport immediately (no reload needed)
-  setLogLevel(newLevel === 'debug' ? 'debug' : 'info');
-  if (newLevel === 'debug' && !state?.logFilePath) {
+  setLogLevel(newLevel === 'trace' ? 'trace' : newLevel === 'debug' ? 'debug' : 'info');
+  if ((newLevel === 'debug' || newLevel === 'trace') && !state?.logFilePath) {
     state!.logFilePath = os.tmpdir() + '/skills-review-debug.log';
     try { fs.writeFileSync(state!.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
   }
   setTransport((line) => {
     state?.out?.appendLine(line);
-    if (newLevel === 'debug' && state?.logFilePath) {
+    if ((newLevel === 'debug' || newLevel === 'trace') && state?.logFilePath) {
       try { fs.appendFileSync(state.logFilePath, line + '\n'); } catch { /* ignore */ }
     }
   });
 
-  const msg = newLevel === 'debug'
+  const msg = newLevel === 'trace'
+    ? 'Skills Review: Trace logging enabled — raw LLM responses visible. Check Output panel or /tmp/skills-review-debug.log'
+    : newLevel === 'debug'
     ? 'Skills Review: Debug logging enabled. Check Output panel or /tmp/skills-review-debug.log'
     : 'Skills Review: Debug logging disabled.';
   vscode.window.showInformationMessage(msg);
@@ -1312,6 +1326,10 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
     `Skills Review: ${label} set to "${picked.modelId}" (${picked.name}).${costInfo}`,
   );
   log('info', `selectModel: ${target} = ${picked.modelId} (${picked.name}) — validated ✓`);
+
+  // Keep .skills-review.json in sync so the MCP server immediately sees the
+  // new model without requiring a manual 'Sync MCP Config' command.
+  syncMcpConfig(true).catch((err) => log('warn', `selectModel: syncMcpConfig failed silently: ${err}`));
 }
 
 // ---------------------------------------------------------------------------
@@ -1340,11 +1358,11 @@ async function selectPickerSortOrder(): Promise<void> {
 // MCP Config Sync
 // ---------------------------------------------------------------------------
 
-async function syncMcpConfig(): Promise<void> {
+async function syncMcpConfig(silent = false): Promise<void> {
   const cfg = readConfig();
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
-    vscode.window.showWarningMessage('Skills Review: No workspace folder open — cannot write .skills-review.json.');
+    if (!silent) vscode.window.showWarningMessage('Skills Review: No workspace folder open — cannot write .skills-review.json.');
     return;
   }
   const configPath = path.join(folders[0].uri.fsPath, '.skills-review.json');
@@ -1362,7 +1380,7 @@ async function syncMcpConfig(): Promise<void> {
   try {
     fs.writeFileSync(tmpPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf8');
     fs.renameSync(tmpPath, configPath);
-    vscode.window.showInformationMessage(`Skills Review: MCP config synced to ${configPath}`);
+    if (!silent) vscode.window.showInformationMessage(`Skills Review: MCP config synced to ${configPath}`);
     log('info', `syncMcpConfig: wrote ${configPath}`);
   } catch (err) {
     // Clean up temp file if rename failed

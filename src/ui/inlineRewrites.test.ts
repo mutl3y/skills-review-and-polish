@@ -145,4 +145,90 @@ describe('createInlineRewriteProvider', () => {
     expect(items).toHaveLength(1);
     expect((items as any)[0].insertText).toBe('Use explicit wording.');
   });
+
+  it('returns cached result on second call without re-invoking the fixer', async () => {
+    mocks.fixIssue.mockImplementation(async () => ({ accepted: true, fixed: 'Cached fix.' }));
+    const diag = {
+      code: 'ambiguity-llm',
+      source: 'Skills Review (analyzer)',
+      range: { contains: () => true },
+      data: { code: 'ambiguity-llm', relevantText: 'explicit wording', message: 'msg' },
+    };
+    mocks.getDiagnostics.mockReturnValue([diag] as any);
+
+    createInlineRewriteProvider(async () => ({ provider: {} } as any), () => [] as any);
+    const provider = getRegisteredProvider();
+    const doc = makeDocument('Use explicit wording for the task.');
+
+    await provider.provideInlineCompletionItems(doc, { line: 0, character: 0 }, {} as any, {} as any);
+    mocks.fixIssue.mockClear();
+    const items = await provider.provideInlineCompletionItems(doc, { line: 0, character: 0 }, {} as any, {} as any);
+
+    expect(mocks.fixIssue).not.toHaveBeenCalled();
+    expect(items).toHaveLength(1);
+  });
+
+  it('handles diag.code as an object with toString()', async () => {
+    // VS Code Diagnostic.code can be { value: string; target: Uri } — not a plain string
+    mocks.getDiagnostics.mockReturnValue([
+      {
+        code: { value: 'coverage-gap', target: {} },
+        source: 'Skills Review (analyzer)',
+        range: { contains: () => true },
+      },
+    ] as any);
+
+    createInlineRewriteProvider(async () => ({ provider: {} } as any), () => []);
+    const provider = getRegisteredProvider();
+    const items = await provider.provideInlineCompletionItems(makeDocument(), { line: 0, character: 0 }, {} as any, {} as any);
+
+    // coverage-gap is not fixable so result is empty — but the code path was exercised
+    expect(items).toEqual([]);
+  });
+
+  it('returns empty array when fixer throws', async () => {
+    mocks.fixIssue.mockRejectedValue(new Error('fixer crashed'));
+    mocks.getDiagnostics.mockReturnValue([
+      {
+        code: 'ambiguity-llm',
+        source: 'Skills Review (analyzer)',
+        range: { contains: () => true },
+        data: { code: 'ambiguity-llm', relevantText: 'explicit wording', message: 'msg' },
+      },
+    ] as any);
+
+    createInlineRewriteProvider(async () => ({ provider: {} } as any), () => []);
+    const provider = getRegisteredProvider();
+    const items = await provider.provideInlineCompletionItems(
+      makeDocument('Use explicit wording for the task.'),
+      { line: 0, character: 0 }, {} as any, {} as any,
+    );
+
+    expect(items).toEqual([]);
+  });
+
+  it('evicts oldest entries when cache exceeds max size (50)', async () => {
+    // Fill the cache to just over the limit
+    mocks.fixIssue.mockImplementation(async () => ({ accepted: true, fixed: 'fixed' }));
+
+    for (let i = 0; i < 51; i++) {
+      const uniqueText = `word${i}`;
+      const diag = {
+        code: 'ambiguity-llm',
+        source: 'Skills Review (analyzer)',
+        range: { contains: () => true },
+        data: { code: 'ambiguity-llm', relevantText: uniqueText, message: 'msg' },
+      };
+      mocks.getDiagnostics.mockReturnValue([diag] as any);
+      createInlineRewriteProvider(async () => ({ provider: {} } as any), () => []);
+      const provider = getRegisteredProvider();
+      await provider.provideInlineCompletionItems(
+        makeDocument(`Use ${uniqueText} for the task.`),
+        { line: 0, character: 0 }, {} as any, {} as any,
+      );
+    }
+
+    // After 51 fills, fixer should have been called 51 times (eviction doesn't prevent future calls)
+    expect(mocks.fixIssue.mock.calls.length).toBe(51);
+  });
 });

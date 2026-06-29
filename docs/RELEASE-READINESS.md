@@ -37,10 +37,10 @@ All validation gates have been completed and verified. The project is ready for 
 
 ## Next Steps
 
-See [plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md#next-steps-for-formal-release](plan/archive/releases/RELEASE-IMPLEMENTATION-PLAN.md#next-steps-for-formal-release) for formal release procedures:
+- [x] Tag commit as `v0.1.0`
+- [x] Publish to VS Code Marketplace
+- [ ] Set release notes indicating controlled beta status
+- [ ] Monitor for feedback during 2–4 week beta window
+- [ ] Plan GA release after beta validation
 
-1. Tag commit as `v0.1.0`
-2. Publish to VS Code Marketplace (beta/pre-release only)
-3. Set release notes indicating controlled beta status
-4. Monitor for feedback during 2–4 week beta window
-5. Plan GA release after beta validation
+**Published:** https://marketplace.visualstudio.com/items?itemName=mutl3y.skills-review-and-polish

@@ -53,7 +53,7 @@ export interface ExtensionConfig extends EngineConfig {
   showScoreCodeLens: boolean;
   inlineRewrites: boolean;
   telemetryEnable: boolean;
-  logLevel: 'info' | 'debug';
+  logLevel: 'info' | 'debug' | 'trace';
 }
 
 export function readConfig(): ExtensionConfig {
@@ -84,7 +84,7 @@ export function readConfig(): ExtensionConfig {
     showScoreCodeLens: c.get('showScoreCodeLens', true),
     inlineRewrites: c.get('experimental.inlineRewrites', false),
     telemetryEnable: c.get('telemetry.enable', true),
-    logLevel: c.get('logLevel', 'info') as 'info' | 'debug',
+    logLevel: c.get('logLevel', 'info') as 'info' | 'debug' | 'trace',
   };
   return cachedConfig;
 }
