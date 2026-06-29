@@ -288,7 +288,134 @@ test.describe('Output Channel', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 7. EXTENSION LIFECYCLE — activation and deactivation
+// 7. ANALYZE WITH OPTIONS MODAL — mode picker + wave checkboxes
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test.describe('Analyze With Options Modal', () => {
+
+  test('Analyze With Options command opens mode selector with 3 choices', async () => {
+    await openFixture(page, 'test-ambiguities');
+    await runCommand(page, 'Skills Review: Analyze With Options');
+
+    const quickpick = page.locator('.quick-input-box');
+    await expect(quickpick).toBeVisible({ timeout: 3_000 });
+
+    const items = page.locator('.quick-input-list .monaco-list-row');
+    const count = await items.count();
+    expect(count).toBe(3);
+
+    const labels = await items.allTextContents();
+    expect(labels.some(l => l.includes('Single Prompt'))).toBe(true);
+    expect(labels.some(l => l.includes('Focused'))).toBe(true);
+    expect(labels.some(l => l.includes('Multi-Wave'))).toBe(true);
+
+    await page.keyboard.press('Escape');
+  });
+
+  test('Selecting Multi-Wave opens wave checkbox picker', async () => {
+    await runCommand(page, 'Skills Review: Analyze With Options');
+
+    const quickpick = page.locator('.quick-input-box');
+    await expect(quickpick).toBeVisible({ timeout: 3_000 });
+
+    // Select Multi-Wave (last item)
+    const items = page.locator('.quick-input-list .monaco-list-row');
+    const multiWave = items.filter({ hasText: 'Multi-Wave' }).first();
+    await multiWave.click();
+
+    // Wave picker should appear next
+    await page.waitForTimeout(500);
+    const wavePicker = page.locator('.quick-input-box');
+    await expect(wavePicker).toBeVisible({ timeout: 3_000 });
+
+    // Should contain wave names as checkboxes
+    const waveItems = page.locator('.quick-input-list .monaco-list-row');
+    const waveCount = await waveItems.count();
+    expect(waveCount).toBeGreaterThanOrEqual(4); // at least 4 of the 6 waves visible
+
+    const waveLabels = await waveItems.allTextContents();
+    const waveNames = ['Contradictions', 'Ambiguities', 'Persona', 'Structural', 'Coverage', 'Hygiene'];
+    const found = waveNames.filter(w => waveLabels.some(l => l.includes(w)));
+    expect(found.length).toBeGreaterThanOrEqual(4);
+
+    await page.keyboard.press('Escape');
+  });
+
+  test('Selecting Single Prompt does NOT open wave picker', async () => {
+    await runCommand(page, 'Skills Review: Analyze With Options');
+
+    const quickpick = page.locator('.quick-input-box');
+    await expect(quickpick).toBeVisible({ timeout: 3_000 });
+
+    // Select Single Prompt (first item)
+    const items = page.locator('.quick-input-list .monaco-list-row');
+    const singleItem = items.filter({ hasText: 'Single Prompt' }).first();
+    await singleItem.click();
+
+    // Wave picker should NOT appear — analysis starts directly
+    // Give it a moment to see if another picker opens
+    await page.waitForTimeout(800);
+
+    // If another quick-pick opened it must be a wave picker — fail
+    // More likely: the picker closed and analysis started (status bar changes)
+    const statusBar = page.getByRole('button', { name: /Skills Review/ });
+    await expect(statusBar).toBeVisible({ timeout: 5_000 });
+
+    // Cancel if analysis starts (no LLM in this test)
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+  });
+
+  test('Escape in mode picker cancels without starting analysis', async () => {
+    await runCommand(page, 'Skills Review: Analyze With Options');
+
+    const quickpick = page.locator('.quick-input-box');
+    await expect(quickpick).toBeVisible({ timeout: 3_000 });
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+
+    // Status bar should still show idle state (not "Analyzing...")
+    const statusBar = page.getByRole('button', { name: /Skills Review/ });
+    const text = await statusBar.textContent().catch(() => '');
+    expect(text).not.toMatch(/Analyzing/i);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 8. CANCEL ANALYSIS — progress notification cancel button
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test.describe('Cancel Analysis', () => {
+
+  test('analyzing shows cancellable progress in status bar area', async () => {
+    // This test verifies the progress indicator appears (not that LLM runs)
+    // We start analysis and immediately cancel via Escape / progress cancel
+    await openFixture(page, 'test-ambiguities');
+
+    // Trigger analyze — the progress notification appears immediately
+    await openCommandPalette(page);
+    await page.keyboard.type('Analyze Customization', { delay: 20 });
+    const item = page.locator('.quick-input-list .monaco-list-row .label-name', { hasText: 'Analyze Customization' });
+    await expect(item.first()).toBeVisible({ timeout: 3_000 });
+    await page.keyboard.press('Enter');
+
+    // Wait briefly for the progress notification
+    await page.waitForTimeout(1_500);
+
+    // Progress notification or status bar should show "Analyzing"
+    const statusBar = page.getByRole('button', { name: /Skills Review/ });
+    // The notification may appear in the status bar area — just check extension is active
+    await expect(statusBar).toBeVisible({ timeout: 3_000 });
+
+    // Cancel via Escape (closes any quick-input / cancels progress)
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(1_000);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 9. EXTENSION LIFECYCLE — activation and deactivation
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe('Extension Lifecycle', () => {

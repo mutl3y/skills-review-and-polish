@@ -22,6 +22,8 @@ Uses your **GitHub Copilot subscription** via the VS Code Language Model API —
 - Detects contradictions, ambiguities, persona conflicts, structural issues, coverage gaps, and hygiene problems
 - Real-time VS Code diagnostics with severity levels and explanations
 - Smart multi-pass analysis with noise reduction (median-of-N scoring)
+- **Analyze With Options** — two-step modal: choose mode (Single / Focused / Multi-Wave) then toggle individual waves with checkboxes
+- **Cancel** — analysis can be cancelled any time via the VS Code progress notification Cancel button
 
 ### Fixing
 
@@ -60,6 +62,8 @@ Open VS Code Settings and search "Skills Review":
 - `provider` — Which LLM to use (Copilot by default, or OpenRouter/GitHub Models)
 - `analysisMode` — `multiWave` (recommended), `focused` (contradictions + ambiguities), or `single` combined pass
 - `logLevel` — `info` (default), `debug` for detailed tracing, or `trace` for full LLM prompt/response logging
+
+> **Tip:** Use **Analyze With Options** (Command Palette) to pick mode and waves per-run without changing your settings.
 
 ## Learn More
 
