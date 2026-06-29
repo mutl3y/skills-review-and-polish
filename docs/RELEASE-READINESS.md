@@ -6,7 +6,7 @@
 
 All validation gates have been completed and verified. The project is now published and available for use.
 
-**Release Status:** `v0.1.1` — June 29, 2026  
+**Release Status:** `v0.1.2` — June 29, 2026  
 **Verification:** Full readiness check re-run on 2026-06-29.
 
 ## What's Verified ✅
@@ -18,7 +18,7 @@ All validation gates have been completed and verified. The project is now publis
 | ESLint | ✅ 0 errors, 5 warnings | All warnings pre-existing (unused vars) |
 | Markdown lint | ✅ 0 new errors in source | Pre-existing in plan docs |
 | E2E tests (`playwright`) | ✅ 43/43 passed | 4 test suites, 2.1min runtime |
-| VSIX packaging | ✅ 3.0 MB | `skills-review-and-polish-0.1.1.vsix` |
+| VSIX packaging | ✅ 3.0 MB | `skills-review-and-polish-0.1.2.vsix` |
 
 ## What Works
 

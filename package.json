@@ -2,7 +2,7 @@
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems, and offers safe one-click fixes.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",

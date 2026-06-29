@@ -4,9 +4,9 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## ✅ Status: Published v0.1.1
+## ✅ Status: Published v0.1.2
 
-- **v0.1.1** — Published to VS Code Marketplace (June 29, 2026)
+- **v0.1.2** — Published to VS Code Marketplace (June 29, 2026)
 - Core analyzer with 6-wave analysis ✅
 - Surgical fixer with safety guards ✅
 - VS Code integration (diagnostics, code actions, hovers) ✅
