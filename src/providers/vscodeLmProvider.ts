@@ -43,6 +43,9 @@ export class VsCodeLmProvider implements LlmProvider {
   private cachedDeep?: vscode.LanguageModelChat;
   private readonly log: Logger = createLogger('provider');
 
+  /** Optional callback fired the first time a model is selected (for logging). */
+  onModelSelected?: (modelId: string) => void;
+
   constructor(
     private readonly standardModelId: string,
     private readonly deepModelId: string,
@@ -51,6 +54,11 @@ export class VsCodeLmProvider implements LlmProvider {
   invalidate(): void {
     this.cachedStandard = undefined;
     this.cachedDeep = undefined;
+  }
+
+  /** Get the model ID that was auto-selected (for logging fallback). */
+  getSelectedModelId(): string | undefined {
+    return this.cachedStandard?.id;
   }
 
   private async selectModel(modelId: string): Promise<vscode.LanguageModelChat | undefined> {
@@ -217,6 +225,9 @@ export class VsCodeLmProvider implements LlmProvider {
         this.cachedDeep = model;
       } else {
         this.cachedStandard = model;
+        if (model && this.onModelSelected) {
+          this.onModelSelected(model.id);
+        }
       }
     }
 

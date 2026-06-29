@@ -406,6 +406,10 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
       const fallbackHash = hash + ':fallback-vscodelm';
       state!.cachedEngine = new Engine(vscodeLmProvider, cfg);
       state!.cachedEngineConfigHash = fallbackHash;
+      // Model is selected lazily on first call — log after-the-fact via onModelSelected callback
+      vscodeLmProvider.onModelSelected = (modelId: string) => {
+        log('info', `buildEngine: fallback to vscode-lm selected model: ${modelId}`);
+      };
       return state!.cachedEngine;
     }
     const model = cfg.fixModel || cfg.model || '';
@@ -425,6 +429,9 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     cfg.model,
     cfg.deepModel || cfg.model,
   );
+  vscodeLmProvider.onModelSelected = (modelId: string) => {
+    log('info', `buildEngine: vscode-lm selected model: ${modelId}`);
+  };
   state!.currentVsCodeLmProvider = vscodeLmProvider;
   state!.cachedEngine = new Engine(vscodeLmProvider, cfg);
   state!.cachedEngineConfigHash = hash;
@@ -484,40 +491,48 @@ async function analyzeFile(uri?: vscode.Uri): Promise<void> {
 async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
   const cfg = readConfig();
 
-  // ── Step 1: Choose analysis mode (single vs multiWave) ────────────────
-  const modePick = await vscode.window.showQuickPick(
-    [
-      {
-        label: '⚡ Single Prompt',
-        description: '1 LLM call — faster, cheaper, less accurate',
-        value: 'single' as const,
-      },
-      {
-        label: '🔬 Multi-Wave (Recommended)',
-        description: '6 focused passes — best quality, higher cost',
-        value: 'multiWave' as const,
-      },
-    ],
+  // ── Step 1: Mode selector (single quick-pick, not canPickMany) ─────────
+  const MODE_ITEMS = [
     {
-      title: 'Skills Review — Analysis Mode',
-      placeHolder: 'Choose how many passes to run',
+      label: '$(zap) Single Prompt',
+      description: '1 LLM call — fastest & cheapest, lower recall',
+      detail: 'All 6 categories in one pass. Good for quick checks.',
+      mode: 'single' as const,
     },
-  );
+    {
+      label: '$(search) Focused (2 waves)',
+      description: 'Contradictions + ambiguities only — good quality, faster',
+      detail: 'High-signal waves only. Best when time-constrained.',
+      mode: 'focused' as const,
+    },
+    {
+      label: '$(beaker) Multi-Wave (Recommended)',
+      description: '6 focused passes — best quality, customisable',
+      detail: 'Full analysis. You can deselect waves in the next step.',
+      mode: 'multiWave' as const,
+    },
+  ];
+
+  const modePick = await vscode.window.showQuickPick(MODE_ITEMS, {
+    title: 'Skills Review — Choose Analysis Mode (1 of 2)',
+    placeHolder: 'Select a mode and press Enter',
+  });
   if (!modePick) return;
 
-  // ── Step 2: Choose waves (only relevant in multiWave mode) ────────────
-  let selectedWaves = [...ALL_WAVES];
-  if (modePick.value === 'multiWave') {
+  // ── Step 2: Wave selector (only for multiWave) ─────────────────────────
+  let selectedWaves: WaveName[];
+
+  if (modePick.mode === 'multiWave') {
     const waveItems = ALL_WAVES.map(w => ({
-      label: `$(check) ${w.charAt(0).toUpperCase() + w.slice(1)}`,
+      label: w.charAt(0).toUpperCase() + w.slice(1),
       description: '',
-      value: w,
       picked: cfg.enabledWaves.includes(w),
+      value: w,
     }));
 
     const wavePick = await vscode.window.showQuickPick(waveItems, {
-      title: 'Skills Review — Select Waves',
-      placeHolder: 'Toggle waves on/off (click to toggle)',
+      title: 'Skills Review — Select Waves (2 of 2)',
+      placeHolder: 'Space to toggle · Enter to confirm · Esc to cancel',
       canPickMany: true,
     });
     if (!wavePick) return;
@@ -526,21 +541,13 @@ async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
       vscode.window.showWarningMessage('Skills Review: At least one wave must be selected.');
       return;
     }
+  } else if (modePick.mode === 'focused') {
+    selectedWaves = ['contradictions', 'ambiguities'];
+  } else {
+    selectedWaves = [...ALL_WAVES]; // single-pass uses all — mode drives LLM prompt, not wave filter
   }
 
-  // ── Step 3: Confirm provider + model ──────────────────────────────────
-  const providerLabel = cfg.provider === 'vscode-lm' ? 'Copilot' : cfg.provider;
-  const modelLabel = cfg.model || '(auto)';
-  const confirmMsg = `Provider: ${providerLabel}\nModel: ${modelLabel}\nMode: ${modePick.value}${modePick.value === 'multiWave' ? `\nWaves: ${selectedWaves.join(', ')}` : ''}`;
-
-  const proceed = await vscode.window.showInformationMessage(
-    `Skills Review — Scan with these settings?\n\n${confirmMsg}`,
-    'Scan',
-    'Cancel',
-  );
-  if (proceed !== 'Scan') return;
-
-  // ── Step 4: Run analysis with selected options ────────────────────────
+  // ── Step 3: Run analysis ──────────────────────────────────────────────
   const document = uri
     ? await vscode.workspace.openTextDocument(uri)
     : vscode.window.activeTextEditor?.document;
@@ -549,19 +556,20 @@ async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
     return;
   }
 
-  // Temporarily override enabledWaves for this analysis
   const originalWaves = cfg.enabledWaves;
+  const originalMode = cfg.analysisMode;
   await vscode.workspace.getConfiguration('skillsReviewAndPolish')
     .update('enabledWaves', selectedWaves, vscode.ConfigurationTarget.Global);
   await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-    .update('analysisMode', modePick.value, vscode.ConfigurationTarget.Global);
+    .update('analysisMode', modePick.mode, vscode.ConfigurationTarget.Global);
 
   try {
     await analyzeDocument(document);
   } finally {
-    // Restore original settings
     await vscode.workspace.getConfiguration('skillsReviewAndPolish')
       .update('enabledWaves', originalWaves, vscode.ConfigurationTarget.Global);
+    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+      .update('analysisMode', originalMode, vscode.ConfigurationTarget.Global);
   }
 }
 
@@ -739,14 +747,15 @@ async function analyzeDocument(
 
     state?.statusBar.startAnalyzing();
     await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: 'Skills Review: Analyzing…' },
-      async () => {
+      { location: vscode.ProgressLocation.Window, title: 'Skills Review: Analyzing…', cancellable: true },
+      async (progress, progressToken) => {
         try {
           const engine = await buildEngine(state?.extensionContext);
           const text = doc.getText();
-          if (token?.isCancellationRequested) return;
+          const effectiveToken = token ?? progressToken;
+          if (effectiveToken?.isCancellationRequested) return;
           log('info', `analyzeDocument: calling engine.analyze on ${text.length} chars`);
-          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token });
+          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: effectiveToken });
           if (token?.isCancellationRequested) return;
           log('info', `analyzeDocument: got ${results.length} results`);
           for (const r of results) {
