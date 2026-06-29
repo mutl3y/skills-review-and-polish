@@ -8,10 +8,10 @@ The server exposes seven tools:
 
 | Tool | Description |
 | --- | --- |
-| `analyze` | Run all 6 analysis waves on a document. Returns JSON diagnostics with codes, severities, line ranges, and suggestions. |
+| `analyze` | Run analysis waves on a document. Returns JSON diagnostics with codes, severities, line ranges, and suggestions. Use `enabledWaves` parameter to select specific waves (contradictions, ambiguities, persona, structural, coverage, hygiene) or omit for all 6 waves. |
 | `fix` | Surgically fix ONE issue. Returns proposed fix text, accept/reject status, and risk flags. Only works on 5 codes: `ambiguity-llm`, `contradiction`, `hygiene-redundant-instruction`, `hygiene-unordered-process`, `hygiene-over-specification`. |
 | `score` | Compute quality score (0–100), letter grade (A+ through F), penalty breakdown, and pillar scores. |
-| `verify_fix` | Re-analyze a document and check if a specific issue is still present. Returns `{ fixed, matchingIssue, newIssues, score }`. |
+| `verify_fix` | Re-analyze a document and check if a specific issue is still present. Returns `{ fixed, matchingIssue, newIssues, issueCount }`. |
 | `accept_finding` | Suppress a specific finding on a file so it won't appear in future analyses. |
 | `list_accepted_findings` | Return all accepted (suppressed) findings, optionally filtered by file. |
 | `health` | Return current provider, model, config source, and connectivity status. |
@@ -73,10 +73,22 @@ The MCP server reads a `.skills-review.json` file from the workspace root on sta
   "model": "gpt-4o-mini",
   "deepModel": "gpt-4o",
   "fixModel": "gpt-4o-mini",
-  "analysisMode": "standard",
+  "analysisMode": "multiWave",
   "logLevel": "info"
 }
 ```
+
+**Analysis modes:**
+
+- `multiWave` (recommended) — Runs all 6 analysis waves separately for best quality
+- `focused` — Runs 2 high-signal passes (contradictions + ambiguities)
+- `single` — Runs one combined prompt (cheapest/fastest, lower recall)
+
+**Log levels:**
+
+- `info` (default) — Basic operation logging
+- `debug` — Detailed tracing including model selection and timing
+- `trace` — Full LLM prompt/response logging for debugging
 
 **Config priority at startup:**
 

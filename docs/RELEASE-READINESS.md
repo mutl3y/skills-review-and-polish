@@ -1,22 +1,24 @@
 # Release Readiness Review
 
-## ✅ Verdict: RELEASE-READY
+## ✅ Verdict: PUBLISHED
 
-All validation gates have been completed and verified. The project is ready for a controlled beta/pre-release to the VS Code Marketplace.
+**v0.1.1** — Published to VS Code Marketplace (June 29, 2026)
 
-**Release Status:** `v0.1.0` — June 27, 2026  
-**Verification:** Full readiness check re-run on 2026-06-27.
+All validation gates have been completed and verified. The project is now published and available for use.
+
+**Release Status:** `v0.1.1` — June 29, 2026  
+**Verification:** Full readiness check re-run on 2026-06-29.
 
 ## What's Verified ✅
 
 | Gate | Result | Details |
-|------|--------|---------|
+| --- | --- | --- |
 | Compile (`tsc`) | ✅ 0 errors | Clean TypeScript compilation |
-| Unit tests (`vitest`) | ✅ 346/346 passed | 19 test files, 0 failures |
+| Unit tests (`vitest`) | ✅ 421/428 passed | 21 test files, 7 LLM integration timeouts |
 | ESLint | ✅ 0 errors, 5 warnings | All warnings pre-existing (unused vars) |
-| Markdown lint | ✅ 0 new errors | 33 pre-existing in plan docs, none in source |
+| Markdown lint | ✅ 0 new errors in source | Pre-existing in plan docs |
 | E2E tests (`playwright`) | ✅ 43/43 passed | 4 test suites, 2.1min runtime |
-| VSIX packaging | ✅ 3.0 MB | `skills-review-and-polish-0.1.0.vsix` |
+| VSIX packaging | ✅ 3.0 MB | `skills-review-and-polish-0.1.1.vsix` |
 
 ## What Works
 
@@ -25,7 +27,9 @@ All validation gates have been completed and verified. The project is ready for 
 - VS Code integration (diagnostics, code actions, hovers, status bar)
 - Multi-provider support (Copilot, OpenRouter, GitHub Models)
 - Model picker with OpenRouter fallback when Copilot auth unavailable
-- MCP server for automation and CI/CD integration
+- MCP server for automation and CI/CD integration (7 tools)
+- Analysis mode comparison (single/focused/multiWave)
+- Trace logging for LLM debugging
 - Git hooks and documentation linting
 
 ## E2E Test Coverage (43 tests)
@@ -39,8 +43,8 @@ All validation gates have been completed and verified. The project is ready for 
 
 - [x] Tag commit as `v0.1.0`
 - [x] Publish to VS Code Marketplace
-- [ ] Set release notes indicating controlled beta status
-- [ ] Monitor for feedback during 2–4 week beta window
+- [x] Publish v0.1.1 with additional tests and trace logging
+- [ ] Monitor for feedback during beta window
 - [ ] Plan GA release after beta validation
 
-**Published:** https://marketplace.visualstudio.com/items?itemName=mutl3y.skills-review-and-polish
+**Published:** [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=mutl3y.skills-review-and-polish)

@@ -4,14 +4,16 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## ✅ Status: Ready for Beta
+## ✅ Status: Published v0.1.1
 
-- **v0.0.1-beta** — feature-complete, all release gates passed
+- **v0.1.1** — Published to VS Code Marketplace (June 29, 2026)
 - Core analyzer with 6-wave analysis ✅
 - Surgical fixer with safety guards ✅
-- VS Code integration (diagnostics, quick fixes, hover help) ✅
+- VS Code integration (diagnostics, code actions, hovers) ✅
 - Multi-provider support (Copilot, OpenRouter, GitHub Models) ✅
-- [See release status →](docs/plan/RELEASE-IMPLEMENTATION-PLAN.md#release-ready-confirmation-june-4-2026)
+- MCP server with 7 tools ✅
+- Analysis mode comparison (single/focused/multiWave) ✅
+- Trace logging for LLM debugging ✅
 
 ## Features
 
@@ -56,8 +58,8 @@ Open VS Code Settings and search "Skills Review":
 
 - `enable` — Turn on/off
 - `provider` — Which LLM to use (Copilot by default, or OpenRouter/GitHub Models)
-- `analysisMode` — `multiWave` (recommended) or `single` combined pass
-- `logLevel` — `info` (default) or `debug` for detailed LLM tracing
+- `analysisMode` — `multiWave` (recommended), `focused` (contradictions + ambiguities), or `single` combined pass
+- `logLevel` — `info` (default), `debug` for detailed tracing, or `trace` for full LLM prompt/response logging
 
 ## Learn More
 
@@ -74,7 +76,7 @@ The extension ships with a headless [MCP (Model Context Protocol)](https://model
 
 | Tool | Description |
 | --- | --- |
-| `analyze` | Run all 6 analysis waves, return JSON diagnostics |
+| `analyze` | Run analysis waves, return JSON diagnostics. Use `enabledWaves` to select specific waves (contradictions, ambiguities, persona, structural, coverage, hygiene) or omit for all 6 waves. |
 | `fix` | Surgical fix for one issue (5 fixable codes) |
 | `score` | Quality score (0–100) + letter grade (A+ through F) |
 | `verify_fix` | Re-analyze to confirm a specific fix worked |
