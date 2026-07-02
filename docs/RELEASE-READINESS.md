@@ -2,12 +2,12 @@
 
 ## ✅ Verdict: PUBLISHED
 
-**v0.1.1** — Published to VS Code Marketplace (June 29, 2026)
+**v0.1.6** — Published to VS Code Marketplace (July 2, 2026)
 
 All validation gates have been completed and verified. The project is now published and available for use.
 
-**Release Status:** `v0.1.3` — June 29, 2026  
-**Verification:** Full readiness check re-run on 2026-06-29.
+**Release Status:** `v0.1.6` — July 2, 2026  
+**Verification:** Full readiness check re-run on 2026-07-02.
 
 ## What's Verified ✅
 
@@ -18,7 +18,7 @@ All validation gates have been completed and verified. The project is now publis
 | ESLint | ✅ 0 errors, 5 warnings | All warnings pre-existing (unused vars) |
 | Markdown lint | ✅ 0 new errors in source | Pre-existing in plan docs |
 | E2E tests (`playwright`) | ✅ 43/43 passed | 4 test suites, 2.1min runtime |
-| VSIX packaging | ✅ 3.0 MB | `skills-review-and-polish-0.1.3.vsix` |
+| VSIX packaging | ✅ 4.06 MB | `skills-review-and-polish-0.1.6.vsix` |
 
 ## What Works
 
@@ -45,6 +45,7 @@ All validation gates have been completed and verified. The project is now publis
 - [x] Publish to VS Code Marketplace
 - [x] Publish v0.1.1 with additional tests and trace logging
 - [x] Publish v0.1.3 with updated description
+- [x] Publish v0.1.6 with analyzeWithOptions modal and cancel analysis (July 2, 2026)
 - [ ] Monitor for feedback during beta window
 - [ ] Plan GA release after beta validation
 

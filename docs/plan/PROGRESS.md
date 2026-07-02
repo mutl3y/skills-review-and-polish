@@ -1,6 +1,6 @@
 # Implementation Status
 
-> Updated June 9, 2026. **Status: Release-ready (v0.0.1-beta), post-Gilfoyle review**
+> Updated July 2, 2026. **Status: Published v0.1.6**
 >
 > For release details, see [archive/releases/RELEASE-IMPLEMENTATION-PLAN.md](archive/releases/RELEASE-IMPLEMENTATION-PLAN.md)
 > For engineering decisions, see [LEARNINGS.md](LEARNINGS.md)
@@ -18,13 +18,20 @@
 
 ## Release Status
 
-All 5 verification phases passed (June 4, 2026):
+All 5 verification phases passed (July 2, 2026):
 
-- ✅ Packaging reproducible (VSIX 3.2 MB)
-- ✅ Docs lint passing (0 errors)
-- ✅ Smoke validation (11/11 E2E tests)
+- ✅ Packaging reproducible (VSIX 4.06 MB)
+- ✅ Docs lint passing (0 errors in source)
+- ✅ Smoke validation (43/43 E2E tests)
 - ✅ Fixture regression (4/4 tests on 6-fixture corpus)
-- ✅ Full command stack (compile → lint → test:fixtures → lint:md → package:vsce)
+- ✅ Full command stack (compile → lint → test → test:fixtures → lint:md → package:vsce)
+
+**Published versions:**
+- v0.1.0 — Initial release (June 29, 2026)
+- v0.1.1 — Additional tests and trace logging (June 29, 2026)
+- v0.1.2 — (June 29, 2026)
+- v0.1.3 — Updated description (June 29, 2026)
+- v0.1.6 — AnalyzeWithOptions modal and cancel analysis (July 2, 2026)
 
 ## Gilfoyle Code Review (June 9, 2026)
 
@@ -55,7 +62,5 @@ Full codebase review completed. **25 issues resolved** across all severity level
 
 ## Next Steps
 
-1. Complete documentation hygiene plan (this plan)
-2. Tag commit as `v0.0.1-beta.1`
-3. Publish to VS Code Marketplace (beta/pre-release)
-4. Monitor feedback during beta window
+1. Monitor feedback during beta window
+2. Plan GA release after beta validation
