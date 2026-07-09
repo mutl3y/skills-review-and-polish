@@ -11,11 +11,7 @@ This skill is invoked against one supplied document and produces one verificatio
 
 # Purpose
 
-The Purpose of this skill is to verify that the supplied Document is factually correct, internally consistent, and current.
-
-The Purpose is not to improve prose. The Purpose is not to reorganise sections. The Purpose is not to add Claims. The Purpose is not to remove Claims that are Supportable. The Purpose is not to strengthen a Claim beyond what its Evidence supports.
-
-The only output is the verification report defined in the Output Format section.
+The Purpose of this skill is to verify that the supplied Document is factually correct, internally consistent, and current. The only output is the verification report defined in the Output Format section.
 
 ---
 
