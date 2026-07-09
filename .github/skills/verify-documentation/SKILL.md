@@ -41,6 +41,7 @@ The terms below are the only definitions used by this skill. No term has a synon
 - **Warning**: An Observation that records an Unsupportable Claim that was not Modified. A Warning has one of three Reasons defined in the Output Format section.
 - **Verified highlight**: An Observation that records a Claim that the verifier verified directly against the implementation.
 - **Confidence**: One of the three values defined in the Confidence levels subsection. Confidence is a property of an Observation.
+- **Published**: The state of a Document at the moment the verification report is emitted.
 
 ---
 
