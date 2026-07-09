@@ -111,7 +111,7 @@ A Modification to the Document is Permitted only when it satisfies the Editing R
 
 ## R14. Author Style is Preserved
 
-A Permitted Modification may change a Claim. A Permitted Modification may not change the Document's surrounding terminology, section order, or voice.
+A Permitted Modification may only change a Claim. A Permitted Modification must not change the Document's surrounding terminology, section order, or voice.
 
 ## R15. Report conforms to Output Format
 
