@@ -79,7 +79,7 @@ describe('registerLanguageModelTools', () => {
 
     const result = await tools[0].invoke({ input: { text: 'Use explicit wording.' } }, {} as any);
     expect(analyze).toHaveBeenCalled();
-    const firstCall = analyze.mock.calls[0];
+    const firstCall = analyze.mock.calls[0] as unknown[];
     expect(firstCall[0]).toEqual(expect.objectContaining({ text: 'Use explicit wording.', filePath: undefined }));
     expect(result.parts[0].value).toContain('ambiguity-llm');
   });
