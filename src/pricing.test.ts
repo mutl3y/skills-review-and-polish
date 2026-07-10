@@ -209,6 +209,24 @@ describe('parseOpenRouterResponse', () => {
     // Stored under name only since id is missing
     expect(result.has('No ID Model')).toBe(true);
   });
+
+  it('handles poolside model with colon separator in name', () => {
+    const json = {
+      data: [
+        {
+          id: 'poolside/laguna-m.1',
+          name: 'Poolside: Laguna M.1',
+          pricing: { prompt: '0.00000015', completion: '0.00000060' },
+        },
+      ],
+    };
+    const result = _parseOpenRouterResponse(json);
+    // Should be stored under both ID and name
+    expect(result.has('poolside/laguna-m.1')).toBe(true);
+    expect(result.has('Poolside: Laguna M.1')).toBe(true);
+    // normalizeModelName strips vendor prefix with colon, converting to spaces
+    expect(result.has('laguna m.1')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -259,6 +277,9 @@ describe('normalizeModelName', () => {
     expect(normalizeModelName('openai/gpt-4o-mini')).toBe('gpt-4o-mini');
     expect(normalizeModelName('anthropic/claude-sonnet-4')).toBe('claude-sonnet-4');
     expect(normalizeModelName('google/gemini-2.0-flash')).toBe('gemini-2.0-flash');
+    expect(normalizeModelName('poolside/laguna-m.1')).toBe('laguna-m.1');
+    // Also handles colon separator in vendor prefix
+    expect(normalizeModelName('Poolside: Laguna M.1')).toBe('laguna m.1');
   });
 
   it('leaves names without vendor prefix unchanged', () => {
@@ -502,5 +523,77 @@ describe('fetchPricing', () => {
     expect(result.get('openai/gpt-4o-mini')!.source).toBe('openrouter');
     expect(result.has('meta-llama/llama-3-8b:free')).toBe(true);
     expect(result.get('meta-llama/llama-3-8b:free')!.input).toBe(0);
+  });
+
+  it('refetches from network when disk cache has suspiciously few entries', async () => {
+    // Simulate a corrupt disk cache (e.g. written by test mocks with only 2 models).
+    // The extension should detect this and refetch from the network.
+    const mockFetch = vi.fn()
+      // First call: Copilot HTML
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(`
+          <table>
+            <tr><th>Model</th><th>Input</th><th>Cached input</th><th>Output</th></tr>
+            <tr><td>GPT-5 Mini</td><td>$0.25</td><td>$0.05</td><td>$2.00</tr>
+          </table>
+        `),
+      })
+      // First call: OpenRouter returns a full response
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: Array.from({ length: 340 }, (_, i) => ({
+            id: `vendor/model-${i}`,
+            name: `Model ${i}`,
+            pricing: { prompt: '0.000001', completion: '0.000005' },
+          })),
+        }),
+      })
+      // Second call: Copilot HTML (will be refetched because _resetCaches clears in-memory)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(`
+          <table>
+            <tr><th>Model</th><th>Input</th><th>Cached input</th><th>Output</th></tr>
+            <tr><td>GPT-5 Mini</td><td>$0.25</td><td>$0.05</td><td>$2.00</tr>
+          </table>
+        `),
+      })
+      // Second call: OpenRouter refetch (after detecting corrupt cache)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: Array.from({ length: 340 }, (_, i) => ({
+            id: `vendor/model-${i}`,
+            name: `Model ${i}`,
+            pricing: { prompt: '0.000001', completion: '0.000005' },
+          })),
+        }),
+      });
+
+    vi.stubGlobal('fetch', mockFetch);
+
+    // First call: writes a real (full) cache
+    const result1 = await fetchPricing();
+    expect(result1.size).toBeGreaterThan(1000);
+
+    // Manually corrupt the cache by writing a tiny dataset
+    const fs = await import('fs');
+    const path = await import('path');
+    const os = await import('os');
+    const cacheFile = path.join(os.tmpdir(), 'skills-review-and-polish-openrouter-pricing-cache-v1.json');
+    fs.writeFileSync(cacheFile, JSON.stringify({
+      fetchedAt: Date.now(),
+      crc32: 'corrupt',
+      entries: [['fake/model', { input: 0.1, output: 0.2, source: 'openrouter' }]],
+    }));
+
+    // Second call: should detect corruption and refetch
+    _resetCaches();
+    const result2 = await fetchPricing();
+    // Should have refetched and gotten a full result, not the corrupt 1-entry cache
+    expect(result2.size).toBeGreaterThan(1000);
+    expect(result2.has('fake/model')).toBe(false);
   });
 });

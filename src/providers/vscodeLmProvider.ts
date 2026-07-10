@@ -41,6 +41,7 @@ function isRateLimitError(msg: string): boolean {
 export class VsCodeLmProvider implements LlmProvider {
   private cachedStandard?: vscode.LanguageModelChat;
   private cachedDeep?: vscode.LanguageModelChat;
+  private cachedFix?: vscode.LanguageModelChat;
   private readonly log: Logger = createLogger('provider');
 
   /** Optional callback fired the first time a model is selected (for logging). */
@@ -49,11 +50,13 @@ export class VsCodeLmProvider implements LlmProvider {
   constructor(
     private readonly standardModelId: string,
     private readonly deepModelId: string,
+    private readonly fixModelId?: string,
   ) {}
 
   invalidate(): void {
     this.cachedStandard = undefined;
     this.cachedDeep = undefined;
+    this.cachedFix = undefined;
   }
 
   /** Get the model ID that was auto-selected (for logging fallback). */
@@ -64,6 +67,7 @@ export class VsCodeLmProvider implements LlmProvider {
   private async selectModel(modelId: string): Promise<vscode.LanguageModelChat | undefined> {
     const allModels = await vscode.lm.selectChatModels();
     this.log.debug('models available', { count: allModels.length, ids: allModels.map(m => m.id).join(', ') });
+    this.log.debug('model vendors', { vendors: allModels.map(m => `${m.id}:${m.vendor}`).join(', ') });
 
     if (allModels.length === 0) {
       this.log.info('no models available');
@@ -113,7 +117,7 @@ export class VsCodeLmProvider implements LlmProvider {
           this.log.info('model rejected: copilotcli vendor only', { modelId: trimmed });
           vscode.window.showErrorMessage(
             `Model "${trimmed}" is only available via GitHub Copilot CLI (copilotcli vendor), which does not work in VS Code extensions. ` +
-              `Please ensure the Copilot extension is installed and you are signed in to GitHub Copilot (copilot vendor).`,
+              `Please select a Copilot or OpenRouter model.`,
           );
           return undefined;
         }
@@ -123,34 +127,26 @@ export class VsCodeLmProvider implements LlmProvider {
 
       // Model ID not found at all — stop, don't fall back
       this.log.info('model not found', { modelId: trimmed });
-      vscode.window.showErrorMessage(`Requested model "${trimmed}" is not available. Please reconfigure in Settings.`);
+      vscode.window.showErrorMessage(
+        `Requested model "${trimmed}" is not available. ` +
+          'Please select a model via "Skills Review: Select Analysis Model" command, ' +
+          'or configure an OpenRouter API key for access to additional models.',
+      );
       return undefined;
     }
 
-    // Auto-select: only try models from safe tier (multiplier ≤ 1x)
-    // Single selectChatModels() call — filter in-memory to avoid N+1 async calls
-    const safeModels = allModels.filter((m) => {
-      const multiplier = modelToMultiplier.get(m.id);
-      return multiplier !== undefined && multiplier <= 1;
-    });
-    for (const model of safeModels) {
-      if (model.vendor === 'copilot') {
-        this.log.debug('auto-selected model', { modelId: model.id, multiplier: modelToMultiplier.get(model.id) });
-        return model;
-      }
-    }
-
-    this.log.info('no safe model with copilot vendor found');
+    // No model specified — require explicit selection to prevent uncontrolled fallback
+    this.log.info('no model specified - requiring explicit selection');
     vscode.window.showErrorMessage(
-      'No low-cost model available (≤1x multiplier) with GitHub Copilot vendor. ' +
-        'Please ensure the GitHub Copilot extension is installed and you are signed in to GitHub Copilot. ' +
-        'Or configure a specific model in Settings.',
+      'No model specified. Please run "Skills Review: Select Analysis Model" to choose a model. ' +
+        'For OpenRouter models, configure an API key via "Skills Review: Set API Key".',
     );
     return undefined;
   }
 
   private findPreferredCopilotModel(models: readonly vscode.LanguageModelChat[]): vscode.LanguageModelChat | undefined {
-    return models.find((model) => model.vendor === 'copilot');
+    // Prefer copilot vendor, but accept openrouter vendor models as they work via VS Code LM
+    return models.find((model) => model.vendor === 'copilot' || model.vendor === 'openrouter');
   }
 
   private async collectStreamText(response: { stream: AsyncIterable<unknown>; text?: unknown }): Promise<{ text: string; error?: string; isRateLimit?: boolean }> {
@@ -212,18 +208,34 @@ export class VsCodeLmProvider implements LlmProvider {
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
+    // Priority: explicit modelId > fix tier > deep tier > standard
+    const isFix = request.modelTier === 'fix';
     const isDeep = request.modelTier === 'deep';
-    const tier = isDeep ? 'deep' : 'standard';
-    const modelIdRequested = isDeep ? this.deepModelId || this.standardModelId : this.standardModelId;
+    const tier = isFix ? 'fix' : isDeep ? 'deep' : 'standard';
+    const modelIdRequested = request.modelId
+      || (isFix ? this.fixModelId : undefined)
+      || (isDeep ? this.deepModelId : undefined)
+      || this.standardModelId;
 
     this.log.debug('complete: starting', { tier, promptLen: request.prompt.length, systemLen: request.systemPrompt.length });
 
-    let model = isDeep ? this.cachedDeep : this.cachedStandard;
-    if (!model) {
-      model = await this.selectModel(modelIdRequested);
-      if (isDeep) {
+    let model: vscode.LanguageModelChat | undefined;
+    if (isFix) {
+      model = this.cachedFix;
+      if (!model) {
+        model = await this.selectModel(modelIdRequested);
+        this.cachedFix = model;
+      }
+    } else if (isDeep) {
+      model = this.cachedDeep;
+      if (!model) {
+        model = await this.selectModel(modelIdRequested);
         this.cachedDeep = model;
-      } else {
+      }
+    } else {
+      model = this.cachedStandard;
+      if (!model) {
+        model = await this.selectModel(modelIdRequested);
         this.cachedStandard = model;
         if (model && this.onModelSelected) {
           this.onModelSelected(model.id);

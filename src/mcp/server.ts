@@ -349,12 +349,13 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
     if (cfg && typeof cfg === 'object') {
       const provider = cfg.provider || 'githubModels';
       const model = cfg.model || 'gpt-4o-mini';
+      const fixModel = cfg.fixModel || undefined;
 
       if (provider === 'openrouter') {
         const apiKey = process.env.OPENROUTER_API_KEY?.trim();
         if (apiKey) {
           return {
-            engine: new Engine(new OpenRouterProvider({ apiKey, model })),
+            engine: new Engine(new OpenRouterProvider({ apiKey, model, fixModel })),
             config: { provider: 'openrouter', model, configSource: 'file:.skills-review.json' } as McpEngineConfig,
           };
         }
@@ -364,7 +365,7 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
       const apiKey = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
       if (apiKey) {
         return {
-          engine: new Engine(new GitHubModelsProvider({ apiKey, model })),
+          engine: new Engine(new GitHubModelsProvider({ apiKey, model, fixModel })),
           config: { provider: 'githubModels', model, configSource: 'file:.skills-review.json' } as McpEngineConfig,
         };
       }
@@ -378,7 +379,8 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
   const githubToken = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
   if (githubToken) {
     const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
-    const provider = new GitHubModelsProvider({ apiKey: githubToken, model });
+    const fixModel = process.env.FIX_MODEL ?? undefined;
+    const provider = new GitHubModelsProvider({ apiKey: githubToken, model, fixModel });
     return {
       engine: new Engine(provider),
       config: { provider: 'githubModels', model, configSource: process.env.GITHUB_MODELS_TOKEN ? 'env:GITHUB_MODELS_TOKEN' : 'env:GITHUB_TOKEN' } as McpEngineConfig,
@@ -388,7 +390,8 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openRouterKey) {
     const model = process.env.ANALYSIS_MODEL ?? 'openai/gpt-4o-mini';
-    const provider = new OpenRouterProvider({ apiKey: openRouterKey, model });
+    const fixModel = process.env.FIX_MODEL ?? undefined;
+    const provider = new OpenRouterProvider({ apiKey: openRouterKey, model, fixModel });
     return {
       engine: new Engine(provider),
       config: { provider: 'openrouter', model, configSource: 'env:OPENROUTER_API_KEY' } as McpEngineConfig,

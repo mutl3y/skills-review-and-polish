@@ -27,6 +27,8 @@ export interface ExternalProviderOptions {
   apiKey: string;
   /** Model identifier to use (e.g. "gpt-4o-mini", "openai/gpt-4o"). */
   model: string;
+  /** Model identifier for fix operations (optional, falls back to model). */
+  fixModel?: string;
   /** Maximum tokens in the response (default 4096). */
   maxTokens?: number;
   /** Maximum retries on 429 / 5xx (default 2). */
@@ -103,20 +105,24 @@ function extractText(resp: Record<string, unknown>): string {
 export class OpenRouterProvider implements LlmProvider {
   private readonly apiKey: string;
   private readonly model: string;
+  private readonly fixModel?: string;
   private readonly maxTokens: number;
   private readonly maxRetries: number;
 
   constructor(opts: ExternalProviderOptions) {
     this.apiKey = opts.apiKey;
     this.model = opts.model || 'openai/gpt-4o-mini';
+    this.fixModel = opts.fixModel;
     this.maxTokens = opts.maxTokens ?? 4096;
     this.maxRetries = opts.maxRetries ?? 2;
   }
 
   async complete(req: LlmRequest): Promise<LlmResponse> {
+    // Use fixModel for fix tier, otherwise use modelId override or default model
+    const modelToUse = req.modelId || (req.modelTier === 'fix' && this.fixModel ? this.fixModel : this.model);
     return fetchWithRetry(
       'https://openrouter.ai/api/v1/chat/completions',
-      { model: this.model, messages: [
+      { model: modelToUse, messages: [
         { role: 'system', content: req.systemPrompt },
         { role: 'user', content: req.prompt },
       ], max_tokens: this.maxTokens },
@@ -141,6 +147,7 @@ export class OpenRouterProvider implements LlmProvider {
 export class GitHubModelsProvider implements LlmProvider {
   private readonly apiKey: string;
   private readonly model: string;
+  private readonly fixModel?: string;
   private readonly maxTokens: number;
   private readonly maxRetries: number;
   private static readonly BASE_URL =
@@ -149,14 +156,17 @@ export class GitHubModelsProvider implements LlmProvider {
   constructor(opts: ExternalProviderOptions) {
     this.apiKey = opts.apiKey;
     this.model = opts.model || 'gpt-4o-mini';
+    this.fixModel = opts.fixModel;
     this.maxTokens = opts.maxTokens ?? 4096;
     this.maxRetries = opts.maxRetries ?? 2;
   }
 
   async complete(req: LlmRequest): Promise<LlmResponse> {
+    // Use fixModel for fix tier, otherwise use modelId override or default model
+    const modelToUse = req.modelId || (req.modelTier === 'fix' && this.fixModel ? this.fixModel : this.model);
     return fetchWithRetry(
       GitHubModelsProvider.BASE_URL,
-      { model: this.model, messages: [
+      { model: modelToUse, messages: [
         { role: 'system', content: req.systemPrompt },
         { role: 'user', content: req.prompt },
       ], max_tokens: this.maxTokens },

@@ -1,61 +1,100 @@
 # Skills Review and Polish
 
-> Repo for analyzing and fixing AI customization docs like
-> `SKILL.md`, `*.instructions.md`, `*.prompt.md`, `*.agent.md`,
-> and `AGENTS.md`.
+> A VS Code extension and MCP server that act as an authoring-time linter and
+> surgical fixer for AI customization files. The analyzer runs 6 user-toggleable
+> waves (contradictions, ambiguities, persona, structural, coverage, hygiene)
+> plus always-on cross-file phases. Fixes are minimal, safety-guarded, and
+> protected by a penalty-revert safety net so the tool can never make a file
+> worse.
 
-This entry point summarizes the main docs, engine code, and MCP
-automation path.
+Supported file types: `SKILL.md`, `AGENTS.md`, `*.instructions.md`, `*.prompt.md`, `*.agent.md`.
+
+This entry point summarizes the main docs, engine code, and MCP automation path.
+
+## Start Here
+
+When orienting to the project, read these first:
+
+- [README.md](README.md): Project overview, features, and quick start.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): System architecture and design choices.
+- [docs/USER-GUIDE.md](docs/USER-GUIDE.md): How to use the extension end-to-end.
+- [src/core/analyzer.ts](src/core/analyzer.ts): Multi-wave analysis engine (6 user-toggleable waves + always-on phases).
+
+## Common Tasks
+
+- Understand the analyzer → [src/core/analyzer.ts](src/core/analyzer.ts)
+- Understand fix application → [src/core/fixer.ts](src/core/fixer.ts)
+- Edit the prompts the analyzer uses → [src/core/prompts/](src/core/prompts/)
+- Understand providers → [src/providers/](src/providers/)
+- Use the MCP server → [src/mcp/README.md](src/mcp/README.md)
+- Tune the engine → [docs/plan/LEARNINGS.md](docs/plan/LEARNINGS.md)
 
 ## Documentation
 
-- [README.md](README.md): Start here for project overview and setup.
-- [docs/DEVELOPMENT-STANDARDS.md](docs/DEVELOPMENT-STANDARDS.md):
-  Coding standards and safety guidance.
+- [README.md](README.md): Project overview, features, and quick start guide.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): System architecture and component overview.
+- [docs/CHANGELOG.md](docs/CHANGELOG.md): Version history and release notes.
+- [docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md): Development setup and contribution guide.
+- [docs/DEVELOPMENT-STANDARDS.md](docs/DEVELOPMENT-STANDARDS.md): Coding standards and safety guidance.
+- [docs/FAQS.md](docs/FAQS.md): Frequently asked questions.
+- [docs/FIX-GUARDS.md](docs/FIX-GUARDS.md): Surgical fix safety mechanisms.
 - [docs/GIT-WORKFLOW.md](docs/GIT-WORKFLOW.md): Git hooks and test flow.
-- [docs/MULTIPLIER-ACCESS.md](docs/MULTIPLIER-ACCESS.md): Cost multiplier
-  notes for safe-tier model use.
-- [docs/VSCODE-LM-STREAMING-FIX.md](docs/VSCODE-LM-STREAMING-FIX.md):
-  VS Code LM streaming notes.
-- [docs/plan/PROGRESS.md](docs/plan/PROGRESS.md): Current status and plan.
+- [docs/HANDOVER.md](docs/HANDOVER.md): Project handover documentation.
+- [docs/LOGGING.md](docs/LOGGING.md): Trace logging for LLM debugging.
+- [docs/PRICING.md](docs/PRICING.md): Model pricing sources, matching, and cache troubleshooting.
+- [docs/MULTIPLIER-ACCESS.md](docs/MULTIPLIER-ACCESS.md): Cost multiplier notes for safe-tier model use.
+- [docs/RELEASE-READINESS.md](docs/RELEASE-READINESS.md): Release checklist and validation.
+- [docs/TUTORIALS.md](docs/TUTORIALS.md): Step-by-step tutorials.
+- [docs/USER-GUIDE.md](docs/USER-GUIDE.md): User-facing documentation.
+- [docs/USER-TEST-FEEDBACK.md](docs/USER-TEST-FEEDBACK.md): User testing insights.
+- [docs/VSCODE-LM-STREAMING-FIX.md](docs/VSCODE-LM-STREAMING-FIX.md): VS Code LM streaming notes.
+- [docs/plan/README.md](docs/plan/README.md): Plan index and archive overview.
 - [docs/plan/LEARNINGS.md](docs/plan/LEARNINGS.md): Hard-won lessons from analyzer tuning.
-- [docs/plan/MCP-IMPROVEMENT-PLAN.md](docs/plan/MCP-IMPROVEMENT-PLAN.md): MCP improvement plan (all waves complete).
-- [docs/plan/20260609-gilfoyle-review-remediation/plan.yaml](docs/plan/20260609-gilfoyle-review-remediation/plan.yaml): Gilfoyle review remediation plan (25 issues fixed).
-- [docs/plan/GILFOYLE-REVIEW-2026-06-09.md](docs/plan/GILFOYLE-REVIEW-2026-06-09.md): Fresh Gilfoyle code review findings.
+- [docs/plan/PROGRESS.md](docs/plan/PROGRESS.md): Current status and roadmap.
 
 ## Architecture and Core Code
 
-- [src/core/index.ts](src/core/index.ts): Engine orchestration.
+- [src/core/index.ts](src/core/index.ts): Main engine orchestration and execution pipeline (analyze, fix, score).
 - [src/core/types.ts](src/core/types.ts): Shared types and config.
 - [src/core/acceptedFindings.ts](src/core/acceptedFindings.ts): Per-file accepted findings store.
+- [src/core/analyzer.ts](src/core/analyzer.ts): Multi-wave analysis engine; orchestrates 6 user-toggleable waves plus always-on composition-conflicts and optional custom-diagnostics.
+- [src/core/fixer.ts](src/core/fixer.ts): Surgical fix application with safety guards.
 - [src/core/logger.ts](src/core/logger.ts): Structured logging with log levels.
-- [src/core/prompts.ts](src/core/prompts.ts): Prompt loading from .md files.
-- [src/core/prompts/](src/core/prompts/): Editable .md prompts for all 8 waves.
-- [src/pricing.ts](src/pricing.ts): Live model pricing fetcher with static fallback.
+- [src/core/prompts.ts](src/core/prompts.ts): Loads `.prompt` files (with template substitution) used by the analyzer and fixer.
+- [src/core/prompts/](src/core/prompts/): Editable `.prompt` files for the 6 analysis waves plus composition-conflicts, custom-diagnostics, single-pass, and surgical-fix.
+- [src/core/scoring.ts](src/core/scoring.ts): Median-of-N scoring for noise reduction.
 - [src/extension.ts](src/extension.ts): VS Code activation and commands.
-- [src/providers/vscodeLmProvider.ts](src/providers/vscodeLmProvider.ts):
-  Copilot-backed provider path.
-- [src/providers/externalProvider.ts](src/providers/externalProvider.ts):
-  OpenRouter and GitHub Models providers.
+- [src/pricing.ts](src/pricing.ts): Live model pricing fetcher with static fallback.
+- [src/providers/vscodeLmProvider.ts](src/providers/vscodeLmProvider.ts): Copilot-backed provider path.
+- [src/providers/externalProvider.ts](src/providers/externalProvider.ts): OpenRouter and GitHub Models providers.
 - [src/ui/diagnostics.ts](src/ui/diagnostics.ts): Diagnostic publishing.
+- [src/ui/codeActions.ts](src/ui/codeActions.ts): Quick fix code actions.
+- [src/ui/hover.ts](src/ui/hover.ts): Hover explanations for diagnostics.
+
+## Project Metadata
+
+- [package.json](package.json): VS Code extension manifest, scripts, and config schema.
 
 ## MCP and Automation
 
 - [src/mcp/README.md](src/mcp/README.md): MCP setup, 7-tool reference, client config, and agent workflow.
 - [src/mcp/server.ts](src/mcp/server.ts): Headless MCP server entry point with tool registry.
+- [src/mcp/server.stdio.test.ts](src/mcp/server.stdio.test.ts): MCP stdio transport tests.
+- [src/mcp/server.test.ts](src/mcp/server.test.ts): MCP server unit tests.
 - [src/mcp/server.integration.test.ts](src/mcp/server.integration.test.ts): End-to-end MCP protocol tests.
-- [docs/plan/MCP-IMPROVEMENT-PLAN.md](docs/plan/MCP-IMPROVEMENT-PLAN.md): MCP improvement plan (all waves complete).
 
 ## Skills
 
-- [.github/skills/human-in-the-loop/SKILL.md](.github/skills/human-in-the-loop/SKILL.md):
-  Collaboration framework with quality gates, test failure recovery, commit rhythm, and opt-in autopilot.
-- [.github/skills/markdown-style/SKILL.md](.github/skills/markdown-style/SKILL.md):
-  Markdown formatting standards and linting rules.
+- [.github/skills/update-llms/SKILL.md](.github/skills/update-llms/SKILL.md):
+  Instructions for updating llms.txt files.
 
 ## Examples and Fixtures
 
-- [tests/fixtures/README.md](tests/fixtures/README.md): Fixture overview.
+- [tests/fixtures/README.md](tests/fixtures/README.md): Fixture overview and structure.
+- [tests/fixtures/adversarial/ADVERSARIAL-DESIGN.md](tests/fixtures/adversarial/ADVERSARIAL-DESIGN.md):
+  Adversarial test case design patterns.
+- [tests/fixtures/adversarial/test-ambiguities-hard/SKILL.md](tests/fixtures/adversarial/test-ambiguities-hard/SKILL.md):
+  Hard ambiguity-analysis example.
 - [tests/fixtures/primary/test-ambiguities/SKILL.md](tests/fixtures/primary/test-ambiguities/SKILL.md):
   Ambiguity-analysis example.
 - [tests/fixtures/primary/test-contradictions-direct/SKILL.md](tests/fixtures/primary/test-contradictions-direct/SKILL.md):

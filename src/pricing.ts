@@ -39,6 +39,13 @@ export interface PricingCache {
 const COPILOT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const OPENROUTER_CACHE_TTL_MS = 60 * 60 * 1000;   // 1 hour
 const OPENROUTER_DISK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+/**
+ * Minimum number of entries expected in a real OpenRouter pricing response.
+ * Each model is stored under 3 keys (ID, display name, normalized name),
+ * and the API returns ~340 models, so a healthy cache has ~1000+ entries.
+ * A cache with fewer entries is almost certainly corrupted by test mocks.
+ */
+const MIN_OPENROUTER_ENTRIES = 100;
 const OPENROUTER_CACHE_FILE = path.join(
   os.tmpdir(),
   'skills-review-and-polish-openrouter-pricing-cache-v1.json',
@@ -344,8 +351,15 @@ async function fetchOpenRouterPricing(): Promise<Map<string, ModelPricing>> {
   // Keep pricing warm across extension-host restarts for a short window.
   const diskCache = readOpenRouterDiskCache();
   if (diskCache && Date.now() - diskCache.fetchedAt < OPENROUTER_DISK_CACHE_TTL_MS) {
-    openrouterCache = diskCache;
-    return diskCache.models;
+    // Sanity check: a real OpenRouter response has ~340 models × 3 keys each (~1000+ entries).
+    // If we see suspiciously few entries, the cache is likely corrupted by test mocks
+    // and we should refetch from the network. See docs/PRICING.md.
+    if (diskCache.models.size >= MIN_OPENROUTER_ENTRIES) {
+      openrouterCache = diskCache;
+      return diskCache.models;
+    }
+    // Corrupt cache — delete it and fall through to network fetch
+    try { fs.unlinkSync(OPENROUTER_CACHE_FILE); } catch { /* ignore */ }
   }
 
   // Deduplicate concurrent fetches so opening picker multiple times rapidly
@@ -376,7 +390,11 @@ async function fetchOpenRouterPricing(): Promise<Map<string, ModelPricing>> {
     const crc32 = computeCrc32(raw);
 
     openrouterCache = { models, fetchedAt: Date.now() };
-    writeOpenRouterDiskCache(openrouterCache, crc32);
+    // Only persist to disk if we got a realistic number of entries.
+    // This prevents test mocks from poisoning the production cache.
+    if (models.size >= MIN_OPENROUTER_ENTRIES) {
+      writeOpenRouterDiskCache(openrouterCache, crc32);
+    }
     return models;
   })();
 
@@ -504,7 +522,7 @@ function formatPerMillion(price: number): string {
 export function normalizeModelName(name: string): string {
   return name
     .toLowerCase()
-    .replace(/^(openai|anthropic|google|microsoft|meta|mistral)\//, '')
+    .replace(/^(openai|anthropic|google|microsoft|meta|mistral|poolside|nvidia|deepseek|qwen|cohere|amazon|tencent|bytedance|upstage|arcee|inception|minimax|moonshot|ibm|liquid|inclusion|rekaai|stepfun|ai21|xai|aion|zai|sakana|thedrummer|kwaipilot)[/:]/, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

@@ -124,19 +124,20 @@ describe('VsCodeLmProvider.selectModel()', () => {
   });
 
   describe('auto-selection (no modelId configured)', () => {
-    it('selects from safe tier when models available', async () => {
+    it('requires explicit selection when models available', async () => {
       // Single selectChatModels() call returns all models; filter in-memory
       selectChatModels.mockResolvedValue(allModels);
 
       const result = await (provider as any).selectModel('');
 
-      expect(result).toBeDefined();
-      // First safe-tier copilot vendor model wins (gpt-5-mini at 0x)
-      expect(result.id).toBe('gpt-5-mini');
-      expect(showErrorMessage).not.toHaveBeenCalled();
+      // No auto-selection anymore - requires explicit selection
+      expect(result).toBeUndefined();
+      expect(showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('No model specified'),
+      );
     });
 
-    it('prefers copilot vendor over copilotcli', async () => {
+    it('requires explicit selection even with copilot models available', async () => {
       const copilotModel = { ...safeTierModels[1], vendor: 'copilot' };
       const copilotcliModel = { ...safeTierModels[1], vendor: 'copilotcli' };
 
@@ -145,7 +146,11 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await (provider as any).selectModel('');
 
-      expect(result?.vendor).toBe('copilot');
+      // No auto-selection anymore - requires explicit selection
+      expect(result).toBeUndefined();
+      expect(showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('No model specified'),
+      );
     });
 
     it('errors when NO models available at all', async () => {
@@ -171,11 +176,10 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await (provider as any).selectModel('');
 
-      // Auto-select only considers models in modelToMultiplier — those without pricing
-      // are invisible, resulting in no safe model found.
+      // No auto-selection anymore - requires explicit selection
       expect(result).toBeUndefined();
       expect(showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('No low-cost model available'),
+        expect.stringContaining('No model specified'),
       );
     });
 
@@ -185,12 +189,10 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await (provider as any).selectModel('');
 
+      // No auto-selection anymore - requires explicit selection
       expect(result).toBeUndefined();
       expect(showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('No low-cost model available'),
-      );
-      expect(showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('≤1x multiplier'),
+        expect.stringContaining('No model specified'),
       );
     });
 
@@ -327,9 +329,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
       expect(showErrorMessage).toHaveBeenCalledWith(
         expect.stringContaining('not available'),
       );
-      expect(showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('reconfigure in Settings'),
-      );
+      // Updated message - no longer mentions "reconfigure in Settings"
     });
 
     it('rejects a configured model when only the CLI vendor is available', async () => {
@@ -402,13 +402,16 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await (provider as any).selectModel('');
 
-      expect(result).toBeDefined();
-      expect(result.id).toBe('claude-haiku-4.5');
+      // Auto-selection is now disabled - requires explicit model selection
+      expect(result).toBeUndefined();
+      expect(showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('No model specified'),
+      );
     });
   });
 
   describe('real-world scenarios', () => {
-    it('fresh pricing data adapts to new models without code changes', async () => {
+    it('requires explicit model selection instead of auto-selecting', async () => {
       // Simulate a new model added to Copilot with updated pricing
       const updatedModels = [
         { id: 'claude-haiku-5', name: 'Claude Haiku 5', vendor: 'copilot', pricing: '0.5x' },
@@ -420,8 +423,11 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await (provider as any).selectModel('');
 
-      // Should auto-select new model correctly without any code changes
-      expect(result?.id).toBe('claude-haiku-5');
+      // Auto-selection is now disabled - requires explicit model selection
+      expect(result).toBeUndefined();
+      expect(showErrorMessage).toHaveBeenCalledWith(
+        expect.stringContaining('No model specified'),
+      );
     });
 
     it('rejects user-configured model outside safe tier with cost info', async () => {
@@ -674,6 +680,28 @@ describe('VsCodeLmProvider.selectModel()', () => {
       expect(selectChatModels).not.toHaveBeenCalled();
     });
 
+    it('uses the fix cache path when modelTier is fix', async () => {
+      const fixModel = { ...safeTierModels[2], id: 'claude-sonnet-4.5', vendor: 'copilot', family: 'claude' } as any;
+      fixModel.sendRequest = vi.fn().mockResolvedValue({
+        text: 'fix-response',
+        stream: (async function* () {
+          yield 'fix-response';
+        })(),
+      });
+
+      const testProvider = new VsCodeLmProvider('gpt-5-mini', 'claude-sonnet-4.5', 'claude-sonnet-4.5');
+      (testProvider as any).cachedFix = fixModel;
+
+      const result = await testProvider.complete({
+        systemPrompt: 'Test',
+        prompt: 'Test',
+        modelTier: 'fix',
+      });
+
+      expect(result).toEqual({ text: 'fix-response' });
+      expect(selectChatModels).not.toHaveBeenCalled();
+    });
+
     it('reports testSimplePrompt failures when the model request throws', async () => {
       const mockModel = { ...safeTierModels[1], id: 'claude-haiku-4.5' } as any;
       mockModel.sendRequest = vi.fn().mockRejectedValue(new Error('network down'));
@@ -757,6 +785,19 @@ describe('VsCodeLmProvider.invalidate()', () => {
     await provider.complete(req);
 
     expect(selectChatModels.mock.calls.length).toBeGreaterThan(firstCallCount);
+  });
+
+  it('clears all caches including fix cache on invalidate()', async () => {
+    const provider = new VsCodeLmProvider('gpt-5-mini', 'claude-sonnet-4.5', 'claude-opus-4.7');
+    (provider as any).cachedStandard = { id: 'gpt-5-mini' } as any;
+    (provider as any).cachedDeep = { id: 'claude-sonnet-4.5' } as any;
+    (provider as any).cachedFix = { id: 'claude-opus-4.7' } as any;
+
+    provider.invalidate();
+
+    expect((provider as any).cachedStandard).toBeUndefined();
+    expect((provider as any).cachedDeep).toBeUndefined();
+    expect((provider as any).cachedFix).toBeUndefined();
   });
 });
 
