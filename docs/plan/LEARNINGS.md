@@ -343,3 +343,16 @@ fix. Both are needed.
   The post-processor is about how the output is filtered. The wave prompt
   has been "do not flag `may` as weak obligation" multiple times and
   failed. The post-processor is the only fix that worked.
+
+## Pointer to experiment folder
+
+The `.github/experiments/` folder is where ongoing prompt-iteration
+experiments live. The post-processor's long-term vision ("diagnostic
+refinement, not suppression") is captured in
+`.github/experiments/documentation-review/POST-PROCESSOR-NOTES.md`.
+The gap between the v1 implementation and that vision is intentional
+and tracked: v1 only suppresses; rank/merge/reclassify are future work.
+
+For experiments on the analyzer itself (not prompts), use the same
+protocol: change one thing, measure the delta, record Resolved / New /
+Unchanged / Regression.
