@@ -29,8 +29,8 @@ export interface AnalysisResult {
   relevantText?: string;
 }
 
-/** Tier hint: 'deep' requests a stronger model (e.g. contradiction wave). */
-export type ModelTier = 'standard' | 'deep';
+/** Tier hint: 'deep' requests a stronger model (e.g. contradiction wave). 'fix' uses the dedicated fix model. */
+export type ModelTier = 'standard' | 'deep' | 'fix';
 
 /**
  * The provider seam. The whole point of the new architecture: the core engine
@@ -55,6 +55,8 @@ export interface LlmRequest {
   systemPrompt: string;
   modelTier?: ModelTier;
   token?: CancellationToken;
+  /** Model ID to use for this request (overrides tier-based selection). */
+  modelId?: string;
 }
 
 export interface LlmResponse {
@@ -73,9 +75,27 @@ export interface EngineConfig {
   fixSemanticCheck: boolean;
   fixSelfCritique: boolean;
   fixReferenceGrounding: boolean;
+  /**
+   * When true, run the deterministic finding post-processor
+   * (`src/core/findingFilter.ts`) on the analyzer output before
+   * reporting. Suppresses false positives the LLM waves produce from
+   * reading project rules literally (e.g. flagging 'may' as weak
+   * obligation, flagging 'must not' as ambiguous, flagging a
+   * numbered procedure as unordered). Default: true.
+   *
+   * Source of authority: 2026-07-09 verification session, which
+   * established that the analyzer's noise floor on small rule sets
+   * is dominated by these self-reference false positives, not by
+   * sample-level variance.
+   */
+  filterFindings?: boolean;
   /** Optional per-code severity overrides (ESLint-style). 'off' drops the finding. */
   severityOverrides?: Record<string, Severity | 'off'>;
   seed?: number;
+  /** Guard configuration - can be overridden via settings. */
+  fixGuardUpperBoundMultiplier?: number;
+  fixGuardLowerBoundMultiplier?: number;
+  fixGuardMaxAnchorChars?: number;
 }
 
 export type WaveName =
@@ -103,6 +123,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   fixSemanticCheck: false,
   fixSelfCritique: false,
   fixReferenceGrounding: true,
+  filterFindings: true,
 };
 
 /**

@@ -31,6 +31,7 @@ describe('Engine', () => {
       { text: 'Use this carefully.', filePath: '/tmp/test.md' },
       undefined,
       ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      expect.objectContaining({ filterFindings: true }),
     );
     expect(results).toHaveLength(1);
     expect(results[0].code).toBe('ambiguity-llm');
@@ -52,7 +53,7 @@ describe('Engine', () => {
   });
 
   it('passes surgical fix options through to the fixer', async () => {
-    const spy = vi.spyOn(SurgicalFixer.prototype, 'fixDocument').mockResolvedValue({ fixedText: 'fixed', applied: 1, skipped: 0 });
+    const spy = vi.spyOn(SurgicalFixer.prototype, 'fixDocument').mockResolvedValue({ fixedText: 'fixed', applied: 1, skipped: 0, skippedReasons: [] });
     const engine = new Engine(provider, {
       analysisMode: 'single',
       enabledWaves: ['contradictions'],
@@ -74,6 +75,11 @@ describe('Engine', () => {
         semanticCheck: true,
         selfCritique: true,
         referenceGrounding: false,
+      }),
+      expect.objectContaining({
+        upperBoundMultiplier: undefined,
+        lowerBoundMultiplier: undefined,
+        maxAnchorChars: undefined,
       }),
     );
   });

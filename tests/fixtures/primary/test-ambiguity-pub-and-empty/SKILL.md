@@ -42,6 +42,9 @@ The Document gives no instruction about which behavior is correct.
 
 # Injected issue table
 
+**Test metadata:** 2
+**Expected analyzer category:** `ambiguity` + `coverage`
+
 | # | Section | Category | Expected code | Notes |
 |---|---------|----------|---------------|-------|
 | 1 | The "Published" ambiguity | ambiguity | `ambiguity-llm` | "Published" is undefined |

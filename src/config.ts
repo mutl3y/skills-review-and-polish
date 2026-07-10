@@ -54,6 +54,9 @@ export interface ExtensionConfig extends EngineConfig {
   inlineRewrites: boolean;
   telemetryEnable: boolean;
   logLevel: 'info' | 'debug' | 'trace';
+  fixGuardUpperBoundMultiplier: number;
+  fixGuardLowerBoundMultiplier: number;
+  fixGuardMaxAnchorChars: number;
 }
 
 export function readConfig(): ExtensionConfig {
@@ -85,6 +88,10 @@ export function readConfig(): ExtensionConfig {
     inlineRewrites: c.get('experimental.inlineRewrites', false),
     telemetryEnable: c.get('telemetry.enable', true),
     logLevel: c.get('logLevel', 'info') as 'info' | 'debug' | 'trace',
+    fixGuardUpperBoundMultiplier: c.get('fix.guard.upperBoundMultiplier', 1.5),
+    fixGuardLowerBoundMultiplier: c.get('fix.guard.lowerBoundMultiplier', 0.5),
+    fixGuardMaxAnchorChars: c.get('fix.guard.maxAnchorChars', 350),
+    filterFindings: c.get('filterFindings', true),
   };
   return cachedConfig;
 }
@@ -105,7 +112,7 @@ export function isCustomizationPath(fsPath: string, include: string[]): boolean 
 /** Glob matcher — uses picomatch for full glob support including braces, ?, [abc]. */
 function simpleGlobMatch(glob: string, filePath: string): boolean {
   try {
-    return picomatch.isMatch(filePath, glob, { nocase: true });
+    return picomatch.isMatch(filePath, glob, { nocase: true, dot: true });
   } catch {
     // Malformed glob — treat as no match (report via settings validation instead)
     return false;

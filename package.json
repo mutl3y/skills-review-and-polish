@@ -2,7 +2,7 @@
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems. VS Code extension provides AI-suggested fixes with diff preview for human review; MCP server returns proposed fixes for agent-controlled application.",
-  "version": "0.1.3",
+  "version": "0.1.33",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",
@@ -81,6 +81,11 @@
           "default": "",
           "description": "Model for surgical fixes. A reasoning model is recommended. Empty = same as analysis model."
         },
+        "skillsReviewAndPolish.fixModelDisplayName": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "_(Read-only - set automatically by the model picker.)_ Friendly name of the currently selected fix model, shown here so you can see what `skillsReviewAndPolish.fixModel` refers to without re-opening the picker."
+        },
         "skillsReviewAndPolish.analysisMode": {
           "type": "string",
           "enum": [
@@ -90,6 +95,11 @@
           ],
           "default": "multiWave",
           "description": "'multiWave' runs 6 focused passes (best quality). 'focused' runs 2 high-signal passes — contradictions + ambiguities (faster, good quality). 'single' runs one combined prompt (cheapest/fastest, lower recall)."
+        },
+        "skillsReviewAndPolish.filterFindings": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Run the deterministic finding post-processor on analyzer output before reporting. **Recommended: keep on.** The post-processor suppresses false positives the LLM waves produce from reading project rules literally (e.g. flagging 'may' as weak obligation, flagging 'must not' as ambiguous, flagging a numbered procedure as unordered). **Off** if you want the raw analyzer output for debugging or for fuzz-testing your own prompts. The post-processor is purely deterministic — it does not change the underlying LLM behavior, only the finding list presented to you."
         },
         "skillsReviewAndPolish.enabledWaves": {
           "type": "array",
@@ -201,6 +211,27 @@
           "type": "boolean",
           "default": true,
           "description": "Use a sibling references/ directory to ground factual fragments when fixing."
+        },
+        "skillsReviewAndPolish.fix.guard.upperBoundMultiplier": {
+          "type": "number",
+          "default": 1.5,
+          "minimum": 1,
+          "maximum": 3,
+          "markdownDescription": "Maximum growth factor for fix output. Fixes exceeding this limit are rejected. For ambiguity-llm subtractive fixes, the effective limit is 1.1x regardless of this setting. For additive ambiguity fixes, the limit is `max(original × multiplier, original + 80)` to guarantee room for concrete clauses."
+        },
+        "skillsReviewAndPolish.fix.guard.lowerBoundMultiplier": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0.1,
+          "maximum": 1,
+          "markdownDescription": "Minimum size factor for fix output. Fixes shrinking below this limit are rejected. Prevents accidental deletion of entire sections."
+        },
+        "skillsReviewAndPolish.fix.guard.maxAnchorChars": {
+          "type": "number",
+          "default": 350,
+          "minimum": 100,
+          "maximum": 2000,
+          "markdownDescription": "Maximum anchor text length for surgical fixes. Longer fragments are rejected to prevent structural damage. Increase only if you have long paragraphs that need fixing."
         },
         "skillsReviewAndPolish.showScoreCodeLens": {
           "type": "boolean",
@@ -323,6 +354,16 @@
       {
         "command": "skillsReviewAndPolish.clearAcceptedFindings",
         "title": "Skills Review: Clear Accepted Findings",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.showFixRejectionReasons",
+        "title": "Skills Review: Why Was My Fix Rejected?",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.inspectModels",
+        "title": "Skills Review: Inspect Models (Debug)",
         "category": "Skills Review and Polish"
       }
     ],

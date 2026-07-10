@@ -198,3 +198,148 @@
 - `selectModel()` calls `vscode.lm.selectChatModels()` which returns Copilot models only. Setting the provider to OpenRouter and storing an API key doesn't populate the picker.
 - **Fix:** When `vscode.lm` returns 0 models and an external provider has an API key, fetch models from that provider's API (e.g., `GET /api/v1/models` for OpenRouter) and display them in the picker.
 - **General principle:** The model picker and the analysis engine are separate concerns. The picker must independently discover available models regardless of which provider is configured for analysis.
+
+---
+
+## OpenRouter pricing cache corruption (2026-07-08)
+
+> Spent ~5 hours debugging why OpenRouter-only models showed no pricing while
+> Copilot models did. Root cause was a stale disk cache populated by test mocks.
+
+### The symptom was misleading
+
+- Models also in Copilot showed `💰 $X.XX/M in` correctly.
+- OpenRouter-only models showed `❓ cost unknown`.
+- Initial assumption: "the matching logic is broken for OpenRouter-only models."
+
+### The real cause was upstream
+
+- The OpenRouter pricing disk cache (`/tmp/skills-review-and-polish-openrouter-pricing-cache-v1.json`) had **6 entries** instead of the expected **~1000** (340 models × 3 keys each).
+- The cache was written by a test run that used a mock `fetch` returning 2 models.
+- The 15-minute disk cache TTL meant all subsequent fetches within that window returned the truncated dataset.
+- `Promise.allSettled` in `fetchPricing()` masked the failure — the fetch "succeeded" (it read from cache) and the merged map just had fewer entries.
+
+### How to diagnose "missing pricing" in the future
+
+1. **Check cache file entry count first:**
+   ```bash
+   cat /tmp/skills-review-and-polish-openrouter-pricing-cache-v1.json | jq '.entries | length'
+   ```
+   Should be ~1000+ for a healthy cache.
+
+2. **Verify the raw API has pricing for the model:**
+   ```bash
+   curl -s https://openrouter.ai/api/v1/models | jq '.data[] | select(.id | contains("poolside")) | {id, name, pricing}'
+   ```
+
+3. **Check the extension log for pricing map size:**
+   ```
+   selectModel: fetched N pricing entries, ...
+   ```
+   A healthy `N` is ~1000+.
+
+### The fix
+
+- Delete the cache file and reload VS Code:
+  ```bash
+  rm /tmp/skills-review-and-polish-openrouter-pricing-cache-v1.json
+  ```
+- No code change needed — the pricing fetch and matching logic were correct.
+
+### Lessons
+
+- **Disk caches populated by test mocks are a trap.** Tests that use `vi.mock` or stubbed `fetch` can still write to real disk caches if they don't mock the cache-write path. The cache will then poison production until the TTL expires.
+- **`Promise.allSettled` hides partial failures.** When one source fails, the merged map silently has fewer entries. Consider adding a size check or logging the per-source entry count.
+- **"Missing data" symptoms often point to the data source, not the matching logic.** Before debugging matching code, verify the data is actually present and complete. See [docs/PRICING.md](../PRICING.md) for full details.
+
+## Finding post-processor: deterministic suppression of LLM self-reference false positives
+
+> Added 2026-07-10. The ±6 noise floor describes *sample variance* (different
+> calls produce different scores). A separate problem is *finding variance*:
+> the same call surfaces findings that are not actually ambiguous when read in
+> context. Median-of-N helps the score; it does not help the finding list.
+
+### What we observed
+
+Across all 6 waves, the LLM repeatedly flagged the same patterns on the
+verify-documentation skill itself:
+
+- The word `may` flagged as weak obligation, even though the fixer's
+  `OBLIGATION_TOKENS` list in `src/core/fixer.ts` explicitly protects `may`
+  as part of the deliberate vocabulary.
+- `must not`, `may only` flagged as ambiguous, even though the file's own
+  preamble defines these as the approved Requirement verbs.
+- A 1-sentence Purpose flagged as non-actionable preamble, even though the
+  hygiene prompt's own threshold is 2–3 sentences.
+- A procedure section that uses `Step 1`, `Step 2`, ... flagged as having
+  no numbered ordering, even though the headings are explicitly numbered.
+
+These are not finding noise — the median across N=3 samples is the same
+finding every time. The LLM is consistently misreading the rules. Median-of-N
+does not help. The post-processor is the only fix.
+
+### The fix
+
+`src/core/findingFilter.ts` is a pure function that runs after the analyzer
+and before the report. Each rule is a deterministic check that re-reads
+the source document and either matches (suppress) or doesn't. No LLM calls,
+no randomness. Source of authority for each rule is either `OBLIGATION_TOKENS`
+in `src/core/fixer.ts` or the file's own preamble text.
+
+- **Rule 1 — `severityOverrideRule`**: implements the existing
+  `EngineConfig.severityOverrides` field. `'off'` suppresses; other values
+  override severity. This was declared in `src/core/types.ts` but never
+  wired into the finding pipeline before.
+- **Rule 2 — `obligationTokenRule`**: suppresses `ambiguity-llm` whose
+  flagged text contains only obligation/scope words from the protected
+  vocabulary list. The fixer's `OBLIGATION_TOKENS` and `EMPHASIS_SCOPE_WORDS`
+  lists are the source of authority.
+- **Rule 3 — `requirementVerbRule`**: suppresses `ambiguity-llm` whose
+  flagged text uses only approved Requirement verbs (`must`, `must not`,
+  `may only`).
+- **Rule 4 — `contradictionCrossReferenceRule`**: re-reads the message,
+  extracts both quoted phrases, and suppresses if either cannot be located in
+  the source document. Catches the fabricated-side case the wave produced
+  during the 2026-07-09 verification session.
+- **Rule 5 — `definitionsSelfReferenceRule`**: placeholder for v2 (demote
+  contradiction findings inside Definitions sections).
+- **Rule 6 — `preambleLengthRule`**: suppresses
+  `hygiene-non-actionable-preamble` when the flagged text is at or below
+  the 3-sentence threshold the wave itself defines.
+- **Rule 7 — `numberedProcedureRule`**: suppresses
+  `hygiene-unordered-process` when the document contains at least 2
+  numbered procedure steps (`Step N` headings).
+
+### Wiring
+
+- The `filterFindings` config field defaults to `true`. Users can opt out
+  via the `skillsReviewAndPolish.filterFindings` setting.
+- The post-processor runs after the consolidation pass in
+  `src/core/analyzer.ts`, before the accepted-findings filter, before the
+  loop detection.
+- The MCP server and the language-model tool both pass the same
+  `configOverride` so the user setting flows through to all callers.
+
+### Why this matters more than median-of-N for finding lists
+
+Median-of-N addresses sample variance: the same call sampled N times gives
+N close scores. The post-processor addresses finding variance: the same
+call surfaces the same N findings, but N-7 of them are false positives.
+Median-of-N is a *score-layer* fix; the post-processor is a *finding-layer*
+fix. Both are needed.
+
+### Lessons
+
+- **Score noise and finding noise are different layers.** Per-prompt
+  confidence gates have been tried twice (Exp2, Exp4) and over-suppressed
+  real signal. The post-processor is structured the opposite way: rules
+  are conservative and rule-specific, not blanket probability cutoffs.
+- **The fixer's `OBLIGATION_TOKENS` is also the analyzer's protected
+  vocabulary.** Anything the fixer refuses to drop, the analyzer should
+  refuse to flag. Both lists now live in `src/core/vocabulary.ts` as a
+  single source of truth.
+- **The pre-processor and post-processor are different.** The
+  `pre-process` step (in the wave prompt) is about how the wave is asked.
+  The post-processor is about how the output is filtered. The wave prompt
+  has been "do not flag `may` as weak obligation" multiple times and
+  failed. The post-processor is the only fix that worked.

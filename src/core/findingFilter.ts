@@ -27,7 +27,10 @@ import {
  * Apply the deterministic finding filter to an analyzer result stream.
  *
  * @param results Raw analyzer output after scoring. Read-only.
- * @param config Engine config including any `severityOverrides`.
+ * @param config Engine config including any `severityOverrides`. If
+ *   `config.filterFindings === false`, the post-processor is bypassed and
+ *   the raw results are returned unchanged (still applying severity
+ *   overrides).
  * @param doc The full source Document text. Required for rules that re-read
  *   the document (cross-reference verification, section boundary checks).
  * @returns A new array containing only the findings that survive the filter.
@@ -38,6 +41,10 @@ export function filterFindings(
   config: Readonly<EngineConfig>,
   doc: string,
 ): AnalysisResult[] {
+  if (config.filterFindings === false) {
+    // Post-processor disabled. Still apply severity overrides.
+    return results.map((r) => applyOverrides(r, config));
+  }
   const out: AnalysisResult[] = [];
   for (const r of results) {
     if (shouldSuppress(r, config, doc)) continue;

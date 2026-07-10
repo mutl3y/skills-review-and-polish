@@ -34,7 +34,12 @@ async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'o
     const models = await vscode.lm.selectChatModels({ id: modelId });
     if (models.length > 0) {
       const vendor = models[0].vendor;
-      if (vendor === 'copilot' || vendor === 'copilotcli') return 'vscode-lm';
+      log('debug', `detectProviderForModel: modelId=${modelId} vendor=${vendor}`);
+      // copilot vendor models work via VS Code LM
+      if (vendor === 'copilot') return 'vscode-lm';
+      // copilotcli and openrouter vendor models are available through VS Code LM
+      // (they're OpenRouter models exposed via Copilot extension)
+      if (vendor === 'copilotcli' || vendor === 'openrouter') return 'vscode-lm';
       // Non-Copilot vscode.lm models → treat as external (openrouter-compatible)
       return 'openrouter';
     }
@@ -52,6 +57,23 @@ async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'o
 const FIX_SCHEME = 'skills-review-fix';
 const MAX_FIX_PREVIEW_ENTRIES = 20;
 const FIX_PREVIEW_MAX_AGE_MS = 10 * 60 * 1000;
+
+/** Translate technical skip reasons into user-friendly explanations. */
+function humanizeSkipReason(reason: string): string {
+  if (reason.includes('anchor not found')) return 'text not found in document';
+  if (reason.includes('anchor too large')) return 'fragment too long for safe fix';
+  if (reason.includes('anchor overlaps frontmatter')) return 'cannot fix frontmatter metadata';
+  if (reason.includes('ambiguous anchor')) return 'multiple matches — unsafe to fix';
+  if (reason.includes('expansion')) return 'fix would make text too long';
+  if (reason.includes('shrinkage')) return 'fix would make text too short';
+  if (reason.includes('obligation-drop')) return 'would remove obligation word';
+  if (reason.includes('numeric-change')) return 'would change a number/value';
+  if (reason.includes('concept-swap')) return 'would change meaning';
+  if (reason.includes('identical output')) return 'no change needed';
+  if (reason.includes('self-critique')) return 'added unverifiable fact';
+  if (reason.includes('semantic-judge')) return 'would change obligation/scope';
+  return reason;
+}
 
 class ExtensionState {
   diagnostics!: vscode.DiagnosticCollection;
@@ -250,7 +272,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('skillsReviewAndPolish.analyze', () => runAnalyze(false)),
-    vscode.commands.registerCommand('skillsReviewAndPolish.rescan', () => runAnalyze(true)),
+    vscode.commands.registerCommand('skillsReviewAndPolish.rescan', () => analyzeWithOptions()),
     vscode.commands.registerCommand('skillsReviewAndPolish.fixAll', runFixAll),
     vscode.commands.registerCommand('skillsReviewAndPolish.fixIssue', runFixIssue),
     vscode.commands.registerCommand('skillsReviewAndPolish.ignoreRule', runIgnoreRule),
@@ -285,6 +307,8 @@ export function activate(context: vscode.ExtensionContext): void {
       clearAcceptedFindings(),
     ),
     vscode.commands.registerCommand('skillsReviewAndPolish.syncMcpConfig', syncMcpConfig),
+    vscode.commands.registerCommand('skillsReviewAndPolish.showFixRejectionReasons', showFixRejectionReasons),
+    vscode.commands.registerCommand('skillsReviewAndPolish.inspectModels', inspectModels),
   );
 
   context.subscriptions.push(
@@ -390,44 +414,29 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
 
   if (cfg.provider === 'openrouter' || cfg.provider === 'githubModels') {
     if (!apiKey) {
-      log('warn', `buildEngine: ${cfg.provider} selected but no API key — falling back to vscode-lm`);
-      vscode.window.showWarningMessage(
+      log('warn', `buildEngine: ${cfg.provider} selected but no API key — aborting`);
+      vscode.window.showErrorMessage(
         `Skills Review: provider is "${cfg.provider}" but no API key is stored. ` +
           'Run "Skills Review: Set API Key" first, or switch provider to "vscode-lm".',
       );
-      // When falling back to vscode-lm, clear the non-Copilot model name
-      // so VsCodeLmProvider auto-selects a valid Copilot model instead.
-      const vscodeLmProvider = new VsCodeLmProvider(
-        '',  // let vscode-lm auto-select a Copilot model
-        '',
-      );
-      state!.currentVsCodeLmProvider = vscodeLmProvider;
-      // Use a different hash so stale cached engines aren't reused
-      const fallbackHash = hash + ':fallback-vscodelm';
-      state!.cachedEngine = new Engine(vscodeLmProvider, cfg);
-      state!.cachedEngineConfigHash = fallbackHash;
-      // Model is selected lazily on first call — log after-the-fact via onModelSelected callback
-      vscodeLmProvider.onModelSelected = (modelId: string) => {
-        log('info', `buildEngine: fallback to vscode-lm selected model: ${modelId}`);
-      };
-      return state!.cachedEngine;
+      throw new Error(`No API key configured for provider "${cfg.provider}"`);
     }
-    const model = cfg.fixModel || cfg.model || '';
     const provider =
       cfg.provider === 'openrouter'
-        ? new OpenRouterProvider({ apiKey, model })
-        : new GitHubModelsProvider({ apiKey, model });
-    log('info', `buildEngine: using external provider ${cfg.provider} model=${model}`);
+        ? new OpenRouterProvider({ apiKey, model: cfg.model || '', fixModel: cfg.fixModel || undefined })
+        : new GitHubModelsProvider({ apiKey, model: cfg.model || '', fixModel: cfg.fixModel || undefined });
+    log('info', `buildEngine: using external provider ${cfg.provider} model=${cfg.model || '(auto)'} fixModel=${cfg.fixModel || '(same as model)'}`);
     state!.currentVsCodeLmProvider = undefined;
     state!.cachedEngine = new Engine(provider, cfg);
     state!.cachedEngineConfigHash = hash;
     return state!.cachedEngine;
   }
 
-  log('info', 'buildEngine: using vscode-lm');
+  log('info', `buildEngine: using vscode-lm standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'} fixModel=${cfg.fixModel || '(same as standard)'}`);
   const vscodeLmProvider = new VsCodeLmProvider(
     cfg.model,
     cfg.deepModel || cfg.model,
+    cfg.fixModel || undefined,
   );
   vscodeLmProvider.onModelSelected = (modelId: string) => {
     log('info', `buildEngine: vscode-lm selected model: ${modelId}`);
@@ -453,6 +462,15 @@ async function runAnalyze(_force: boolean): Promise<void> {
   if (!isCustomizationPath(path, cfg.include)) {
     log('info', `runAnalyze: ${path} is not a standard customization file — analysing anyway (manual trigger).`);
   }
+
+  // For vscode-lm provider, ensure a model is configured
+  if (cfg.provider === 'vscode-lm' && !cfg.model) {
+    const modelPick = await selectModel('model');
+    if (!modelPick) return;
+    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+      .update('model', modelPick.modelId, vscode.ConfigurationTarget.Global);
+  }
+
   await analyzeDocument(editor.document);
 }
 
@@ -476,6 +494,15 @@ async function analyzeFile(uri?: vscode.Uri): Promise<void> {
   if (!isCustomizationPath(doc.uri.fsPath, cfg.include)) {
     log('info', `analyzeFile: ${doc.uri.fsPath} is not a standard customization file — analysing anyway.`);
   }
+
+  // For vscode-lm provider, ensure a model is configured
+  if (cfg.provider === 'vscode-lm' && !cfg.model) {
+    const modelPick = await selectModel('model');
+    if (!modelPick) return;
+    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+      .update('model', modelPick.modelId, vscode.ConfigurationTarget.Global);
+  }
+
   await analyzeDocument(doc);
 }
 
@@ -547,7 +574,11 @@ async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
     selectedWaves = [...ALL_WAVES]; // single-pass uses all — mode drives LLM prompt, not wave filter
   }
 
-  // ── Step 3: Run analysis ──────────────────────────────────────────────
+  // ── Step 3: Model picker (force explicit selection) ─────────────────────
+  const modelPick = await selectModel('model');
+  if (!modelPick) return;
+
+  // ── Step 4: Run analysis ──────────────────────────────────────────────
   const document = uri
     ? await vscode.workspace.openTextDocument(uri)
     : vscode.window.activeTextEditor?.document;
@@ -755,7 +786,14 @@ async function analyzeDocument(
           const effectiveToken = token ?? progressToken;
           if (effectiveToken?.isCancellationRequested) return;
           log('info', `analyzeDocument: calling engine.analyze on ${text.length} chars`);
-          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: effectiveToken });
+          // Pass the live config (including filterFindings toggle) so a
+          // user setting actually controls the analyzer pipeline end-to-end.
+          const results = await engine.analyze(
+            { text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: effectiveToken },
+            undefined,
+            undefined,
+            { filterFindings: cfg.filterFindings },
+          );
           if (token?.isCancellationRequested) return;
           log('info', `analyzeDocument: got ${results.length} results`);
           for (const r of results) {
@@ -835,18 +873,27 @@ async function analyzeDocument(
 async function runFixAll(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
+    log('warn', 'runFixAll: no active editor');
     vscode.window.showWarningMessage('Skills Review: Open a customization file first.');
     return;
   }
   const doc = editor.document;
   const cfg = readConfig();
+  // Guard: ensure the active document is a customization file
+  if (!isCustomizationPath(doc.uri.fsPath, cfg.include)) {
+    log('warn', `runFixAll: ${doc.uri.fsPath} is not a customization file`);
+    vscode.window.showWarningMessage('Skills Review: Open a customization file first.');
+    return;
+  }
   const results = state?.lastResults.get(doc.uri.toString()) ?? [];
   const fixable = results.filter((r) => SURGICAL_FIXABLE_CODES.has(r.code ?? ''));
   if (fixable.length === 0) {
+    log('info', `runFixAll: no fixable issues in ${doc.uri.fsPath}`);
     vscode.window.showInformationMessage('Skills Review: No auto-fixable issues in this file.');
     return;
   }
 
+  log('info', `runFixAll: starting fix mode=${cfg.fixMode} for ${fixable.length} issues`);
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -858,25 +905,33 @@ async function runFixAll(): Promise<void> {
         const engine = await buildEngine();
         const text = doc.getText();
         log('info', `runFixAll: ${fixable.length} fixable issues on ${doc.uri.fsPath}`);
-        const { fixedText, applied, skipped } = await engine.surgicalFix(
+        const { fixedText, applied, skipped, skippedReasons } = await engine.surgicalFix(
           { text, filePath: doc.uri.fsPath },
           fixable,
         );
         log('info', `runFixAll: applied=${applied} skipped=${skipped} originalLen=${text.length} fixedLen=${fixedText.length}`);
+        if (skippedReasons.length > 0) {
+          log('info', `runFixAll: skipped reasons: ${skippedReasons.join('; ')}`);
+        }
 
         if (applied === 0) {
+          log('info', `runFixAll: no fixes accepted (all ${skipped} skipped by safety guards)`);
+          const humanReasons = skippedReasons.map(humanizeSkipReason).slice(0, 3).join('; ');
           vscode.window.showInformationMessage(
-            `Skills Review: No fixes accepted (${skipped} skipped by safety guards).`,
+            `Skills Review: No fixes accepted (${skipped} skipped). ${humanReasons ? `Reasons: ${humanReasons}` : ''}`,
           );
           return;
         }
 
         if (cfg.fixMode === 'diff') {
+          log('info', `runFixAll: showing diff preview for ${applied} fixes`);
           await showFixDiff(doc, fixedText, `Fix All — ${applied} change(s)`);
         } else {
+          log('info', `runFixAll: applying ${applied} fixes directly`);
           await applyFixToDocument(doc, text, fixedText);
+          const humanReasons = skippedReasons.map(humanizeSkipReason).slice(0, 2).join('; ');
           vscode.window.showInformationMessage(
-            `Skills Review: Applied ${applied} fix(es)${skipped ? `, ${skipped} skipped` : ''}.`,
+            `Skills Review: Applied ${applied} fix(es)${skipped ? `. ${skipped} skipped: ${humanReasons}` : ''}.`,
           );
         }
       } catch (err) {
@@ -898,6 +953,12 @@ async function runFixIssue(
 ): Promise<void> {
   const doc = await vscode.workspace.openTextDocument(uri);
   const cfg = readConfig();
+  // Guard: ensure the document is a customization file
+  if (!isCustomizationPath(doc.uri.fsPath, cfg.include)) {
+    log('warn', `runFixIssue: ${doc.uri.fsPath} is not a customization file`);
+    return;
+  }
+  log('info', `runFixIssue: starting fix mode=${cfg.fixMode} for ${uri.fsPath}`);
 
   // Coerce to AnalysisResult
   let result: AnalysisResult;
@@ -955,11 +1016,16 @@ async function runFixIssue(
           semanticCheck: cfg.fixSemanticCheck,
           selfCritique: cfg.fixSelfCritique,
           referenceGrounding: cfg.fixReferenceGrounding,
+          guardUpperBoundMultiplier: cfg.fixGuardUpperBoundMultiplier,
+          guardLowerBoundMultiplier: cfg.fixGuardLowerBoundMultiplier,
+          guardMaxAnchorChars: cfg.fixGuardMaxAnchorChars,
         });
 
         if (!fixResult.accepted) {
+          const humanReason = humanizeSkipReason(fixResult.rejectReason ?? 'guard triggered');
+          log('warn', `runFixIssue: fix rejected — ${fixResult.rejectReason ?? 'guard triggered'}`);
           vscode.window.showWarningMessage(
-            `Skills Review: Fix not accepted — ${fixResult.rejectReason ?? 'guard triggered'}.`,
+            `Skills Review: Fix not accepted — ${humanReason}.`,
           );
           return;
         }
@@ -971,6 +1037,7 @@ async function runFixIssue(
           : text;
 
         if (fixedText === text) {
+          log('info', 'runFixIssue: no change produced');
           vscode.window.showWarningMessage('Skills Review: No change produced.');
           return;
         }
@@ -979,10 +1046,12 @@ async function runFixIssue(
         log('info', `runFixIssue: originalLen=${text.length} fixedLen=${fixedText.length}`);
 
         if (cfg.fixMode === 'diff') {
+          log('info', `runFixIssue: showing diff preview`);
           const riskNote =
             fixResult.risks.length > 0 ? ` [${fixResult.risks.join('; ')}]` : '';
           await showFixDiff(doc, fixedText, `Fix "${result.code}"${riskNote}`);
         } else {
+          log('info', `runFixIssue: applying fix directly`);
           await applyFixToDocument(doc, text, fixedText);
           if (fixResult.risks.length > 0) {
             vscode.window.showWarningMessage(
@@ -992,6 +1061,7 @@ async function runFixIssue(
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        log('error', `runFixIssue: ERROR — ${message}`);
         vscode.window.showErrorMessage(`Skills Review fix error: ${message}`);
       }
     },
@@ -1061,6 +1131,49 @@ async function runIgnoreRule(code: string): Promise<void> {
   vscode.window.showInformationMessage(
     `Skills Review: Rule "${code}" ignored. Edit settings to restore.`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Show fix rejection reasons
+// ---------------------------------------------------------------------------
+
+const FIX_REJECTION_REASONS = `
+## Why Fixes Are Rejected
+
+When a fix is skipped, the log shows the reason. Here's what each means:
+
+| Reason | User-Friendly Explanation |
+| ------ | ------------------------ |
+| anchor not found | The flagged text was not found in the document - it may have been edited |
+| anchor too large | Fragment exceeds the max anchor chars limit - too risky to fix automatically |
+| anchor overlaps frontmatter | Cannot fix YAML metadata (name, description, etc.) |
+| ambiguous anchor | Text appears multiple times - unsafe to fix without knowing which instance |
+| expansion | Fix would make the text more than the upper bound multiplier allows |
+| shrinkage | Fix would make the text less than the lower bound multiplier allows |
+| obligation-drop:WORD | Fix would remove an obligation word like "should" or "consider" |
+| numeric-change | Fix would change a number or version value |
+| concept-swap | Fix would change the meaning by swapping concepts |
+| fence-injection | Fix would add code fences (\\\`\\\`) - potential injection attack |
+| line-deletion | Fix would delete lines - too destructive |
+| identical output | LLM returned the same text - no fix needed |
+| self-critique:REASON | LLM detected the fix added unverifiable facts |
+| semantic-judge:REASON | LLM detected obligation/scope change |
+
+### Guard Settings
+
+- \`fix.guard.upperBoundMultiplier\` (default: 1.5) - Maximum growth factor for fix output
+- \`fix.guard.lowerBoundMultiplier\` (default: 0.5) - Minimum size factor for fix output
+- \`fix.guard.maxAnchorChars\` (default: 350) - Maximum anchor text length
+
+See docs/FIX-GUARDS.md for full documentation.
+`;
+
+async function showFixRejectionReasons(): Promise<void> {
+  const doc = await vscode.workspace.openTextDocument({
+    content: FIX_REJECTION_REASONS,
+    language: 'markdown',
+  });
+  await vscode.window.showTextDocument(doc, { preview: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -1155,7 +1268,7 @@ async function applyFixToDocument(
 // Model selection + API key
 // ---------------------------------------------------------------------------
 
-async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
+async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: string; name: string } | undefined> {
   const targetLabel = target === 'model' ? 'analysis' : 'fix';
 
   // Show the picker immediately with a loading placeholder
@@ -1212,8 +1325,10 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
   }
 
   // Sort and filter models
-  const visibleModels = lmModels
-    .filter((m) => m.vendor !== 'copilotcli')
+  const filteredModels = lmModels.filter((m) => m.vendor !== 'copilotcli' && !m.id.includes('auto') && !m.name.toLowerCase().includes('auto'));
+  const droppedModels = lmModels.filter((m) => m.vendor === 'copilotcli' || m.id.includes('auto') || m.name.toLowerCase().includes('auto'));
+  log('debug', `selectModel: filtered ${filteredModels.length} models, dropped ${droppedModels.length} models - dropped: ${droppedModels.map(m => `${m.id}:${m.vendor}`).join(', ')}`);
+  const visibleModels = filteredModels
     .sort((a, b) => {
       if (cfg.pickerSortBy === 'multiplier') {
         const multA = modelToMultiplier.get(a.id) ?? 999;
@@ -1260,7 +1375,8 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
   } else if (externalModels.length > 0) {
     // Show external models with pricing from the pricing map
     items = externalModels.map((m) => {
-      const pricing = pricingMap.get(m.id) ?? pricingMap.get(normalizeModelName(m.name));
+      // Use pricingForModel for substring matching (handles variations like "Poolside: Laguna M.1" vs "poolside/laguna-m.1")
+      const pricing = pricingForModel(m.name, pricingMap);
       const costHint = pricing ? `  💰 ${formatPricing(pricing)}` : '  ❓ cost unknown';
       return {
         label: `🔵 ${m.name}`,
@@ -1289,7 +1405,7 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
   });
   picker.dispose();
 
-  if (!picked) return;
+  if (!picked) return undefined;
 
   // Validate the model is callable
   log('info', `selectModel: validating ${picked.modelId} before saving`);
@@ -1300,23 +1416,25 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
         `Selected model "${picked.modelId}" is not available. Please try again.`,
       );
       log('error', `selectModel: validation failed - ${picked.modelId} not found`);
-      return;
+      return undefined;
     }
+    log('debug', `selectModel: validated model ${picked.modelId} vendor=${testModels[0].vendor}`);
   } catch (err) {
     vscode.window.showErrorMessage(
       `Failed to validate model "${picked.modelId}": ${err instanceof Error ? err.message : String(err)}`,
     );
     log('error', `selectModel: validation error for ${picked.modelId}: ${err}`);
-    return;
+    return undefined;
   }
 
   const wsCfg = vscode.workspace.getConfiguration('skillsReviewAndPolish');
   await wsCfg.update(target, picked.modelId, vscode.ConfigurationTarget.Global);
-  await wsCfg.update(`${target}DisplayName`, picked.name, vscode.ConfigurationTarget.Global);
+  // DisplayName is optional - ignore errors for backward compatibility
+  void wsCfg.update(`${target}DisplayName`, picked.name, vscode.ConfigurationTarget.Global);
 
-  // Auto-detect and update provider when selecting the analysis model.
+  // Auto-detect and update provider when selecting the analysis or fix model.
   // Read current provider from the actual vscode config (not the mock) to avoid test breakage.
-  if (target === 'model') {
+  if (target === 'model' || target === 'fixModel') {
     const detectedProvider = await detectProviderForModel(picked.modelId);
     let currentProvider = 'vscode-lm';
     try {
@@ -1325,6 +1443,20 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
     if (detectedProvider !== currentProvider) {
       await wsCfg.update('provider', detectedProvider, vscode.ConfigurationTarget.Global);
       log('info', `selectModel: auto-switched provider from ${currentProvider} to ${detectedProvider}`);
+    }
+
+    // Warn if selecting an openrouter vendor model without API key (needed for MCP)
+    const modelVendor = (await vscode.lm.selectChatModels({ id: picked.modelId }))[0]?.vendor;
+    if (modelVendor === 'openrouter' && state?.extensionContext?.secrets) {
+      const apiKey = await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey');
+      log('debug', `selectModel: API key check for openrouter model - hasApiKey=${!!apiKey}, targetLabel=${targetLabel}`);
+      if (!apiKey) {
+        vscode.window.showWarningMessage(
+          `Selected ${targetLabel} model "${picked.modelId}" is an OpenRouter model. ` +
+          `It will work in VS Code, but MCP server usage requires an API key. ` +
+          `Run "Skills Review: Set API Key" to configure it.`,
+        );
+      }
     }
   }
 
@@ -1339,6 +1471,8 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<void> {
   // Keep .skills-review.json in sync so the MCP server immediately sees the
   // new model without requiring a manual 'Sync MCP Config' command.
   syncMcpConfig(true).catch((err) => log('warn', `selectModel: syncMcpConfig failed silently: ${err}`));
+
+  return { modelId: picked.modelId, name: picked.name };
 }
 
 // ---------------------------------------------------------------------------
@@ -1399,25 +1533,40 @@ async function syncMcpConfig(silent = false): Promise<void> {
   }
 }
 
-/** Look up pricing for a model by display name — tries exact, normalised, and substring match. */
+/** Look up pricing for a model by display name or ID — tries exact, normalised, and substring match. */
 function pricingForModel(name: string, pricingMap: Map<string, ModelPricing>): ModelPricing | undefined {
-  // Exact match
+  // Exact match by name
   let p = pricingMap.get(name);
   if (p) return p;
   // Normalised match
   const normalized = normalizeModelName(name);
   p = pricingMap.get(normalized);
   if (p) return p;
-  // Substring match — prefer the LONGEST key to avoid "GPT-4o" matching "GPT-4o mini"
+  // Also try matching by model ID (for OpenRouter models like "openai/gpt-4o-mini")
+  // Strip vendor prefix and normalize
+  const idNormalized = normalizeModelName(name.replace(/^[^/]+\//, ''));
+  p = pricingMap.get(idNormalized);
+  if (p) return p;
+  // Substring match — check both directions to handle variations like "GPT-4o mini" vs "gpt-4o-mini"
   const lower = normalized.toLowerCase();
   let bestMatch: ModelPricing | undefined;
   let bestKeyLen = 0;
   for (const [key, val] of pricingMap) {
     const keyLower = key.toLowerCase();
-    if (lower.includes(keyLower) && keyLower.length > bestKeyLen) {
+    // Normalize separators for comparison (handle "Poolside: Laguna M.1" vs "poolside/laguna-m.1")
+    // Also strip parenthetical suffixes like "(free)" for matching
+    // Also strip vendor prefixes from pricing keys for better matching
+    const keyNormalized = normalizeModelName(keyLower).replace(/[:/_-]/g, ' ').replace(/\s+/g, ' ').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    const lowerNormalized = lower.replace(/[:/_-]/g, ' ').replace(/\s+/g, ' ').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    // Check if model name contains pricing key OR pricing key contains model name
+    if ((lowerNormalized.includes(keyNormalized) || keyNormalized.includes(lowerNormalized)) && keyNormalized.length > bestKeyLen) {
       bestMatch = val;
-      bestKeyLen = keyLower.length;
+      bestKeyLen = keyNormalized.length;
     }
+  }
+  // Log if no match found for debugging
+  if (!bestMatch) {
+    log('debug', `pricingForModel: no match found for "${name}" (normalized: "${normalized}")`);
   }
   return bestMatch;
 }
@@ -1501,6 +1650,20 @@ async function testModelSimplePrompt(): Promise<void> {
   }
 }
 
+async function inspectModels(): Promise<void> {
+  try {
+    const models = await vscode.lm.selectChatModels();
+    log('info', `inspectModels: Found ${models.length} models`);
+    for (const model of models) {
+      log('info', `inspectModels: ${model.id} - vendor=${model.vendor} - name=${model.name}`);
+    }
+    vscode.window.showInformationMessage(`Found ${models.length} models - check Output > Skills Review for details`);
+  } catch (err) {
+    log('error', `inspectModels error: ${err}`);
+    vscode.window.showErrorMessage(`Inspect failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function setApiKey(): Promise<void> {
   const key = await vscode.window.showInputBox({
     title: 'API key for external provider',
@@ -1568,7 +1731,13 @@ export function registerLanguageModelTools(
         const { text, filePath } = options.input;
         try {
           const engine = await buildEngineFn();
-          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token });
+          const cfg = readConfigFn();
+          const results = await engine.analyze(
+            { text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token },
+            undefined,
+            undefined,
+            { filterFindings: cfg.filterFindings },
+          );
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
           ]);
@@ -1602,6 +1771,9 @@ export function registerLanguageModelTools(
             semanticCheck: cfg.fixSemanticCheck,
             selfCritique: cfg.fixSelfCritique,
             referenceGrounding: cfg.fixReferenceGrounding,
+            guardUpperBoundMultiplier: cfg.fixGuardUpperBoundMultiplier,
+            guardLowerBoundMultiplier: cfg.fixGuardLowerBoundMultiplier,
+            guardMaxAnchorChars: cfg.fixGuardMaxAnchorChars,
           });
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(result, null, 2)),

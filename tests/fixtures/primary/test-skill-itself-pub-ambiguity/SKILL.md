@@ -74,6 +74,9 @@ Every Numeric Claim in the Document must match the Evidence exactly. If the Evid
 
 # Injected issue table
 
+**Test metadata:** 1
+**Expected analyzer category:** `ambiguity`
+
 | # | Section | Category | Expected code | Notes |
 |---|---------|----------|---------------|-------|
 | 1 | R2 "must not be published" | ambiguity | `ambiguity-llm` | "Published" is not defined in this version of the skill (Published is removed) |

@@ -92,6 +92,12 @@ describe('isCustomizationPath', () => {
     expect(isCustomizationPath('/tmp/index.ts', DEFAULT_INCLUDE)).toBe(false);
   });
 
+  it('matches files in dot-prefixed directories (e.g., .github/skills/)', () => {
+    expect(isCustomizationPath('.github/skills/github-actions-efficiency/SKILL.md', DEFAULT_INCLUDE)).toBe(true);
+    expect(isCustomizationPath('.github/skills/test/SKILL.md', DEFAULT_INCLUDE)).toBe(true);
+    expect(isCustomizationPath('.github/prompts/test.prompt.md', DEFAULT_INCLUDE)).toBe(true);
+  });
+
   it('returns false (no match) for a malformed glob without throwing', () => {
     // picomatch throws on '[invalid' — the catch branch must return false
     expect(() => isCustomizationPath('/tmp/SKILL.md', ['[invalid'])).not.toThrow();

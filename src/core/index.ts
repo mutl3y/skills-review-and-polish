@@ -52,18 +52,27 @@ export class Engine {
    * Analyze a customization document and return findings.
    * Runs all enabled waves in parallel and applies deterministic consolidation.
    * @param enabledWavesOverride Optional override for enabled waves (from per-scan modal or MCP).
+   * @param configOverride Optional override of the engine's stored config. Used
+   *   by callers (MCP, scanner modal) that want to flip a single setting like
+   *   `filterFindings` for one call without mutating the engine's stored config.
    */
   async analyze(
     input: AnalyzeInput,
     customDiagnostics?: CustomDiagnosticConfig[],
     enabledWavesOverride?: WaveName[],
+    configOverride?: Partial<EngineConfig>,
   ): Promise<AnalysisResult[]> {
+    // The effective config is the stored config merged with the per-call
+    // override. Override is shallow: it replaces individual fields.
+    const effectiveConfig: EngineConfig = configOverride
+      ? { ...this.config, ...configOverride }
+      : this.config;
     // If an explicit override was provided (e.g. from the wave-picker modal or MCP),
     // always honour it regardless of analysisMode.
     let waves: WaveName[];
     if (enabledWavesOverride) {
       waves = enabledWavesOverride;
-    } else if (this.config.analysisMode === 'single') {
+    } else if (effectiveConfig.analysisMode === 'single') {
       // 'single' mode: one combined LLM call covering all 6 categories.
       // Lower recall than multiWave but only 1 API call.
       const log = createLogger('engine');
@@ -76,13 +85,13 @@ export class Engine {
           token: input.token,
         },
       );
-    } else if (this.config.analysisMode === 'focused') {
+    } else if (effectiveConfig.analysisMode === 'focused') {
       // 'focused' mode: 2 focused calls for the highest-signal waves.
       const log = createLogger('engine');
       log.info('analysisMode=focused: restricting to contradictions+ambiguities waves');
       waves = ['contradictions', 'ambiguities'];
     } else {
-      waves = this.config.enabledWaves;
+      waves = effectiveConfig.enabledWaves;
     }
     return this.analyzer.analyze(
       {
@@ -93,6 +102,7 @@ export class Engine {
       },
       customDiagnostics,
       waves,
+      effectiveConfig,
     );
   }
 
@@ -118,7 +128,7 @@ export class Engine {
     input: AnalyzeInput,
     diagnostics: AnalysisResult[],
     options: SurgicalFixOptions = {},
-  ): Promise<{ fixedText: string; applied: number; skipped: number }> {
+  ): Promise<{ fixedText: string; applied: number; skipped: number; skippedReasons: string[] }> {
     const fixer = new SurgicalFixer(this.provider);
     // Skip reference grounding for untitled documents (no real file path)
     const filePath = input.filePath ?? '';
@@ -135,6 +145,11 @@ export class Engine {
         ...options,
         // Untitled documents have no real path — always skip reference grounding
         ...(isUntitled ? { referenceGrounding: false } : {}),
+      },
+      {
+        upperBoundMultiplier: this.config.fixGuardUpperBoundMultiplier,
+        lowerBoundMultiplier: this.config.fixGuardLowerBoundMultiplier,
+        maxAnchorChars: this.config.fixGuardMaxAnchorChars,
       },
     );
   }

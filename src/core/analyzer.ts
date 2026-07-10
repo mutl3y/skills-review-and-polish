@@ -19,6 +19,8 @@ import * as crypto from 'crypto';
 import {
   AnalysisResult,
   CancellationToken,
+  DEFAULT_ENGINE_CONFIG,
+  EngineConfig,
   LlmProvider,
   LLMCombinedAnalysisResponse,
   LLMContradictionItem,
@@ -32,6 +34,7 @@ import {
 import { createLogger, Logger } from './logger';
 import { loadPrompt, loadPromptTemplate } from './prompts';
 import { filterAcceptedResults } from './acceptedFindings';
+import { filterFindings } from './findingFilter';
 
 // ─── Rate limit error ─────────────────────────────────────────────────────────
 
@@ -185,10 +188,12 @@ export class Analyzer {
     input: AnalyzerInput,
     customDiagnostics?: CustomDiagnosticConfig[],
     enabledWaves?: WaveName[],
+    config?: EngineConfig,
   ): Promise<AnalysisResult[]> {
     const results: AnalysisResult[] = [];
     const docKey = input.filePath ?? 'untitled';
     const token = input.token;
+    const shouldFilter = config?.filterFindings !== false;
 
     try {
       if (token?.isCancellationRequested) return results;
@@ -258,6 +263,24 @@ export class Analyzer {
       this.log.trace('pipeline: after consolidation', { count: consolidated.length });
       results.length = 0;
       results.push(...consolidated);
+
+      // Deterministic post-processor. Suppresses LLM false positives that
+      // the analyzer cannot avoid producing because they come from reading
+      // project rules literally rather than in context (e.g. flagging
+      // 'may' as weak obligation even though OBLIGATION_TOKENS protects
+      // it; flagging 'must not' as ambiguous even though it is the
+      // approved Requirement verb; flagging a numbered procedure as
+      // unordered). See src/core/findingFilter.ts for the rule list.
+      if (shouldFilter) {
+        const before = results.length;
+        const filtered = filterFindings(results, config ?? DEFAULT_ENGINE_CONFIG, input.text);
+        this.log.trace('pipeline: after post-processor', { before, after: filtered.length });
+        if (filtered.length < before) {
+          this.log.debug(`Post-processor: suppressed ${before - filtered.length} of ${before} finding(s)`);
+        }
+        results.length = 0;
+        results.push(...filtered);
+      }
 
       // Filter accepted findings.
       if (input.acceptedFindingsPath && input.filePath) {
