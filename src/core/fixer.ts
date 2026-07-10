@@ -15,6 +15,7 @@ import * as path from 'path';
 import { promises as fsPromises } from 'fs';
 import { AnalysisResult, LlmProvider, LlmRequest } from './types';
 import { loadPrompt } from './prompts';
+import { OBLIGATION_TOKENS, EMPHASIS_SCOPE_WORDS } from './vocabulary';
 
 // --------------------------------------------------------------------------
 // Constants
@@ -34,23 +35,6 @@ const MAX_SURGICAL_ANCHOR_CHARS = 350;
 
 /** Noise margin for median-of-N keep/revert decisions. */
 export const PENALTY_NOISE_MARGIN = 6;
-
-/**
- * Closed grammatical class of obligation/hedge words. Dropping any of these
- * silently flips a recommendation into a mandate (or vice versa).
- */
-const OBLIGATION_TOKENS = [
-  'consider', 'should', 'may', 'might', 'recommend', 'recommended',
-  'optional', 'optionally', 'prefer', 'preferably', 'must', 'required',
-  'shall', 'at least', 'at most', 'if possible', 'when possible', 'where possible',
-  'appropriate', 'necessary',
-];
-
-const EMPHASIS_SCOPE_WORDS = [
-  'all', 'only', 'never', 'always', 'every', 'each', 'complete', 'completely',
-  'comprehensive', 'exclusively', 'genuine', 'genuinely', 'independently',
-  'fully', 'entire', 'entirely', 'explicit', 'explicitly', 'mandatory', 'strictly',
-];
 
 // --------------------------------------------------------------------------
 // Utility helpers
@@ -419,16 +403,21 @@ export function appendOnlyBreak(before: string, after: string): string | null {
   return null;
 }
 
-export function computeFixBounds(targetText: string, code: string, additive = false): {
-  upperBound: number;
-  lowerBound: number;
-} {
+export function computeFixBounds(
+  targetText: string,
+  code: string,
+  additive = false,
+  guardOverrides?: { upperBoundMultiplier?: number; lowerBoundMultiplier?: number },
+): { upperBound: number; lowerBound: number } {
   const isAdditiveFix = additive && code === 'ambiguity-llm';
-  const upperMul = code === 'ambiguity-llm' ? (isAdditiveFix ? 1.6 : 1.1) : 1.5;
+  // Default multipliers: 1.1 for subtractive ambiguity, 1.6 for additive ambiguity, 1.5 for others
+  const defaultUpperMul = code === 'ambiguity-llm' ? (isAdditiveFix ? 1.6 : 1.1) : 1.5;
+  const upperMul = guardOverrides?.upperBoundMultiplier ?? defaultUpperMul;
   const upperBound = isAdditiveFix
     ? Math.max(targetText.length * upperMul, targetText.length + 80)
     : targetText.length * upperMul;
-  const lowerBound = targetText.length * 0.5;
+  const lowerMul = guardOverrides?.lowerBoundMultiplier ?? 0.5;
+  const lowerBound = targetText.length * lowerMul;
   return { upperBound, lowerBound };
 }
 
@@ -673,6 +662,10 @@ export interface SurgicalFixOptions {
   semanticCheck?: boolean;
   selfCritique?: boolean;
   referenceGrounding?: boolean;
+  /** Guard overrides - optional values to replace hardcoded defaults. */
+  guardUpperBoundMultiplier?: number;
+  guardLowerBoundMultiplier?: number;
+  guardMaxAnchorChars?: number;
 }
 
 // --------------------------------------------------------------------------
@@ -708,7 +701,7 @@ export class SurgicalFixer {
       };
     }
 
-    const resolved = this.resolveAnchorText(text, diagnostic, code);
+    const resolved = this.resolveAnchorText(text, diagnostic, code, options.guardMaxAnchorChars);
     if (resolved.rejectReason) {
       return { accepted: false, fixed: '', risks: [], rejectReason: resolved.rejectReason };
     }
@@ -722,10 +715,11 @@ export class SurgicalFixer {
     const domain = skillDomainHint(text);
     const grounding = await loadReferenceGrounding(filePath, targetText, options.referenceGrounding ?? true);
 
-    // Call fixer LLM
+    // Call fixer LLM - use 'fix' tier to get the dedicated fix model
     const req: LlmRequest = {
       prompt: buildSurgicalFixPrompt(targetText, diagnostic, context, domain, additive, grounding),
       systemPrompt: surgicalFixSystemPrompt({ additive }),
+      modelTier: 'fix',
     };
     let llmResp;
     try {
@@ -750,7 +744,10 @@ export class SurgicalFixer {
       };
     }
 
-    const rejectReason = this.rejectCandidate(code, targetText, fixed, additive);
+    const rejectReason = this.rejectCandidate(code, targetText, fixed, additive, {
+      upperBoundMultiplier: options.guardUpperBoundMultiplier,
+      lowerBoundMultiplier: options.guardLowerBoundMultiplier,
+    });
     if (rejectReason) {
       return { accepted: false, fixed: '', risks: [], rejectReason };
     }
@@ -786,7 +783,12 @@ export class SurgicalFixer {
     return { accepted: true, fixed, risks };
   }
 
-  private resolveAnchorText(text: string, diagnostic: AnalysisResult, code: string): { targetText: string | null; rejectReason: string | null } {
+  private resolveAnchorText(
+    text: string,
+    diagnostic: AnalysisResult,
+    code: string,
+    guardMaxAnchorChars?: number,
+  ): { targetText: string | null; rejectReason: string | null } {
     const rawAnchor = diagnostic.relevantText ?? this.extractAnchorFromMessage(diagnostic.message, code);
     if (!rawAnchor || !rawAnchor.trim()) return { targetText: null, rejectReason: 'empty or whitespace-only anchor' };
 
@@ -797,7 +799,8 @@ export class SurgicalFixer {
     }
 
     if (!targetText) return { targetText: null, rejectReason: 'anchor not found' };
-    if (targetText.length > MAX_SURGICAL_ANCHOR_CHARS) {
+    const maxAnchor = guardMaxAnchorChars ?? MAX_SURGICAL_ANCHOR_CHARS;
+    if (targetText.length > maxAnchor) {
       return { targetText: null, rejectReason: `anchor too large (${targetText.length} chars)` };
     }
 
@@ -812,8 +815,14 @@ export class SurgicalFixer {
     return { targetText, rejectReason: null };
   }
 
-  private rejectCandidate(code: string, targetText: string, fixed: string, additive: boolean): string | null {
-    const { upperBound, lowerBound } = computeFixBounds(targetText, code, additive);
+  private rejectCandidate(
+    code: string,
+    targetText: string,
+    fixed: string,
+    additive: boolean,
+    guardOverrides?: { upperBoundMultiplier?: number; lowerBoundMultiplier?: number },
+  ): string | null {
+    const { upperBound, lowerBound } = computeFixBounds(targetText, code, additive, guardOverrides);
 
     if (code === 'hygiene-redundant-instruction' && fixed === '') {
       return null;
@@ -836,18 +845,29 @@ export class SurgicalFixer {
     filePath: string,
     diagnostics: AnalysisResult[],
     options: SurgicalFixOptions = {},
-  ): Promise<{ fixedText: string; applied: number; skipped: number }> {
+    guardOverrides?: { upperBoundMultiplier?: number; lowerBoundMultiplier?: number; maxAnchorChars?: number },
+  ): Promise<{ fixedText: string; applied: number; skipped: number; skippedReasons: string[] }> {
     const fixable = diagnostics
       .filter((d) => SURGICAL_FIXABLE_CODES.has(d.code ?? ''))
       .sort((a, b) => (b.range?.start?.line ?? 0) - (a.range?.start?.line ?? 0));
     let content = text;
     let applied = 0;
     let skipped = 0;
+    const skippedReasons: string[] = [];
+
+    // Merge guard overrides into options for fixIssue calls
+    const optsWithGuards: SurgicalFixOptions = {
+      ...options,
+      guardUpperBoundMultiplier: guardOverrides?.upperBoundMultiplier,
+      guardLowerBoundMultiplier: guardOverrides?.lowerBoundMultiplier,
+      guardMaxAnchorChars: guardOverrides?.maxAnchorChars,
+    };
 
     for (const d of fixable) {
-      const result = await this.fixIssue(content, filePath, d, options);
+      const result = await this.fixIssue(content, filePath, d, optsWithGuards);
       if (!result.accepted) {
         skipped++;
+        skippedReasons.push(`${d.code}: ${result.rejectReason ?? 'unknown'}`);
         continue;
       }
       // Find the anchor in the (possibly already-modified) content
@@ -859,6 +879,7 @@ export class SurgicalFixer {
           extractParagraphAtLine(content, d.range?.start?.line ?? -1);
       if (!anchor) {
         skipped++;
+        skippedReasons.push(`${d.code}: anchor not found in document`);
         continue;
       }
 
@@ -867,6 +888,7 @@ export class SurgicalFixer {
       if (anchorCount !== 1) {
         // Ambiguous anchor — skip to avoid silent data corruption.
         skipped++;
+        skippedReasons.push(`${d.code}: ambiguous anchor (${anchorCount} occurrences)`);
         continue;
       }
 
@@ -880,7 +902,7 @@ export class SurgicalFixer {
       applied++;
     }
 
-    return { fixedText: content, applied, skipped };
+    return { fixedText: content, applied, skipped, skippedReasons };
   }
 
   private extractAnchorFromMessage(message: string | undefined, code: string): string | null {
