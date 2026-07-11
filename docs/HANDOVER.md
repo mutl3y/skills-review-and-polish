@@ -200,3 +200,75 @@ npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.
 # Re-run any experiment
 source ~/.bashrc && OPENROUTER_API_KEY=$OPENROUTER_API_KEY node scripts/e30-corpus-scan.mjs
 ```
+
+# Handover — 2026-07-11 (E40 M3 test + ambiguity prompt fix)
+
+## State
+
+- 466/466 unit tests pass · `npm run compile` clean · branch: main
+- v0.1.35 published to VS Code Marketplace
+- ~$3 spent across 35+ experiments · 1500+ LLM calls · 0 rate-limits
+
+## What shipped in this session (E38-E40)
+
+**E38: Coverage rule fix** — removed "AT MOST ONE gap per category" rule.
+- test-coverage-gaps: 1 → 5 coverage gaps per run (5x improvement)
+- test-coverage-gaps-hard: 1 → 5 coverage gaps per run
+- Full E33 re-run: 14/47 → 17/47 PASS (+3 categories)
+- Commit: `6df0bb4`
+
+**E39: Grade explanation** — why A+ on E20 became C+ on E34.
+- E20's "A+" was a false signal (LLM missed real issues)
+- E34's "C+" is honest (LLM found real issues)
+- A linter that finds more real issues gets penalized by the scoring formula
+- See `notes/e39-grade-explanation.md`
+
+**E40: M3 test on test-contradictions-direct** — minimax/minimax-m3 as analysis model.
+- M3 found 1/11 ambiguities across 3 runs (same as qwen3-coder-30b)
+- M3 hit empty responses on some waves (rate limit / timeout)
+- **Key finding: the prompt is the problem, not the model**
+- See `notes/e40-m3-direct-results.md`
+
+## Current problem: ambiguity prompt misses real issues
+
+**Evidence:**
+- E12-N3 (gemini-flash, v3 prompts): 11 ambiguities on test-contradictions-direct
+- E33 v5 (qwen3-coder-30b, E33 prompts): 0 ambiguities on test-contradictions-direct
+- E40 (M3, E33 prompts): 1 ambiguity on test-contradictions-direct
+
+**Root cause:** The "material-difference test" in the ambiguity prompt asks:
+> "would two competent prompt-following models produce different actions, or just slightly different wording?"
+
+This is too strict. The LLM interprets "different wording" as "same action" and skips flagging.
+
+**The fix:** Changed the test to:
+> "would a reasonable practitioner's action change if the term were interpreted one way vs another?"
+
+This is broader and catches undefined thresholds/actors/scope in MOST contexts, not just legal/regulatory.
+
+**Status:** Prompt updated but not yet validated. Quick test showed 0 ambiguities (same as before). Need to run full E33 re-validation.
+
+## Next session
+
+1. **Validate E40 ambiguity prompt fix** — run E33 re-validation with the updated prompt.
+2. **Investigate why the prompt fix didn't help** — the LLM may still be applying the old "different wording = no flag" logic.
+3. **E4 (specification style)** — still planned, would require a new fixture set.
+4. **E6 (multi-model comparison)** — implicitly covered by E12-N3, can be marked completed.
+
+## Files to review
+
+- `src/core/prompts/ambiguity.prompt` — updated with broader material-difference test
+- `notes/e38-coverage-rule-fix.md` — coverage rule fix results
+- `notes/e39-grade-explanation.md` — why grades went down with better detection
+- `notes/e40-m3-direct-results.md` — M3 test results
+- `notes/e37-session-summary.md` — full session summary
+
+## Quick commands
+
+```bash
+npm run compile
+npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.test.ts"
+
+# Re-run E33 with updated prompts
+source ~/.bashrc && OPENROUTER_API_KEY=$OPENROUTER_API_KEY node scripts/e33-fixture-validation.mjs
+```

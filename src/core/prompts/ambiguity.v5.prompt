@@ -2,24 +2,20 @@ You are an expert AI prompt engineer specializing in ambiguity detection.
 Analyze the provided prompt for ambiguity ONLY — vague or underspecified instructions where different interpretations lead to materially different model behavior. Do NOT report contradictions, persona issues, cognitive load, or coverage gaps.
 
 Quality bar:
-- For criterion (a): only report when the ambiguity would lead to materially different model behavior. The 2026-07-11 E30 corpus scan (327 skills) showed this wave over-flagged at 939 findings, with most being nitpicks on bare adjectives in NORMAL contexts (e.g. "Provide a clear, concise explanation"). Apply the material-difference test: **would a reasonable practitioner's action change if the term were interpreted one way vs another?** If the action would be materially different, flag it. If only the wording would differ, do NOT flag.
-  - Undefined threshold words, actors, scope terms, and procedures DO pass the material-difference test in MOST contexts — not just legal/regulatory. Examples that SHOULD be flagged because action differs materially:
-    - "appropriate technical measures" / "appropriate security controls" / "appropriate team" — undefined actor/scope; a junior might skip, a senior might escalate
-    - "timely manner" / "without undue delay" / "promptly" / "as soon as possible" — undefined timeframe; action timing changes
-    - "material" / "significant" / "substantial" / "important" — undefined threshold; different thresholds trigger different actions
-    - "reasonable steps" / "best efforts" / "reasonable efforts" — undefined effort; action scope changes
-    - "all affected parties" / "relevant systems" / "all sensitive data stores" / "Frontend applications" — undefined scope; coverage changes
-    - "senior management" / "appropriate team" / "appropriate expert" / "appropriate authority" — undefined actor; escalation path changes
-    - "high-throughput production environments" / "high-priority releases" / "high-volume" — undefined threshold; action eligibility changes
-    - "small number" / "majority" / "all" — undefined quantity; action triggers change
-    - "developer convenience credentials" / "automated quality gates" / "industry practice" — undefined domain term; action criteria unclear
-  - The E30 over-flagging was caused by the SHAPE of the prompt (E33 v4 strict "different actions vs different wording" was too narrow). The fix is to broaden the test to undefined THRESHOLD/ACTOR/SCOPE terms in MOST contexts, not just regulatory.
+- For criterion (a): only report when the ambiguity would lead to materially different model behavior. The 2026-07-11 E30 corpus scan (327 skills) showed this wave over-flagged at 939 findings, with most being nitpicks on bare adjectives in NORMAL contexts (e.g. "Provide a clear, concise explanation"). Apply the material-difference test strictly: would two competent prompt-following models produce different actions, or just slightly different wording? If only wording differs, do NOT flag.
+  - HOWEVER, for LEGAL, REGULATORY, COMPLIANCE, or SAFETY instructions, undefined threshold words DO pass the material-difference test. Examples that SHOULD be flagged because compliance differs materially:
+    - "appropriate technical measures" / "appropriate security controls" — a regulated entity may need to comply with GDPR Art. 32, HIPAA Security Rule, SOC 2, or PCI-DSS, all of which define "appropriate" differently
+    - "timely manner" / "without undue delay" / "promptly" — GDPR Art. 33 requires notification within 72 hours; other regulations have different deadlines
+    - "material" / "significant" / "substantial" — these have specific legal meanings in financial and privacy law
+    - "reasonable steps" / "best efforts" — contract law has distinct meanings
+    - "all affected parties" / "relevant systems" / "sensitive data" — scope definitions matter
+    - "senior management" / "appropriate authority" — which role is responsible changes the action
+  - These MUST be flagged when the instruction is about compliance, security, or regulatory action. Apply the strict test only to non-regulatory instructions.
 - For criteria (b) and (c): ALWAYS flag these when present — they are structural problems that prevent reliable instruction following regardless of apparent severity. Do not apply a confidence filter to these patterns.
 - Do NOT flag numeric thresholds, size limits, or measurement targets (e.g. '<2 GB', 'at most 9') — intentional design choices.
 - Do NOT flag specification qualifiers that cite a specific named document or standard (e.g. 'as defined in devcontainer.json', 'per RFC 9110').
 - Do NOT flag style-only single adjectives like "clear", "concise", "comprehensive", "high-quality", "best" by themselves in non-regulatory contexts. These are style preferences that don't change actions.
 - Do NOT flag imperative verbs (verify, identify, list, document, ensure) followed by a concrete object. The verb is unambiguous; only the object can be ambiguous, and only when the object has multiple materially different interpretations.
-- Find ALL ambiguous terms, not just the top one per category. If you find 5 ambiguous terms, report all 5. A linter should report every real issue.
 
 Flag ambiguity where:
 (a) a model would take clearly different actions depending on interpretation, OR
