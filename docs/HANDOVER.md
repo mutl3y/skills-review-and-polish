@@ -272,3 +272,72 @@ npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.
 # Re-run E33 with updated prompts
 source ~/.bashrc && OPENROUTER_API_KEY=$OPENROUTER_API_KEY node scripts/e33-fixture-validation.mjs
 ```
+
+# Handover — 2026-07-11 (E40 ambiguity prompt v4)
+
+## State
+
+- 466/466 unit tests pass · `npm run compile` clean · branch: main
+- v0.1.35 published, working on v0.1.36
+- Commit: `ec3333a` (E40d v4 ambiguity prompt)
+
+## What shipped in this session (E40b–E40g)
+
+**Ambiguity prompt v4** (E40d, commit `ec3333a`) — fixes the E33 v5/E38 baseline's massive under-detection on ambiguity:
+- baseline: 0/11 on test-contradictions-direct, 4/20 on test-ambiguities-hard
+- v4: 0/11 (unchanged), 17/20 (big improvement), 18/20 on test-ambiguities
+- Overall: 17/47 → 21/47 categories at 100% recall (median, full E33)
+
+**Key insight:** "Default: FLAG" + "Aim for high recall" + flat criteria (no structured a1/a2 split) works much better than the over-engineered E33 v4 prompt.
+
+## Iteration history (4 attempts)
+
+| Version | Approach | Result | Outcome |
+|---|---|---|---|
+| E40b v2 | structured a1/a2/b/c split | over-restricted | rejected |
+| E40c v3 | "flag whole instruction" | over-restricted | rejected |
+| E40d v4 | Default: FLAG + flat criteria | 21/47 PASS | **shipped** |
+| E40g v5 | "this wave runs INDEPENDENTLY" | passed probe, regressed full E33 | reverted |
+
+**Lesson learned:** probe results don't always generalize to multiWave. Always validate with full E33.
+
+## What did NOT get fixed
+
+- **test-contradictions-direct ambiguity: 0/11** — the LLM context-shifts when the document has 1:1 contradiction:ambiguity pairing. Prompt-only fixes don't work. Requires code change (Option A in `notes/e40g-prompt-v5-regression.md`): inject contradiction findings into the ambiguity wave's user prompt. Deferred to v0.1.37.
+- **Contradiction inflation (300% on direct/subtle, 225% on hard)** — pre-existing, not introduced by E40d. Out of scope for this session.
+
+## Real-world validation (E40e/f)
+
+- quality-playbook (2739 lines, 292KB): 17 high-quality findings including 8 ambiguities, 5 coverage gaps, 1 contradiction, 1 cognitive-priority-conflict, 2 hygiene issues.
+- All findings are real issues, not false positives.
+
+## Next session
+
+1. **v0.1.36 release** — bump version, update README with E40d results, publish.
+2. **Option A: inject contradiction findings into ambiguity wave** — needs ~2h of plumbing + a new E33 run. Could close the test-contradictions-direct 0/11 gap.
+3. **E4 (specification style) + E6 (multi-model)** still in "planned" state.
+
+## Files
+
+- `src/core/prompts/ambiguity.prompt` — v4 (shipped)
+- `scripts/e40b/c-ambiguity-probe.mjs` — quick 3-run probes
+- `scripts/e40e-realworld-skill.mjs` — evaluate on any SKILL.md
+- `scripts/e40f-multi-skill-batch.mjs` — multi-skill batch evaluator
+- `scripts/e33-fixture-validation.mjs` — timeout 180→360s, batch 5→4
+- `.github/experiments/documentation-review/notes/e40b-ambiguity-prompt-fix.md`
+- `.github/experiments/documentation-review/notes/e40d-ambiguity-prompt-fix.md`
+- `.github/experiments/documentation-review/notes/e40d-validation-report.md`
+- `.github/experiments/documentation-review/notes/e40g-prompt-v5-regression.md`
+
+## Quick commands
+
+```bash
+# Validate v4 prompt
+source ~/.bashrc && node scripts/e33-fixture-validation.mjs
+
+# Run probe on 3 key fixtures
+source ~/.bashrc && node scripts/e40c-ambiguity-probe.mjs
+
+# Evaluate on a real skill
+source ~/.bashrc && node scripts/e40e-realworld-skill.mjs /workspace/awesome-copilot-fork/skills/quality-playbook/SKILL.md
+```
