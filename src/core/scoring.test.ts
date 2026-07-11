@@ -101,11 +101,14 @@ describe('scoreSkill', () => {
   });
 
   it('applies the correct length tier penalty for longer files', () => {
+    // Tuned 2026-07-10: tiers are now ≤300/0, ≤500/3, ≤750/8, ≤1200/15, >1200/22
+    // (was ≤200/0, ≤350/5, ≤550/12, ≤800/22, >800/35).
+    // Test at 400 lines (now in the 3-pt "Getting verbose" tier).
     const result = scoreSkill([makeResult('ambiguity-llm', 'info')], 400, 'standard');
 
-    expect(result.lengthPenalty).toBe(12);
-    expect(result.lengthLabel).toContain('Too long');
-    expect(result.score).toBe(86);
+    expect(result.lengthPenalty).toBe(3);
+    expect(result.lengthLabel).toContain('Getting verbose');
+    expect(result.score).toBe(95);
   });
 
   it('uses the higher threshold offset for workflow and meta files', () => {
@@ -159,13 +162,24 @@ describe('scoreSkill', () => {
   });
 
   it('reports incomplete flag correctly', () => {
-    // Empty results = analysis didn't happen → incomplete
+    // Fixed 2026-07-10: empty results WITHOUT infra codes = clean skill, NOT
+    // incomplete. A clean skill gets a real grade (A+ minus lengthPenalty),
+    // not "Ungraded". Only results that are ALL infra codes → Ungraded.
     const empty = scoreSkill([], 40, 'standard');
-    expect(empty.incomplete).toBe(true);
-    expect(empty.grade).toBe('Ungraded');
+    expect(empty.incomplete).toBe(false);
+    expect(empty.grade).toBe('A+'); // 100 - 0 - 0 (length 40 is in ideal tier)
 
-    // With errors → incomplete
+    // Only-infra results = analysis truly failed → Ungraded
     const errored = scoreSkill([makeResult('llm-error', 'warning')], 40, 'standard');
     expect(errored.incomplete).toBe(true);
+    expect(errored.grade).toBe('Ungraded');
+
+    // Mixed results (one real finding + one infra code) = real grade, no cap
+    const mixed = scoreSkill([
+      makeResult('llm-error', 'warning'),
+      makeResult('ambiguity-llm', 'warning'),
+    ], 40, 'standard');
+    expect(mixed.incomplete).toBe(false);
+    expect(mixed.grade).not.toBe('Ungraded');
   });
 });

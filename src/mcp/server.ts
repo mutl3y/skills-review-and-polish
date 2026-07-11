@@ -124,18 +124,24 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
 
   const engine = await ctx.getEngine();
 
-  // Parse optional enabledWaves parameter
-  const wavesArg = args['enabledWaves'];
+  // Parse optional analysisWaves parameter (also accepts legacy enabledWaves)
+  const wavesArg = args['analysisWaves'] ?? args['enabledWaves'];
   const validWaves = new Set<string>(['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene']);
-  const enabledWaves: string[] | undefined = Array.isArray(wavesArg)
+  const analysisWaves: string[] | undefined = Array.isArray(wavesArg)
     ? (wavesArg as string[]).filter(w => validWaves.has(w))
+    : undefined;
+
+  // Use configOverride with analysisWaves (E21 API) — cleaner than 3rd parameter.
+  // analysisMode: 'multiWave' ensures wave selection runs (not single-pass).
+  const configOverride = analysisWaves && analysisWaves.length > 0
+    ? { analysisWaves: analysisWaves as any, analysisMode: 'multiWave' as const }
     : undefined;
 
   const results = await engine.analyze({
     text,
     filePath: optionalString(args, 'filePath'),
     acceptedFindingsPath: resolveAcceptedFindingsPath(),
-  }, undefined, enabledWaves as any);
+  }, undefined, undefined, configOverride);
   return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
 }
 
@@ -464,16 +470,16 @@ export function createMcpToolRegistry({
         {
           name: 'analyze',
           description:
-            'Analyze a skill, instructions, or prompt document for quality issues. Runs 6 focused analysis waves: contradictions, ambiguities, persona conflicts, structural/cognitive issues, coverage gaps, and hygiene problems. Returns a JSON array of diagnostics, each with: code (e.g. "ambiguity-llm", "contradiction", "coverage-gap"), severity (error/warning/info), message, range, and optional suggestion. Use "score" to get an overall quality grade. Use "fix" to attempt surgical repair of fixable issues (only 5 codes are fixable: ambiguity-llm, contradiction, hygiene-redundant-instruction, hygiene-unordered-process, hygiene-over-specification). Optional "enabledWaves" parameter allows selecting specific analysis categories.',
+            'Analyze a skill, instructions, or prompt document for quality issues. Runs 6 focused analysis waves: contradictions, ambiguities, persona conflicts, structural/cognitive issues, coverage gaps, and hygiene problems. Returns a JSON array of diagnostics, each with: code (e.g. "ambiguity-llm", "contradiction", "coverage-gap"), severity (error/warning/info), message, range, and optional suggestion. Use "score" to get an overall quality grade. Use "fix" to attempt surgical repair of fixable issues (only 5 codes are fixable: ambiguity-llm, contradiction, hygiene-redundant-instruction, hygiene-unordered-process, hygiene-over-specification). Optional "analysisWaves" parameter selects specific analysis categories (e.g. ["contradictions", "hygiene"]).',
           inputSchema: {
             type: 'object',
             properties: {
               text: { type: 'string', description: 'Full document text to analyze.' },
               filePath: { type: 'string', description: 'Optional file path for context.' },
-              enabledWaves: {
+              analysisWaves: {
                 type: 'array',
                 items: { type: 'string', enum: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'] },
-                description: 'Optional: which analysis waves to run. If omitted, all waves are enabled.',
+                description: 'Optional: which analysis waves to run. If omitted, all 6 waves run in multi-wave mode.',
               },
             },
             required: ['text'],

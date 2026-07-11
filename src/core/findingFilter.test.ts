@@ -215,6 +215,216 @@ The verifier records the path, extracts the claims, then produces the report.
     });
   });
 
+  describe('Rule 8: yamlDescriptionRedundancyRule', () => {
+    it('suppresses hygiene-redundant-instruction on the YAML description', () => {
+      const r = makeResult({
+        code: 'hygiene-redundant-instruction',
+        message: 'The description repeats body terms.',
+        relevantText: 'Verify repository documentation using repository evidence.',
+        range: { start: { line: 2, character: 0 }, end: { line: 2, character: 0 } },
+      });
+      const doc = `---
+name: documentation-review
+description: 'Verify repository documentation using repository evidence. Produce the minimum set of modifications required to satisfy the verification criteria.'
+---
+
+# Documentation Verification
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('does not suppress redundancy in the body', () => {
+      const r = makeResult({
+        code: 'hygiene-redundant-instruction',
+        message: 'The body repeats.',
+        relevantText: 'some body text',
+        range: { start: { line: 10, character: 0 }, end: { line: 10, character: 0 } },
+      });
+      const doc = `---
+name: documentation-review
+description: 'short description'
+---
+
+# Documentation Verification
+some body text
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(false);
+    });
+
+    it('does not apply to a document with no frontmatter', () => {
+      const r = makeResult({
+        code: 'hygiene-redundant-instruction',
+        range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+      });
+      const doc = '# Just a heading\nNo frontmatter here.\n';
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(false);
+    });
+  });
+
+  describe('Rule 9: definitionsPreambleRule', () => {
+    it('suppresses hygiene-non-actionable-preamble in a Definitions intro', () => {
+      const r = makeResult({
+        code: 'hygiene-non-actionable-preamble',
+        message: 'The Definitions intro is preamble.',
+        relevantText: 'The following definitions apply throughout this document.',
+        range: { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } },
+      });
+      const doc = `---
+name: foo
+description: 'foo'
+---
+
+# Heading
+
+# Definitions
+
+The following definitions apply throughout this document.
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('suppresses hygiene-vague-directive in a Definitions intro', () => {
+      const r = makeResult({
+        code: 'hygiene-vague-directive',
+        message: 'The intro is vague.',
+        relevantText: 'Every term used by a Constraint is defined here.',
+        range: { start: { line: 7, character: 0 }, end: { line: 7, character: 0 } },
+      });
+      const doc = `---
+name: foo
+description: 'foo'
+---
+
+# Definitions
+
+The following definitions apply throughout this document.
+Every term used by a Constraint is defined here.
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('does not suppress findings outside the Definitions section', () => {
+      const r = makeResult({
+        code: 'hygiene-vague-directive',
+        range: { start: { line: 50, character: 0 }, end: { line: 50, character: 0 } },
+      });
+      const doc = `---
+name: foo
+description: 'foo'
+---
+
+# Definitions
+
+The intro.
+
+# Procedure
+some procedure content
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(false);
+    });
+
+    it('does not apply when there is no Definitions section', () => {
+      // Use hygiene-vague-directive (not preamble) so Rule 6 doesn't
+      // match first. Use a doc with >3 sentences so Rule 6 wouldn't
+      // match either way.
+      const r = makeResult({
+        code: 'hygiene-vague-directive',
+        range: { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } },
+      });
+      const doc = `---
+name: foo
+description: 'foo'
+---
+
+# Some other heading
+Sentence one. Sentence two. Sentence three. Sentence four. Sentence five.
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(false);
+    });
+  });
+
+  describe('Rule 10: skillOpeningParagraphRule', () => {
+    it('suppresses hygiene-non-actionable-preamble in the skill opening', () => {
+      const r = makeResult({
+        code: 'hygiene-non-actionable-preamble',
+        message: 'The opening is preamble.',
+        relevantText: 'This skill is invoked against one supplied document.',
+        range: { start: { line: 4, character: 0 }, end: { line: 4, character: 0 } },
+      });
+      const doc = `---
+name: foo
+description: 'foo'
+---
+
+This skill is invoked against one supplied document and produces one report.
+
+# Heading
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('suppresses hygiene-redundant-instruction in the first 5 body lines', () => {
+      const r = makeResult({
+        code: 'hygiene-redundant-instruction',
+        range: { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } },
+      });
+      const doc = `---
+name: foo
+description: 'short'
+---
+
+Line A
+Line B
+Line C
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('does not suppress redundancy deeper in the body', () => {
+      const r = makeResult({
+        code: 'hygiene-redundant-instruction',
+        range: { start: { line: 20, character: 0 }, end: { line: 20, character: 0 } },
+      });
+      const doc = `---
+name: foo
+description: 'short'
+---
+
+# Heading
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+line 11
+line 12
+line 13
+line 14
+line 15
+line 16
+line 17
+line 18
+line 19
+line 20
+`;
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(false);
+    });
+
+    it('does not apply when the document has no frontmatter', () => {
+      // Use hygiene-vague-directive (not preamble) so Rule 6 doesn't
+      // match first. Use a doc with >3 sentences so Rule 6 wouldn't
+      // match either way.
+      const r = makeResult({
+        code: 'hygiene-vague-directive',
+        range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+      });
+      const doc = '# Just a heading\nSentence one. Sentence two. Sentence three. Sentence four. Sentence five.\n';
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(false);
+    });
+  });
+
   describe('FILTER_RULES registry', () => {
     it('has stable ids for every rule', () => {
       const ids = FILTER_RULES.map((r) => r.id);
@@ -303,6 +513,168 @@ The verifier emits the report.
       // and "both Permitted and Forbidden is Forbidden". The "may only" finding
       // is suppressed by Rule 3.
       expect(codes.filter((c) => c === 'ambiguity-llm')).toHaveLength(2);
+    });
+  });
+
+  describe('Rule 11: crossWaveDedupRule (batch)', () => {
+    it('suppresses an ambiguity-llm finding covered by a contradiction from a different wave', () => {
+      const findings: AnalysisResult[] = [
+        makeResult({
+          code: 'ambiguity-llm',
+          analyzer: 'ambiguity-detection',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+        makeResult({
+          code: 'contradiction',
+          analyzer: 'contradiction-detection',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+      ];
+      const out = filterFindings(findings, baseConfig, '');
+      expect(out.map((f) => f.code)).toEqual(['contradiction']);
+    });
+
+    it('keeps ambiguity-llm when the overlap is only with same-wave findings', () => {
+      const findings: AnalysisResult[] = [
+        makeResult({
+          code: 'ambiguity-llm',
+          analyzer: 'ambiguity-detection',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+        makeResult({
+          code: 'contradiction',
+          analyzer: 'ambiguity-detection', // same wave — not cross-wave
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+      ];
+      const out = filterFindings(findings, baseConfig, '');
+      expect(out).toHaveLength(2);
+    });
+
+    it('keeps ambiguity-llm when the stronger finding is on a different line', () => {
+      const findings: AnalysisResult[] = [
+        makeResult({
+          code: 'ambiguity-llm',
+          analyzer: 'ambiguity-detection',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+        makeResult({
+          code: 'contradiction',
+          analyzer: 'contradiction-detection',
+          range: { start: { line: 50, character: 0 }, end: { line: 50, character: 20 } },
+        }),
+      ];
+      const out = filterFindings(findings, baseConfig, '');
+      expect(out).toHaveLength(2);
+    });
+
+    it('suppresses the weaker of two weak/broad cross-wave findings', () => {
+      // ambiguity-llm (spec 3) is more specific than
+      // hygiene-redundant-instruction (spec 1). The rule keeps the
+      // stronger one and drops the weaker.
+      const findings: AnalysisResult[] = [
+        makeResult({
+          code: 'ambiguity-llm',
+          analyzer: 'ambiguity-detection',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+        makeResult({
+          code: 'hygiene-redundant-instruction',
+          analyzer: 'hygiene-check',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+      ];
+      const out = filterFindings(findings, baseConfig, '');
+      // ambiguity-llm survives, hygiene-redundant is suppressed as the
+      // weaker signal covering the same span.
+      expect(out.map((f) => f.code)).toEqual(['ambiguity-llm']);
+    });
+
+    it('does not suppress a finding from an unknown / non-ranked code', () => {
+      // persona-inconsistency is not in SPECIFICITY_ORDER; it must never
+      // be the "other" that suppresses anything, nor be suppressed itself.
+      const findings: AnalysisResult[] = [
+        makeResult({
+          code: 'ambiguity-llm',
+          analyzer: 'ambiguity-detection',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+        makeResult({
+          code: 'persona-inconsistency',
+          analyzer: 'persona-check',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+      ];
+      const out = filterFindings(findings, baseConfig, '');
+      expect(out).toHaveLength(2);
+    });
+  });
+
+  describe('Rule 12: imperativeAmbiguityRule', () => {
+    it('suppresses ambiguity on "Verify: <action>" pattern', () => {
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'Verify: `npx swa --version`',
+        message: 'Verify: `npx swa --version`',
+      });
+      expect(shouldSuppress(r, baseConfig, '')).toBe(true);
+    });
+
+    it('suppresses ambiguity on "Run: <cmd>" pattern', () => {
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'Run: `npm run compile`',
+        message: 'Run: `npm run compile`',
+      });
+      expect(shouldSuppress(r, baseConfig, '')).toBe(true);
+    });
+
+    it('suppresses ambiguity on "Identify <x>" pattern with colon', () => {
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'Identify: README files and their locations',
+        message: 'Identify: README files and their locations',
+      });
+      expect(shouldSuppress(r, baseConfig, '')).toBe(true);
+    });
+
+    it('suppresses ambiguity on dash-separated imperative pattern', () => {
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'Document - new dependencies and removed ones',
+        message: 'Document - new dependencies and removed ones',
+      });
+      expect(shouldSuppress(r, baseConfig, '')).toBe(true);
+    });
+
+    it('does NOT suppress when text is genuinely vague', () => {
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'Provide a clear, concise explanation',
+        message: 'Provide a clear, concise explanation',
+      });
+      expect(shouldSuppress(r, baseConfig, '')).toBe(false);
+    });
+
+    it('does NOT suppress when verb is not in the list', () => {
+      // "Hover" is not in IMPERATIVE_VERBS and not in OBLIGATION_TOKENS, so
+      // neither Rule 2 (obligation-token) nor Rule 12 (imperative-ambiguity)
+      // should fire. The finding should be kept.
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'Hover: the icon to see the tooltip',
+        message: 'Hover: the icon to see the tooltip',
+      });
+      expect(shouldSuppress(r, baseConfig, '')).toBe(false);
+    });
+
+    it('is case-insensitive on the verb', () => {
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'VERIFY: package version',
+        message: 'VERIFY: package version',
+      });
+      expect(shouldSuppress(r, baseConfig, '')).toBe(true);
     });
   });
 });

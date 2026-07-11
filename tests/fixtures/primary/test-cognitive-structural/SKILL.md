@@ -9,6 +9,16 @@ You are an expert incident response coordinator with deep experience managing pr
 
 > **Test metadata:** 15 injected issues across three categories:
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Cognitive | 5 | YES |
+> | Ambiguities | 6 | YES |
+> | Coverage gaps | 4 | YES |
+> | Hygiene | 4 | YES |
+> | Persona | 4 | YES |
+> | Circular | 1 | MAYBE |
+> | **Total** | **24** | — |
+>
 > | Label | Category | Detectable by current tool? |
 > |---|---|---|
 > | COGNITIVE-1 | Deep conditional nesting (6 levels) | YES — cognitive_load |

@@ -74,7 +74,16 @@ Every Numeric Claim in the Document must match the Evidence exactly. If the Evid
 
 # Injected issue table
 
-**Test metadata:** 1
+**Test metadata:** E12-N3 Gemini median across 3 runs:
+
+| Category | Expected count | Detectable? |
+| --- | ---: | --- |
+| Ambiguities | 1 | YES |
+| Coverage gaps | 1 | YES |
+| Hygiene | 4 | YES |
+| Dead | 1 | MAYBE |
+| **Total** | **7** | — |
+
 **Expected analyzer category:** `ambiguity`
 
 | # | Section | Category | Expected code | Notes |

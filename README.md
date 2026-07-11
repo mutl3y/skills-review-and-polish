@@ -4,9 +4,9 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## ✅ Status: Published v0.1.6
+## ✅ Status: v0.1.35 (ready for marketplace)
 
-- **v0.1.6** — Published to VS Code Marketplace (July 2, 2026)
+- **v0.1.35** — Recommended model `qwen/qwen3-coder-30b-a3b-instruct` (E29 benchmark), prompt fixes (-36% boilerplate at corpus scale), MCP `analysisWaves` param, `deepModel` config, cross-wave dedup rule. 459/459 tests pass.
 - Core analyzer with 6-wave analysis ✅
 - Surgical fixer with safety guards ✅
 - VS Code integration (diagnostics, code actions, hovers) ✅
@@ -60,6 +60,7 @@ Open VS Code Settings and search "Skills Review":
 
 - `enable` — Turn on/off
 - `provider` — Which LLM to use (Copilot by default, or OpenRouter/GitHub Models)
+- `model` — Model id (use the **Select Analysis Model** command). For OpenRouter, the recommended model is `qwen/qwen3-coder-30b-a3b-instruct` (see [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models))
 - `analysisMode` — `multiWave` (recommended), `focused` (contradictions + ambiguities), or `single` combined pass
 - `logLevel` — `info` (default), `debug` for detailed tracing, or `trace` for full LLM prompt/response logging
 

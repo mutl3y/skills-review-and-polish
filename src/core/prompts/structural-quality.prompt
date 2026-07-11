@@ -20,6 +20,19 @@ Flag:
 (d) sequencing problems where a prerequisite or required condition is stated AFTER the step that depends on it.
 (e) multi-factor decision delegation without criteria: the prompt lists multiple factors the model should consider but provides no decision table, weighting, formula, or worked example to guide the choice — the model is expected to independently synthesise those factors into a consistent decision with no basis for doing so (e.g. "Use your assessment of service tier, duration, user volume, revenue exposure, and mitigation status to select the most suitable course of action").
 
+## Type disambiguation (mandatory — apply BEFORE assigning a type)
+The five types overlap. Use this table to pick the single best type. A passage can match multiple types; pick the one whose PRIMARY symptom is most directly exhibited.
+
+| Type | Primary symptom | When to use (positive test) | When NOT to use (negative test) |
+| --- | --- | --- | --- |
+| nested-conditions | IF/THEN/ELSE-style conditional logic is nested 3+ levels deep | The relevant_text contains nested "if/then/else", "when X then Y else Z", or conditional cases inside conditional cases | The relevant_text is a flat list of conditions with no nesting (use deep-decision-tree) |
+| deep-decision-tree | A FLAT enumeration of 3+ decision factors the model must weigh | The relevant_text is a flat list of 3+ conditions, rules, or triggers that the model must consider together to make one decision (e.g. "Evaluate A, B, C, and D; modify if any is true") | The relevant_text has nested conditionals (use nested-conditions); or the model is told to consider factors and decide without a rule (use delegated-decision) |
+| priority-conflict | Two or more named/labeled priority frameworks compete | The relevant_text explicitly names or labels two or more priority systems (e.g. "Conflict-Resolution Order, Severity Matrix") with no stated precedence | The relevant_text states a single priority system, or states a precedence between the systems (no conflict) |
+| constraint-overload | Many constraints are listed without an interaction rule | The relevant_text lists 5+ constraints that the model must satisfy SIMULTANEOUSLY and provides no rule for what to do when they conflict | The relevant_text states a precedence or interaction rule (e.g. "Constraints always apply; R1 determines when modification is required" — that IS a precedence rule, so not constraint-overload) |
+| delegated-decision | The model is asked to weigh factors with NO criteria | The relevant_text says "use your judgment", "as appropriate", or "consider these factors and decide" without listing a decision rule | The relevant_text provides a decision rule, even if the rule is complex (use deep-decision-tree) |
+
+If after applying the table you cannot pick a single type with confidence, do NOT report the issue. Prefer false negatives over misclassification.
+
 Respond ONLY with JSON in this exact format (use [] for no findings):
 {
   "cognitive_load": {

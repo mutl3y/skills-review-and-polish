@@ -59,3 +59,7 @@ test-results
 tests/e2e/auth-state/
 scripts/rebuild-ext.sh
 .skills-review.json
+
+# Experiment data and logs (regenerable from scripts)
+.github/experiments/documentation-review/data/
+.github/experiments/documentation-review/logs/

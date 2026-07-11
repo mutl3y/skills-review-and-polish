@@ -92,3 +92,111 @@ npm run compile
 npm test (346 unit tests)
 npm run test:e2e (Playwright E2E)
 npx playwright test --config tests/playwright.config.ts tests/e2e/smoke-analyze.test.ts
+
+# Handover — 2026-07-11
+
+**Start here tomorrow:** `.github/experiments/documentation-review/notes/lessons-learned.md` (138 lines).
+**Source of truth:** `docs/plan/20260710-documentation-review-experiment/plan.yaml` (2105 lines, valid YAML).
+
+## State
+
+- 452/452 unit tests pass · `npm run compile` clean · branch: main
+- 20 of 22 experiments completed (E4 + E6 still planned)
+- ~$0.30 spent · 94 LLM calls · 0 rate-limits
+- 3 LLM-dependent integration tests in `src/mcp/server.integration.test.ts` are flaky (noise floor, not a regression)
+
+## What shipped this session
+
+5 analyzer fixes (E8, E9, E10, E11, E14, E15) + 2 API improvements (E20, E21):
+
+| ID | What | File |
+| --- | --- | --- |
+| E8 | buildUserPrompt grounding | `src/core/analyzer.ts` |
+| E9 | cognitive-* type disambiguation | `src/core/prompts/structural-quality.prompt` |
+| E10 | "search the doc first" pre-check | `src/core/prompts/coverage.prompt` + `single-pass.prompt` |
+| E11 | 3 post-processor rules | `src/core/findingFilter.ts` |
+| E14 | length tier recalibration | `src/core/scoring.ts` |
+| E15 | scoreSkill "empty=Ungraded" bug fix | `src/core/scoring.ts` |
+| E20 | per-category fixture labels (15 → 59) | 16 SKILL.md + `tests/fixtures/README.md` |
+| E21 | `analysisWaves: [string]` API | `src/core/types.ts` + `src/core/index.ts` |
+
+4 LLM experiments validated (E18, E19, E22, E23) — see lessons-learned.md for the data.
+
+## Top 3 things to remember
+
+1. **LLM noise floor is real** — always use N≥3 medians. Single-run detection varies by ±5-15 findings.
+2. **Focused mode (multiWave + enabledWaves) >> single mode for fixture validation** — gives 98-187% in-cat vs 0-22% with single.
+3. **The "extras" the analyzer finds are real, not hallucinations** — fixture labels were incomplete (E20 fixed).
+
+## Next session
+
+1. **v8 follow-up** — E22 found 5 new contradiction findings on v7 (D8 vs C2/C3/C4/C5). A v8 clarifying the modification taxonomy could move v7 from B- to A on focused mode. Previous v8 attempt (decision table) failed because the LLM now reads the table with the same scrutiny.
+2. **E4 + E6** still in planned state. E6 (multi-model comparison) is implicitly covered by E12-N3 cross-model work — could be marked completed with a reference. E4 (specification style) would require a new fixture set.
+
+## Quick commands
+
+```bash
+npm run compile
+npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.test.ts"
+
+# Re-run any experiment
+source ~/.bashrc && OPENROUTER_API_KEY=$OPENROUTER_API_KEY node scripts/e19-focused-suite.mjs
+
+# Verify plan.yaml
+node -e "const y=require('js-yaml');y.load(require('fs').readFileSync('docs/plan/20260710-documentation-review-experiment/plan.yaml','utf8'));console.log('OK')"
+```
+
+# Handover — 2026-07-11 (v0.1.35)
+
+## State
+
+- 466/466 unit tests pass · `npm run compile` clean · branch: main
+- v0.1.35 ready for marketplace (recommended model + prompt fixes + MCP `analysisWaves` + `deepModel` config)
+- ~$2 spent across 30+ experiments · 1000+ LLM calls · 0 rate-limits
+
+## What shipped in v0.1.35
+
+**Model change:** switched recommended model from `google/gemini-2.5-flash-lite` to `qwen/qwen3-coder-30b-a3b-instruct` (E29 benchmark winner, 100% recall, 0 FPs, $0.17/1M, 32% cheaper).
+
+**Prompt fixes** (E31/E32/E33):
+- Coverage prompt: anti-boilerplate rule + "mentioned but not handled" + silent-gap inference → -38% on real corpus
+- Ambiguity prompt: material-difference test + legal/regulatory exception → -40% on real corpus, +375% on test-ambiguities-hard
+- Single-pass prompt: same fixes applied for legacy single mode
+- Result: real-signal quality UP, boilerplate FPs DOWN
+
+**API improvements:**
+- `analysisWaves: WaveName[]` config field + MCP parameter for per-wave analysis
+- `deepModel` config field + provider tier routing (tier=deep routes to deepModel)
+- `Skills Review: Analyze Cognitive Load` command (one-click structural + persona)
+
+**Filter rules:**
+- Rule 11: crossWaveDedupRule (suppress weak finding when specific finding from different wave covers same span)
+- Rule 12: imperativeAmbiguityRule (suppress "Verify: <action>" style boilerplate)
+
+**v8 documentation-review skill** (E24): eliminated 5 false-positive contradictions in the D8/C2/C3/C4 cluster via explicit modification taxonomy; 33 findings → 8.
+
+## Per-mode recommendation (E34)
+
+| Mode | Findings (6-skill subset) | Cost per scan | When to use |
+|---|---:|---:|---|
+| single + qwen3-coder-30b | 16 | $0.003 | Quick scans, CI gates |
+| multiWave + qwen3-coder-30b | 32 | $0.02 | Thorough analysis, real-world skills |
+| focused (specific waves) | varies | varies | Targeted audits |
+
+Single mode with the new model is now viable for production — finds 78% more real issues than E20 baseline (gpt-4o-mini + v3 prompts) at lower cost.
+
+## Top 3 things to remember
+
+1. **Prompt fix > filter rules** — for LLM-as-judge systems, fixing the prompt that produces the judgment is 10-100x more effective than filtering the output.
+2. **Model + prompt matter more than mode** — single mode with qwen3-coder-30b + new prompts finds 78% more than E20's multiWave. Mode is a secondary lever.
+3. **Test corpus > real corpus for measuring improvement** — E33 fixture validation (13 labeled fixtures, ground truth) is more reliable than E30 corpus scan (327 skills, no ground truth).
+
+## Quick commands
+
+```bash
+npm run compile
+npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.test.ts"
+
+# Re-run any experiment
+source ~/.bashrc && OPENROUTER_API_KEY=$OPENROUTER_API_KEY node scripts/e30-corpus-scan.mjs
+```

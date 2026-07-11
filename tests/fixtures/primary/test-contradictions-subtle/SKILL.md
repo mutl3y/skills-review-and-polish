@@ -11,6 +11,15 @@ Use this skill to assess code changes before merge. Focus on identifying real de
 > Each section contains a contradiction that requires domain inference to detect — the rules don't
 > use opposite words but their practical implications are mutually exclusive.
 > Expected analyzer category: `contradiction` for all 12.
+>
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Contradictions | 12 | YES |
+> | Ambiguities | 4 | YES |
+> | Coverage gaps | 1 | YES |
+> | Hygiene | 6 | YES |
+> | Cognitive | 2 | YES |
+> | **Total** | **25** | — |
 
 ## Analysis Rules
 

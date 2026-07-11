@@ -10,6 +10,14 @@ Use this skill to evaluate release candidates before promoting to production. Ap
 > **Test metadata:** 15 injected direct contradictions (DIRECT-1 through DIRECT-15).
 > Each numbered item below contains a self-contradictory rule.
 > Expected analyzer category: `contradiction` for all 15.
+>
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Contradictions | 15 | YES |
+> | Ambiguities | 11 | YES |
+> | Coverage gaps | 2 | YES |
+> | Hygiene | 5 | YES |
+> | **Total** | **33** | — |
 
 ## Release Guardrails
 

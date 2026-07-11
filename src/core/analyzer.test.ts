@@ -1390,7 +1390,10 @@ describe('Engine — analysisMode routing', () => {
         ambiguity_issues: [{ text: 'vague', type: 'term', severity: 'info', problem: 'unclear', suggestion: 'fix' }],
       }),
     }), { analysisMode: 'focused' });
-    const results = await engine.analyze({ text: 'A. B. vague.' });
+    // Two-line text keeps the contradiction and ambiguity findings on
+    // different lines so the cross-wave dedup post-processor (Rule 11)
+    // does not collapse them into a single finding.
+    const results = await engine.analyze({ text: 'A. B.\nSomething vague here.' });
     expect(results.some(r => r.code === 'contradiction')).toBe(true);
     expect(results.some(r => r.code === 'ambiguity-llm')).toBe(true);
   });

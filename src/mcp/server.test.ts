@@ -116,8 +116,51 @@ describe('createMcpToolRegistry', () => {
       }),
       undefined,
       undefined,
+      undefined, // configOverride
     );
     expect(JSON.parse(result.content[0].text)).toEqual([{ code: 'ambiguity-llm' }]);
+  });
+
+  it('passes analysisWaves to the engine as configOverride', async () => {
+    const analyze = vi.fn(async () => [{ code: 'contradiction' }]);
+    const engine = { analyze, provider: {} };
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => engine) as any,
+    });
+
+    await registry.callTool('analyze', {
+      text: 'doc',
+      analysisWaves: ['contradictions', 'hygiene'],
+    });
+
+    expect(analyze).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'doc' }),
+      undefined,
+      undefined,
+      expect.objectContaining({
+        analysisWaves: ['contradictions', 'hygiene'],
+        analysisMode: 'multiWave',
+      }),
+    );
+  });
+
+  it('ignores invalid analysisWaves values', async () => {
+    const analyze = vi.fn(async () => []);
+    const engine = { analyze, provider: {} };
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => engine) as any,
+    });
+
+    _resetAnalyzeCooldown();
+    await registry.callTool('analyze', {
+      text: 'doc',
+      analysisWaves: ['contradictions', 'not-a-wave'],
+    });
+
+    // configOverride should be set, but the invalid value filtered out
+    const call = analyze.mock.calls[0] as unknown as unknown[];
+    const override = call[3] as { analysisWaves: string[] };
+    expect(override.analysisWaves).toEqual(['contradictions']);
   });
 
   it('calls the fix tool through the surgical fixer', async () => {

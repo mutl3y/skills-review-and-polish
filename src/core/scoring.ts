@@ -41,12 +41,20 @@ INFRA_SKIP = new Set([
 ]);
 
 // ─── Length tiers ─────────────────────────────────────────────────────────────
+// Tuned on 2026-07-10 against 15 representative skills from the
+// awesome-copilot-fork corpus (see docs/plan/20260710-documentation-review-experiment/).
+// Evidence: the previous "≤200 lines ideal" threshold hit 39% of real-world
+// skills (75th percentile is 300 lines, 18% exceed 350 lines, 5% exceed 550).
+// The previous 800+ tier jumped to 35 pts — a single +13 jump that over-penalised
+// legitimate long reference skills (e.g. quality-playbook at 2739 lines, 0 issues,
+// graded C+ purely on length). New tiers are more lenient at the low end and
+// use a smoother gradient at the high end (max 22, not 35).
 const LENGTH_TIERS: Array<{ max: number; penalty: number; label: string }> = [
-  { max: 200,       penalty: 0,  label: 'Ideal length' },
-  { max: 350,       penalty: 5,  label: 'Getting verbose — consider splitting into focused sub-skills' },
-  { max: 550,       penalty: 12, label: 'Too long — extract reference material to JIT-loaded files' },
-  { max: 800,       penalty: 22, label: 'Significantly bloated — refactor with on-demand file references' },
-  { max: Infinity,  penalty: 35, label: 'Over-scoped — break into multiple skills using JIT loading' },
+  { max: 300,       penalty: 0,  label: 'Ideal length' },
+  { max: 500,       penalty: 3,  label: 'Getting verbose — consider splitting into focused sub-skills' },
+  { max: 750,       penalty: 8,  label: 'Too long — extract reference material to JIT-loaded files' },
+  { max: 1200,      penalty: 15, label: 'Significantly bloated — refactor with on-demand file references' },
+  { max: Infinity,  penalty: 22, label: 'Over-scoped — break into multiple skills using JIT loading' },
 ];
 
 // ─── Grade thresholds ─────────────────────────────────────────────────────────
@@ -130,12 +138,23 @@ export function scoreSkill(
   const THRESHOLD_OFFSETS: Record<SkillType, number> = { simple: 0, standard: 0, workflow: 10, meta: 15 };
   const thresholdOffset = THRESHOLD_OFFSETS[skillType];
 
-  // Empty results = nothing was analyzed (all waves failed or rate-limited)
-  // You can't grade what wasn't analyzed.
-  if (results.length === 0) {
+  // Detect incomplete analysis — wave failures, parse errors, disabled LLM
+  // Empty results WITHOUT any infra codes means the skill is clean (analyzer
+  // found no issues), not that analysis failed. A clean skill deserves a real
+  // grade based on length penalty alone, not "Ungraded".
+  const hasInfraCode = results.some(r => INFRA_SKIP.has(r.code)) ||
+                        results.some(r => r.code === 'llm-rate-limited');
+  const incomplete = hasInfraCode && results.filter(r => !INFRA_SKIP.has(r.code) && r.code !== 'llm-rate-limited').length === 0;
+  const infraErrorCount = results.filter(r => INCOMPLETE_ANALYSIS_CODES.has(r.code)).length;
+  // Count rate-limited waves (llm-rate-limited = summary code from analyzer)
+  const rateLimitedWaveCount = results.filter(r => r.code === 'llm-rate-limited').length;
+
+  // If the ONLY results are infra/rate-limit codes, the analysis truly failed
+  // and the grade should be capped to "Ungraded".
+  if (results.length > 0 && results.every(r => INFRA_SKIP.has(r.code) || r.code === 'llm-rate-limited')) {
     return {
       score: 0,
-      grade: 'Ungraded' as GradeLetter,
+      grade: INCOMPLETE_GRADE_CAP,
       issuePenalty: 0,
       lengthPenalty: lengthTier.penalty,
       lengthLabel: lengthTier.label,
@@ -145,17 +164,10 @@ export function scoreSkill(
       thresholdOffset,
       total: 0,
       incomplete: true,
-      infraErrorCount: 0,
-      rateLimitedWaveCount: 0,
+      infraErrorCount,
+      rateLimitedWaveCount,
     };
   }
-
-  // Detect incomplete analysis — wave failures, parse errors, disabled LLM
-  const incomplete = results.some(r => INCOMPLETE_ANALYSIS_CODES.has(r.code));
-  const infraErrorCount = results.filter(r => INCOMPLETE_ANALYSIS_CODES.has(r.code)).length;
-
-  // Count rate-limited waves (llm-rate-limited = summary code from analyzer)
-  const rateLimitedWaveCount = results.filter(r => r.code === 'llm-rate-limited').length;
 
   // workflow / meta: cognitive-structure findings downgraded warning→info.
   const cognitiveDowngrade =

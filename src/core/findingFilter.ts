@@ -50,7 +50,8 @@ export function filterFindings(
     if (shouldSuppress(r, config, doc)) continue;
     out.push(applyOverrides(r, config));
   }
-  return out;
+  // Apply cross-finding batch rules (e.g. duplicate suppression across waves)
+  return applyBatchRules(out, config, doc);
 }
 
 /** Public predicate for tests. Same logic as `filterFindings` but per-finding. */
@@ -113,6 +114,33 @@ function extractQuotedPhrases(message: string): string[] {
     out.push(m[1]);
   }
   return out;
+}
+
+/**
+ * Return the line number (0-indexed) where the given section heading
+ * starts, or -1 if the heading is not present. A section heading is a
+ * line that starts with one or more `#` characters.
+ */
+function findSectionStart(doc: string, heading: string): number {
+  const lines = doc.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === heading) return i;
+  }
+  return -1;
+}
+
+/**
+ * Return the line number where the YAML frontmatter ends (i.e. the
+ * closing `---` of the opening frontmatter block). Returns -1 if the
+ * document does not start with a YAML frontmatter.
+ */
+function findFrontmatterEnd(doc: string): number {
+  const lines = doc.split('\n');
+  if (lines[0]?.trim() !== '---') return -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') return i;
+  }
+  return -1;
 }
 
 /**
@@ -347,6 +375,280 @@ const numberedProcedureRule: FilterRule = {
 };
 
 // --------------------------------------------------------------------------
+// Rule 8 — YAML frontmatter description redundancy
+// --------------------------------------------------------------------------
+
+/**
+ * The hygiene wave flags the YAML `description:` field as redundant
+ * with the body when the description reuses terms from the body. The
+ * description is the public-facing summary that VS Code / agent hosts
+ * display; reusing body terms in the summary is intentional and required
+ * for discoverability. The wave's pattern (a) "REDUNDANT INSTRUCTION"
+ * is intended for body instructions, not metadata fields.
+ *
+ * Source of authority: VS Code / Copilot skill metadata spec, where
+ * the `description` field is shown to the model in the agent picker
+ * and is expected to summarise the skill's purpose.
+ */
+const yamlDescriptionRedundancyRule: FilterRule = {
+  id: 'yaml-description-redundancy',
+  description:
+    'hygiene-redundant-instruction flagging the YAML description ' +
+    'field, which is a public-facing summary and is expected to ' +
+    'reuse body terms.',
+  appliesTo: ['hygiene-redundant-instruction'],
+  matches(result, _config, doc) {
+    if (result.code !== 'hygiene-redundant-instruction') return false;
+    const frontmatterEnd = findFrontmatterEnd(doc);
+    if (frontmatterEnd <= 0) return false;
+    // The description is on line 2 (0-indexed 1) of a typical SKILL.md
+    // frontmatter; we allow lines 1..frontmatterEnd-1 to be flagged
+    // for safety, but the canonical case is line 2.
+    return result.range.start.line >= 1 && result.range.start.line <= frontmatterEnd;
+  },
+};
+
+// --------------------------------------------------------------------------
+// Rule 9 — Definitions section preamble
+// --------------------------------------------------------------------------
+
+/**
+ * The hygiene wave flags the introductory paragraph of a Definitions /
+ * Glossary section as non-actionable preamble or as a vague directive.
+ * The introductory paragraph of a glossary ("The following definitions
+ * apply throughout this document") is the standard, expected format and
+ * is intentional context-setting, not preamble in the wave's pattern (b)
+ * sense (which targets pre-action historical context).
+ *
+ * Source of authority: 2026-07-10 experiment loop, where the LLM
+ * consistently flagged the "Every term used by a Constraint, a Rule,
+ * or a Procedure step is defined here" intro of every v4-v7 glossary
+ * as a vague directive.
+ */
+const definitionsPreambleRule: FilterRule = {
+  id: 'definitions-preamble',
+  description:
+    'hygiene-non-actionable-preamble or hygiene-vague-directive ' +
+    'flagging the introductory lines of a Definitions / Glossary ' +
+    'section, which is the standard glossary format.',
+  appliesTo: ['hygiene-non-actionable-preamble', 'hygiene-vague-directive'],
+  matches(result, _config, doc) {
+    if (
+      result.code !== 'hygiene-non-actionable-preamble' &&
+      result.code !== 'hygiene-vague-directive'
+    ) {
+      return false;
+    }
+    // The Definitions heading can be either "# Definitions",
+    // "## Definitions", or "## D1 ... ## D2 ..." style.
+    const sectionStart = findSectionStart(doc, '# Definitions');
+    if (sectionStart === -1) return false;
+    // Allow up to 5 lines of preamble inside the Definitions section.
+    return result.range.start.line >= sectionStart && result.range.start.line <= sectionStart + 5;
+  },
+};
+
+// --------------------------------------------------------------------------
+// Rule 10 — Skill opening paragraph
+// --------------------------------------------------------------------------
+
+/**
+ * The hygiene wave flags the opening paragraph of a skill (e.g. "This
+ * skill is invoked against one supplied document and produces one
+ * verification report") as non-actionable preamble. The opening
+ * paragraph of a skill is the standard scope-setting format and is
+ * required before the first action instruction. The wave's pattern (b)
+ * is intended for HISTORICAL context (e.g. "In 2019, the team moved
+ * from Jenkins to GitHub Actions..."), not for scope-setting.
+ *
+ * Source of authority: 2026-07-10 experiment loop, where the LLM
+ * consistently flagged the opening paragraph of v3-v7 as
+ * non-actionable-preamble.
+ */
+const skillOpeningParagraphRule: FilterRule = {
+  id: 'skill-opening-paragraph',
+  description:
+    'hygiene-non-actionable-preamble or hygiene-redundant-instruction ' +
+    'flagging the first 5 body lines after the YAML frontmatter, ' +
+    'which is the standard scope-setting paragraph of a skill.',
+  appliesTo: ['hygiene-non-actionable-preamble', 'hygiene-redundant-instruction'],
+  matches(result, _config, doc) {
+    if (
+      result.code !== 'hygiene-non-actionable-preamble' &&
+      result.code !== 'hygiene-redundant-instruction'
+    ) {
+      return false;
+    }
+    const frontmatterEnd = findFrontmatterEnd(doc);
+    if (frontmatterEnd === -1) return false;
+    const openingStart = frontmatterEnd + 1;
+    return (
+      result.range.start.line >= openingStart &&
+      result.range.start.line <= openingStart + 5
+    );
+  },
+};
+
+// --------------------------------------------------------------------------
+// Rule 11 — cross-wave duplicate suppression (batch rule)
+// --------------------------------------------------------------------------
+
+/**
+ * When two findings from DIFFERENT waves point to the same span and one
+ * is strictly more specific than the other, suppress the less-specific
+ * one. E22 on v7 showed `ambiguity-llm` and `contradiction-related`
+ * findings can both point to the same definition; the contradiction is
+ * the more specific signal, so the ambiguity flag is dropped.
+ *
+ * "Same span" = overlap of [start.line, end.line] ranges.
+ * "More specific" = present in SPECIFICITY_ORDER with a higher rank.
+ *
+ * We require the candidates to come from different analyzer IDs — this
+ * rule never suppresses within-wave duplicates (the E23 line-stability
+ * analysis showed contradiction wave is 100% line-stable, so within-wave
+ * dedup is not needed). Cross-wave is the only case this rule covers.
+ *
+ * Source of authority: 2026-07-11 E22 focused-mode v7 run, which
+ * surfaced 33 findings of which several were cross-wave duplicates of
+ * the same span.
+ */
+const SPECIFICITY_ORDER: ReadonlyArray<string> = [
+  'contradiction',                // strongest: logical conflict
+  'contradiction-related',        // near-contradiction
+  'coverage-gap',                 // missing content
+  'hygiene-vague-cognitive-directive',
+  'hygiene-over-specification',
+  'ambiguity-llm',                // weakest: vague language
+  'hygiene-non-actionable-preamble',
+  'hygiene-redundant-instruction',
+];
+
+/** Codes that are eligible to be SUPPRESSED (must be weak and broad). */
+const SUPPRESSABLE_WEAK_CODES: ReadonlySet<string> = new Set([
+  'ambiguity-llm',
+  'hygiene-non-actionable-preamble',
+  'hygiene-redundant-instruction',
+]);
+
+function specificity(code: string): number {
+  const idx = SPECIFICITY_ORDER.indexOf(code);
+  return idx === -1 ? -1 : SPECIFICITY_ORDER.length - idx;
+}
+
+function rangesOverlap(a: AnalysisResult, b: AnalysisResult): boolean {
+  const aStart = a.range.start.line;
+  const aEnd = a.range.end.line;
+  const bStart = b.range.start.line;
+  const bEnd = b.range.end.line;
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
+/**
+ * Batch rule: drop a weak/broad finding (per SUPPRESSABLE_WEAK_CODES)
+ * if another, more specific finding (per SPECIFICITY_ORDER) from a
+ * DIFFERENT analyzer (i.e. a different wave) covers an overlapping range.
+ */
+const crossWaveDedupRule: BatchFilterRule = {
+  id: 'cross-wave-dedup',
+  description:
+    'Suppress a weak/broad finding (ambiguity-llm, hygiene-*) if a ' +
+    'more specific finding from a different wave covers the same span.',
+  matches(candidate, others) {
+    if (!SUPPRESSABLE_WEAK_CODES.has(candidate.code)) return false;
+    const candSpec = specificity(candidate.code);
+    if (candSpec === -1) return false;
+    for (const other of others) {
+      if (other === candidate) continue;
+      // Different wave (analyzer ID) — within-wave dedup is not this rule's job
+      if (other.analyzer === candidate.analyzer) continue;
+      const otherSpec = specificity(other.code);
+      if (otherSpec === -1) continue;
+      if (otherSpec > candSpec && rangesOverlap(candidate, other)) {
+        return true;
+      }
+    }
+    return false;
+  },
+};
+
+// --------------------------------------------------------------------------
+// Rule 12 — imperative-verb ambiguity suppression
+// --------------------------------------------------------------------------
+
+/**
+ * The ambiguity wave sometimes flags imperative-verb patterns as
+ * "ambiguous" when they are actually clear action instructions. The
+ * pattern `<imperative>: <concrete action>` is a standard documentation
+ * convention (e.g. "Verify: `npx swa --version`", "Identify README files
+ * and their locations") and is not ambiguous.
+ *
+ * E30 full-corpus scan (327 skills) found 939 ambiguity-llm findings,
+ * 15-20% of which were this pattern. Suppress when the quoted text
+ * starts with a recognized imperative verb followed by `:` and a
+ * concrete action.
+ *
+ * Source of authority: 2026-07-11 E30 corpus scan (`e30-corpus-scan.md`).
+ */
+const IMPERATIVE_VERBS = new Set([
+  'verify', 'check', 'run', 'execute', 'use', 'add', 'remove', 'delete',
+  'create', 'make', 'set', 'update', 'edit', 'open', 'close', 'start',
+  'stop', 'identify', 'find', 'list', 'show', 'print', 'read', 'write',
+  'parse', 'load', 'save', 'export', 'import', 'call', 'invoke',
+  'document', 'capture', 'record', 'note', 'include', 'exclude',
+  'validate', 'confirm', 'ensure', 'require', 'specify', 'define',
+  'review', 'inspect', 'examine', 'test', 'try', 'attempt', 'build',
+  'compile', 'install', 'deploy', 'publish', 'commit', 'push', 'pull',
+]);
+
+const imperativeAmbiguityRule: FilterRule = {
+  id: 'imperative-ambiguity',
+  description:
+    'ambiguity-llm flagging an imperative-verb instruction pattern ' +
+    '("Verify: <action>", "Run: <cmd>", etc.) which is a clear action, ' +
+    'not ambiguity.',
+  appliesTo: ['ambiguity-llm'],
+  matches(result) {
+    if (result.code !== 'ambiguity-llm') return false;
+    const text = extractQuotedText(result);
+    if (!text) return false;
+    // Match "<verb>: <something>" or "<verb> - <something>" at the start
+    const m = text.match(/^\s*([A-Za-z]+)\s*[:-]\s*\S/);
+    if (!m) return false;
+    return IMPERATIVE_VERBS.has(m[1].toLowerCase());
+  },
+};
+
+/** Batch rule shape — operates on the full filtered finding set. */
+export interface BatchFilterRule {
+  readonly id: string;
+  readonly description: string;
+  matches(candidate: AnalysisResult, others: ReadonlyArray<AnalysisResult>): boolean;
+}
+
+/**
+ * Apply cross-finding batch rules. Run AFTER per-finding FILTER_RULES so
+ * batch dedup operates on the already-suppressed survivors.
+ */
+export function applyBatchRules(
+  results: ReadonlyArray<AnalysisResult>,
+  _config: Readonly<EngineConfig>,
+  _doc: string,
+): AnalysisResult[] {
+  const out: AnalysisResult[] = [];
+  for (const r of results) {
+    let suppressed = false;
+    for (const rule of BATCH_FILTER_RULES) {
+      if (rule.matches(r, results)) {
+        suppressed = true;
+        break;
+      }
+    }
+    if (!suppressed) out.push(r);
+  }
+  return out;
+}
+
+// --------------------------------------------------------------------------
 // Registry
 // --------------------------------------------------------------------------
 
@@ -362,4 +664,13 @@ export const FILTER_RULES: ReadonlyArray<FilterRule> = [
   definitionsSelfReferenceRule,
   preambleLengthRule,
   numberedProcedureRule,
+  yamlDescriptionRedundancyRule,
+  definitionsPreambleRule,
+  skillOpeningParagraphRule,
+  imperativeAmbiguityRule,
+];
+
+/** Cross-finding batch rules. Applied after FILTER_RULES. */
+export const BATCH_FILTER_RULES: ReadonlyArray<BatchFilterRule> = [
+  crossWaveDedupRule,
 ];

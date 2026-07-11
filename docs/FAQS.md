@@ -25,8 +25,29 @@ Quick answers to the most common questions about **Skills Review and Polish**.
 **A:** The extension is free. The cost depends on your LLM provider:
 
 - **Copilot**: ~$20/month if you don't have a subscription already
-- **OpenRouter**: Pay per request (~$0.001–$0.01 per analysis)
+- **OpenRouter**: Pay per request (~$0.001–$0.01 per analysis). See "Which OpenRouter model should I use?" below for cost-optimized choices.
 - **GitHub Models**: Currently free during preview
+
+### Q: Which OpenRouter model should I use?
+
+**A:** We benchmarked 59 OpenRouter models in July 2026 across 2 labeled fixtures and 6 real-world production skills. The clear winner for cost/quality is **`qwen/qwen3-coder-30b-a3b-instruct`** ($0.17/1M tokens):
+
+- 100% recall on contradiction fixtures
+- 0 false positives on real-world skills
+- 3× cheaper than `gemini-flash-lite` (the previous default)
+- Same model also works as `deepModel` (100% in-cat on contradiction wave, 15s per scan)
+
+**Quick setup** (in your VS Code `settings.json`):
+
+```json
+{
+  "skillsReviewAndPolish.provider": "openrouter",
+  "skillsReviewAndPolish.model": "qwen/qwen3-coder-30b-a3b-instruct",
+  "skillsReviewAndPolish.deepModel": "qwen/qwen3-coder-30b-a3b-instruct"
+}
+```
+
+For other options (free, speed-optimized, high-stakes), see the full table in [USER-GUIDE.md](USER-GUIDE.md#recommended-openrouter-models) or the underlying data in `.github/experiments/documentation-review/notes/e27-e28-leaderboard.md`.
 
 ---
 

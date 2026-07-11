@@ -42,7 +42,15 @@ The Document gives no instruction about which behavior is correct.
 
 # Injected issue table
 
-**Test metadata:** 2
+**Test metadata:** E12-N3 Gemini median across 3 runs:
+
+| Category | Expected count | Detectable? |
+| --- | ---: | --- |
+| Ambiguities | 2 | YES |
+| Coverage gaps | 1 | YES |
+| Hygiene | 4 | YES |
+| **Total** | **7** | — |
+
 **Expected analyzer category:** `ambiguity` + `coverage`
 
 | # | Section | Category | Expected code | Notes |

@@ -1031,7 +1031,14 @@ export class Analyzer {
   }
 
   private buildUserPrompt(text: string): string {
-    return `Analyze the following prompt:
+    return `Read the ENTIRE document below before flagging any issue. Every finding must be grounded in a specific line or section of the document.
+
+Grounding rules:
+- A finding is only valid if you can point to a specific line or section that exhibits the issue.
+- Before reporting a coverage gap or missing handling, SEARCH the document for existing content (definition, rule, procedure step, or example) that addresses the scenario. If found, do NOT report it.
+- Ground every finding in a verbatim quote from the document. If you cannot quote the document, the finding is not valid.
+
+Analyze the following prompt:
 
 <DOCUMENT_TO_ANALYZE>
 ${text}

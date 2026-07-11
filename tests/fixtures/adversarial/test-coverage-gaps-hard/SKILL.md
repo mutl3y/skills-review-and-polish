@@ -12,6 +12,12 @@ Use this skill to conduct pre-production security reviews of cloud-native applic
 > container scanning, network policies, audit logging, CI/CD pipeline security, and dependency
 > scanning. Despite this, 15 significant security domains are entirely absent.
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Coverage gaps | 15 | YES (silent gaps — no body marker) |
+> | Hygiene | 7 | YES |
+> | **Total** | **22** | — |
+>
 > | Gap ID | Missing domain | Why it matters |
 > |---|---|---|
 > | GAP-H-1 | Secrets management lifecycle (rotation schedule, scoping, injection method) | Scanning for hardcoded secrets is covered; ongoing rotation/lifecycle is not |

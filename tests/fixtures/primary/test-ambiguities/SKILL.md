@@ -11,6 +11,11 @@ Use this skill to evaluate API proposals and pull requests that modify the publi
 > Each numbered instruction below contains at least one term or phrase where a model could take
 > clearly different concrete actions depending on interpretation.
 > Expected analyzer category: `ambiguity` for all 20.
+>
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Ambiguities | 20 | YES |
+> | **Total** | **20** | — |
 
 ## Review Instructions
 

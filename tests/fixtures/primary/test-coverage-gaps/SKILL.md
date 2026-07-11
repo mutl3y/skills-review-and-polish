@@ -11,6 +11,14 @@ Use this skill to audit a project's dependencies and produce a prioritised remed
 > These are SILENT gaps — the skill provides no guidance for these scenarios.
 > They are listed here for test tracking only; the LLM must infer them as missing coverage.
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Coverage gaps | 13 | YES (E10 pre-check may suppress some) |
+> | Ambiguities | 7 | YES |
+> | Hygiene | 5 | YES |
+> | Cognitive | 1 | YES |
+> | **Total** | **26** | — |
+>
 > | Gap | Scenario | Expected impact if missed | Detectable? |
 > |---|---|---|---|
 > | GAP-1 | Empty manifest (zero deps) | Confusing empty output | LOW |

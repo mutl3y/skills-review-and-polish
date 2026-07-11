@@ -7,22 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Added (v0.1.35 — 2026-07-11)
 
-- **Per-file accepted findings** (`src/core/acceptedFindings.ts`) — suppress known/expected issues per document with `accept_finding`, `list_accepted_findings` MCP tools
-- **Prompts as .md files** (`src/core/prompts/`) — all 8 wave/fix prompts now load from editable `.md` files (contradiction, ambiguity, persona, structural-quality, coverage, hygiene, surgical-fix, custom-diagnostics, composition-conflicts)
-- **Structured logging** (`src/core/logger.ts`) — `createLogger()` with structured JSON output, log levels, and VS Code transport
-- **External pricing** (`src/pricing.ts`) — `fetchPricing()` fetches live model costs from GitHub Docs, with static fallback; `formatPricing()` for human-readable cost display
-- **Copilot model pricing** (`src/copilotPricing.ts`) — static Copilot-specific pricing table for offline use
-- MCP `score` tool — quality score (0–100) and letter grade (A+ through F)
-- MCP `verify_fix` tool — re-analyze to confirm a fix resolved a specific issue
-- MCP `list_accepted_findings` tool — view suppressed findings, filter by file
-- MCP `health` tool — check provider, model, and config source
-- `.skills-review.json` config file — VS Code settings synced to workspace root for MCP server
-- `Skills Review: Sync MCP Config` command — writes `.skills-review.json` from current settings
-- MCP server integration tests — real end-to-end MCP protocol tests using `InMemoryTransport`
-- Enriched MCP tool descriptions with fixable codes, recommended workflow, and input schemas
-- MCP improvement plan with 6 identified problems and fixes (`docs/plan/archive/infrastructure/MCP-IMPROVEMENT-PLAN.md`)
+- **`analysisWaves` config field** — clean per-call wave selection that bypasses `analysisMode`. New `Engine.analyze(input, customDiags, enabledWavesOverride, configOverride)` signature.
+- **MCP `analysisWaves` parameter** — per-wave analysis from MCP server (`qwen/qwen3-coder-30b-a3b-instruct` recommended in package.json description).
+- **`deepModel` config field + provider tier routing** — use a stronger reasoning model for the contradictions wave without changing the analysis model. `OpenRouterProvider` now supports `deepModel` option and routes `modelTier: 'deep'` to it.
+- **Recommended model: `qwen/qwen3-coder-30b-a3b-instruct`** — marked with ⭐ in model picker, added to `model`/`deepModel` config descriptions. Cost $0.17/1M (vs $0.25/1M for gemini-flash-lite), 100% recall on labeled fixtures (E29).
+- **`Skills Review: Analyze Cognitive Load` command** — quick one-click for structural + persona waves via `analysisWaves: ['structural', 'persona']`.
+- **Finding post-processor Rule 12: `imperativeAmbiguityRule`** — suppresses `ambiguity-llm` on well-known `<verb>:` imperative patterns ("Verify:", "Run:", "Document:"). 7 new unit tests.
+- **Finding post-processor Rule 11: `crossWaveDedupRule`** — suppresses a weak/broad finding (`ambiguity-llm`, `hygiene-*`) when a more specific finding from a different wave covers the same span.
+- **Coverage prompt anti-boilerplate rule** — forbids "What if user provides empty input?" coverage gaps for skills that don't accept user input. Verified at corpus scale: 36% reduction in findings on 327 real-world skills (E30 → E32).
+- **Ambiguity prompt material-difference test** — strengthened the quality bar to require the LLM to flag only when two competent models would produce materially different actions, not just different wording. Special exception for legal/regulatory words ("appropriate", "timely", "material", "reasonable") which DO pass the material-difference test in compliance contexts. Verified at fixture scale: test-ambiguities-hard went from 4/20 to 19/20 (E33 v4).
+- **Coverage prompt "mentioned but not handled" rule** — distinguishes between a body that mentions a topic vs a body that provides operational guidance. Topics that are only mentioned (no procedural instruction) are still coverage gaps.
+- **E26-E33 experiment notes + scripts** — 8 new experiment scripts (e26 cheaper-models, e27 paid-leaderboard, e28 free-leaderboard, e29 realworld-benchmark, e30 corpus-scan, e31 prompt-fix-eval, e32 corpus-rescan, e33 fixture-validation), 7 new experiment notes documenting methodology and results.
+- **`versions/v8/SKILL.md`** for the documentation-review skill — resolves 5 false-positive contradictions (D8 vs C2/C3/C4) by clarifying the modification taxonomy and the D9.3/D9.4 precedence rule. 33 → 8 findings on the v7 → v8 transition (E24).
+
+### Changed
+
+- `package.json` recommends `qwen/qwen3-coder-30b-a3b-instruct` for `model` and `deepModel` config fields.
+- `src/extension.ts` model picker marks the recommended model with a ⭐ indicator.
+- `docs/USER-GUIDE.md` adds a "Recommended OpenRouter Models" section with the E29 cost/quality table.
+- `docs/FAQS.md` adds a "Which OpenRouter model should I use?" FAQ entry.
+- `tests/fixtures/README.md` adds the E33 detection-rate table documenting current 14/47 (30%) PASS rate and known limitations.
+- `src/extension.ts` `analyzeDocument()` accepts an optional `configOverride` parameter for per-call config changes (used by MCP `analysisWaves` parameter).
+- Bumped version to **0.1.35**.
 
 ### Changed
 

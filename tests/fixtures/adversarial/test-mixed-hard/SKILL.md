@@ -9,6 +9,17 @@ Use this skill to manage the deployment lifecycle, governance checkpoints, and o
 
 > **Test metadata:** 16 injected hard mixed issues across all structural and ambiguity sub-types.
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Contradictions | 2 | YES |
+> | Ambiguities | 5 | YES |
+> | Coverage gaps | 2 | YES (silent — no body marker) |
+> | Hygiene | 5 | YES |
+> | Cognitive | 4 | MAYBE (cognitive-* family is unstable across runs) |
+> | Dead | 2 | YES (deprecated API parameters) |
+> | Circular | 2 | YES (circular definitions) |
+> | **Total** | **22** | — |
+>
 > | Label | Category | Sub-type | Pattern |
 > |---|---|---|---|
 > | MIX-H-WASTE-1 | structural | context_waste — preamble | Extended historical commentary before first instruction |

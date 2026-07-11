@@ -70,6 +70,28 @@ export interface LlmResponse {
 export interface EngineConfig {
   analysisMode: 'single' | 'focused' | 'multiWave';
   enabledWaves: WaveName[];
+  /**
+   * Direct per-call wave list. When set to a non-empty array, the engine
+   * runs exactly these waves and bypasses the `analysisMode` switch entirely
+   * (i.e. it works with `analysisMode: 'single'` too). When undefined or
+   * empty, the existing `analysisMode` logic is used.
+   *
+   * Use cases:
+   *   - Fixture-validation scripts that need a single wave without setting
+   *     `analysisMode: 'multiWave'` (which would otherwise run all 6).
+   *   - The VS Code per-scan modal, so a user can say "analyze only the
+   *     cognitive_load wave" in one line.
+   *
+   * Precedence (highest first):
+   *   1. `enabledWavesOverride` argument on `Engine.analyze` (per-scan modal / MCP).
+   *   2. `analysisWaves` (this field).
+   *   3. `analysisMode` (legacy switch).
+   *
+   * This field is purely additive — leaving it undefined preserves the
+   * previous behavior exactly. See
+   * `.github/experiments/documentation-review/notes/e21-analysisWaves-api.md`.
+   */
+  analysisWaves?: WaveName[];
   scoreSamples: number;
   fixStrategy: 'subtractive' | 'additive';
   fixSemanticCheck: boolean;

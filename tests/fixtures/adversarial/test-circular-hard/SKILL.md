@@ -11,6 +11,13 @@ Use this skill to apply risk classification frameworks, calculate exposure metri
 > These are intentionally harder to detect than simple A-defines-B / B-defines-A loops.
 > Patterns used:
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Circular | 10 | YES |
+> | Hygiene | 2 | YES |
+> | Cognitive | 1 | MAYBE |
+> | **Total** | **13** | — |
+>
 > | Pattern | Labels |
 > |---|---|
 > | 3-hop circles: A → B → C → A | HARD-CIRC-3, HARD-CIRC-7 |

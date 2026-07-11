@@ -35,6 +35,32 @@ You can also use other providers:
 
 Leave it as **vscode-lm** if you have Copilot. Otherwise, pick your provider.
 
+### Recommended OpenRouter Models
+
+If you use **openrouter**, here are the best models for cost/quality (from our 2026-07-11 benchmark of 59 candidates on test fixtures and 6 real-world production skills):
+
+| Use case | Model | Cost | Why |
+| --- | --- | ---: | --- |
+| **Best overall (recommended)** | `qwen/qwen3-coder-30b-a3b-instruct` | $0.17 / 1M | 100% in-cat recall, 0 false positives on real-world skills, 3× cheaper than `gemini-flash-lite`. Also works as `deepModel`. |
+| **Speed-optimized** | `qwen/qwen3-vl-8b-instruct` | $0.29 / 1M | Fastest model with 100% recall on long docs (11s avg). Under-detects on short/simple skills. |
+| **Free tier** | `poolside/laguna-xs-2.1:free` | $0 / 1M | 100% recall, 0 FPs. 8 RPM rate limit, 25s avg. |
+| **High-stakes audits** | `meta-llama/llama-4-scout` | $0.20 / 1M | Highest recall of any model, but generates 4× more findings (more FPs). |
+| **Avoid (over-flags)** | `google/gemini-2.5-flash-lite` | $0.25 / 1M | Generates 3× more findings than `qwen3-coder-30b` but most are noise. Was the default before E29. |
+
+**Configuration example** (set in your VS Code `settings.json`):
+
+```json
+{
+  "skillsReviewAndPolish.provider": "openrouter",
+  "skillsReviewAndPolish.model": "qwen/qwen3-coder-30b-a3b-instruct",
+  "skillsReviewAndPolish.deepModel": "qwen/qwen3-coder-30b-a3b-instruct"
+}
+```
+
+You can also use the **Skills Review: Select Analysis Model** command palette command to pick from a sorted list — the picker shows pricing for each model.
+
+> **Methodology:** 27 paid + 20 free OpenRouter models were tested on 2 labeled fixtures (`test-contradictions-hard` for recall, `v8/SKILL.md` for precision), then 5 finalists were run on 6 real-world production skills from the `awesome-copilot-fork` corpus with manual investigation of every finding. See `.github/experiments/documentation-review/notes/e27-e28-leaderboard.md` and `e29-realworld-benchmark.md` for the full data.
+
 ## How to Analyze a File
 
 ### Step 1: Open a File

@@ -10,6 +10,14 @@ Use this skill to enforce cloud cost governance policies and guide engineering t
 > **Test metadata:** 15 injected hard contradictions (HARD-DIRECT-1 through HARD-DIRECT-15).
 > These are intentionally subtler than direct "do X / do not X" reversals.
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Contradictions | 8 | YES (15 labeled sides → 8 unique pairs) |
+> | Ambiguities | 11 | YES |
+> | Hygiene | 5 | YES |
+> | Persona | 1 | YES |
+> | **Total** | **25** | — |
+>
 > | Pattern | Labels |
 > |---|---|
 > | Numeric range overlap — two rules assign conflicting classification to the same spend band | HARD-DIRECT-1, HARD-DIRECT-5 |

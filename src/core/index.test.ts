@@ -83,4 +83,119 @@ describe('Engine', () => {
       }),
     );
   });
+
+  // ── analysisWaves override (E21) ─────────────────────────────────────────
+  // The `analysisWaves` config field is a direct per-call wave list that
+  // bypasses the `analysisMode` switch. See
+  // `.github/experiments/documentation-review/notes/e21-analysisWaves-api.md`.
+
+  it('analysisWaves: [hygiene] fires only the hygiene wave', async () => {
+    const spy = vi.spyOn(Analyzer.prototype, 'analyze').mockResolvedValue([makeResult('hygiene-circular-definition')]);
+    const engine = new Engine(provider, {
+      analysisMode: 'multiWave',
+      enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      scoreSamples: 1,
+      fixStrategy: 'subtractive',
+      fixSemanticCheck: false,
+      fixSelfCritique: false,
+      fixReferenceGrounding: true,
+      analysisWaves: ['hygiene'],
+    });
+
+    const results = await engine.analyze({ text: 'Body', filePath: '/tmp/test.md' });
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Body', filePath: '/tmp/test.md' }),
+      undefined,
+      ['hygiene'],
+      expect.objectContaining({ analysisWaves: ['hygiene'] }),
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0].code).toBe('hygiene-circular-definition');
+  });
+
+  it('analysisWaves: [cognitive_load family proxies] fires both cognitive_load and persona waves', async () => {
+    // Note: there is no wave literally called 'cognitive_load' — the cognitive
+    // codes are emitted by the 'structural' wave. This test mirrors the
+    // realistic use case: "fire the two waves that contain the cognitive_load
+    // and persona families in one call".
+    const spy = vi.spyOn(Analyzer.prototype, 'analyze').mockResolvedValue([
+      makeResult('cognitive-load'),
+      makeResult('persona-inconsistency'),
+    ]);
+    const engine = new Engine(provider, {
+      analysisMode: 'multiWave',
+      enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      scoreSamples: 1,
+      fixStrategy: 'subtractive',
+      fixSemanticCheck: false,
+      fixSelfCritique: false,
+      fixReferenceGrounding: true,
+      analysisWaves: ['structural', 'persona'],
+    });
+
+    const results = await engine.analyze({ text: 'Body', filePath: '/tmp/test.md' });
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Body', filePath: '/tmp/test.md' }),
+      undefined,
+      ['structural', 'persona'],
+      expect.objectContaining({ analysisWaves: ['structural', 'persona'] }),
+    );
+    expect(results.map(r => r.code).sort()).toEqual(['cognitive-load', 'persona-inconsistency']);
+  });
+
+  it('analysisWaves: undefined falls back to the existing analysisMode logic', async () => {
+    // analysisMode: 'multiWave' with all 6 enabledWaves should still pass the
+    // full list to analyzer.analyze when analysisWaves is undefined.
+    const spy = vi.spyOn(Analyzer.prototype, 'analyze').mockResolvedValue([makeResult('ambiguity-llm')]);
+    const engine = new Engine(provider, {
+      analysisMode: 'multiWave',
+      enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      scoreSamples: 1,
+      fixStrategy: 'subtractive',
+      fixSemanticCheck: false,
+      fixSelfCritique: false,
+      fixReferenceGrounding: true,
+      // analysisWaves intentionally omitted
+    });
+
+    await engine.analyze({ text: 'Body', filePath: '/tmp/test.md' });
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Body', filePath: '/tmp/test.md' }),
+      undefined,
+      ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      expect.not.objectContaining({ analysisWaves: expect.anything() }),
+    );
+  });
+
+  it('analysisWaves overrides analysisMode: single (runs focused multi-wave instead of single-pass)', async () => {
+    // With analysisMode='single' the engine would normally take the
+    // single-pass branch. Setting analysisWaves must bypass that and run
+    // a multi-wave call with the exact list.
+    const singlePassSpy = vi.spyOn(Analyzer.prototype, 'analyzeSinglePassWave').mockResolvedValue([makeResult('single-pass-result')]);
+    const multiWaveSpy = vi.spyOn(Analyzer.prototype, 'analyze').mockResolvedValue([makeResult('hygiene-circular-definition')]);
+    const engine = new Engine(provider, {
+      analysisMode: 'single',
+      enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      scoreSamples: 1,
+      fixStrategy: 'subtractive',
+      fixSemanticCheck: false,
+      fixSelfCritique: false,
+      fixReferenceGrounding: true,
+      analysisWaves: ['hygiene'],
+    });
+
+    const results = await engine.analyze({ text: 'Body', filePath: '/tmp/test.md' });
+
+    expect(singlePassSpy).not.toHaveBeenCalled();
+    expect(multiWaveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Body', filePath: '/tmp/test.md' }),
+      undefined,
+      ['hygiene'],
+      expect.objectContaining({ analysisMode: 'single', analysisWaves: ['hygiene'] }),
+    );
+    expect(results[0].code).toBe('hygiene-circular-definition');
+  });
 });

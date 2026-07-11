@@ -3,10 +3,10 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
-import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES } from './core';
+import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
-import { setLogLevel, setTransport, createLogger } from './core/logger';
+import { setLogLevel, setTransport } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, GitHubModelsProvider } from './providers/externalProvider';
 import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
@@ -109,9 +109,6 @@ class ExtensionState {
 
 /** Active extension state — set by activate(), cleared by deactivate(). */
 let state: ExtensionState | undefined;
-
-/** Structured logger for extension-level code. */
-const logger = createLogger('extension');
 
 /** Append a timestamped line to both the VS Code output channel and the log file. */
 function log(level: 'info' | 'warn' | 'error' | 'debug', message: string): void {
@@ -305,6 +302,9 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('skillsReviewAndPolish.clearAcceptedFindings', () =>
       clearAcceptedFindings(),
+    ),
+    vscode.commands.registerCommand('skillsReviewAndPolish.analyzeCognitiveLoad', (uri?: vscode.Uri) =>
+      analyzeCognitiveLoad(uri),
     ),
     vscode.commands.registerCommand('skillsReviewAndPolish.syncMcpConfig', syncMcpConfig),
     vscode.commands.registerCommand('skillsReviewAndPolish.showFixRejectionReasons', showFixRejectionReasons),
@@ -504,6 +504,28 @@ async function analyzeFile(uri?: vscode.Uri): Promise<void> {
   }
 
   await analyzeDocument(doc);
+}
+
+// ---------------------------------------------------------------------------
+// Analyze Cognitive Load — targeted structural + persona wave analysis
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs only the structural (cognitive-*) and persona waves using the
+ * analysisWaves E21 API. Useful for focused cognitive-load reviews
+ * without the cost of all 6 waves.
+ */
+async function analyzeCognitiveLoad(uri?: vscode.Uri): Promise<void> {
+  if (!uri) {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('Skills Review: No file to analyze.');
+      return;
+    }
+    uri = editor.document.uri;
+  }
+  const doc = await vscode.workspace.openTextDocument(uri);
+  await analyzeDocument(doc, undefined, 'manual', { analysisWaves: ['structural', 'persona'] });
 }
 
 // ---------------------------------------------------------------------------
@@ -749,6 +771,7 @@ async function analyzeDocument(
   doc: vscode.TextDocument,
   token?: vscode.CancellationToken,
   triggerSource: TriggerSource = 'manual',
+  configOverride?: Partial<EngineConfig>,
 ): Promise<void> {
   const cfg = readConfig();
   const filePath = doc.uri.fsPath;
@@ -786,14 +809,7 @@ async function analyzeDocument(
           const effectiveToken = token ?? progressToken;
           if (effectiveToken?.isCancellationRequested) return;
           log('info', `analyzeDocument: calling engine.analyze on ${text.length} chars`);
-          // Pass the live config (including filterFindings toggle) so a
-          // user setting actually controls the analyzer pipeline end-to-end.
-          const results = await engine.analyze(
-            { text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: effectiveToken },
-            undefined,
-            undefined,
-            { filterFindings: cfg.filterFindings },
-          );
+          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: effectiveToken }, undefined, undefined, configOverride);
           if (token?.isCancellationRequested) return;
           log('info', `analyzeDocument: got ${results.length} results`);
           for (const r of results) {
@@ -1374,13 +1390,18 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
     });
   } else if (externalModels.length > 0) {
     // Show external models with pricing from the pricing map
+    // E29 (2026-07-11) benchmark winner — recommended for OpenRouter.
+    const RECOMMENDED_MODELS = new Set([
+      'qwen/qwen3-coder-30b-a3b-instruct',
+    ]);
     items = externalModels.map((m) => {
       // Use pricingForModel for substring matching (handles variations like "Poolside: Laguna M.1" vs "poolside/laguna-m.1")
       const pricing = pricingForModel(m.name, pricingMap);
       const costHint = pricing ? `  💰 ${formatPricing(pricing)}` : '  ❓ cost unknown';
+      const isRecommended = RECOMMENDED_MODELS.has(m.id);
       return {
-        label: `🔵 ${m.name}`,
-        description: costHint,
+        label: isRecommended ? `🔵⭐ ${m.name}` : `🔵 ${m.name}`,
+        description: isRecommended ? `${costHint}  (recommended)` : costHint,
         detail: `     ${m.id} · ${cfg.provider}`,
         modelId: m.id,
         name: m.name,
@@ -1731,13 +1752,7 @@ export function registerLanguageModelTools(
         const { text, filePath } = options.input;
         try {
           const engine = await buildEngineFn();
-          const cfg = readConfigFn();
-          const results = await engine.analyze(
-            { text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token },
-            undefined,
-            undefined,
-            { filterFindings: cfg.filterFindings },
-          );
+          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token });
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
           ]);

@@ -11,6 +11,12 @@ Use this skill to manage data breach response activities from initial detection 
 > Each labeled term or phrase sounds authoritative and precise but contains an undefined
 > threshold, criterion, scope, or actor that a practitioner cannot act on without guessing.
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Ambiguities | 20 | YES |
+> | Hygiene | 1 | YES |
+> | **Total** | **21** | — |
+>
 > | Ambiguity type | Labels |
 > |---|---|
 > | Undefined legal threshold ("material", "significant", "substantial") | HARD-AMBIG-1, HARD-AMBIG-4, HARD-AMBIG-17 |

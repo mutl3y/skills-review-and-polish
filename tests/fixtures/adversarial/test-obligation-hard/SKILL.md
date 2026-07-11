@@ -12,6 +12,14 @@ Use this skill to manage the lifecycle of electronic health records, ensuring co
 > Each labeled instruction appears to impose a strong requirement but is hedged in a way
 > that makes compliance discretionary or unmeasurable.
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Ambiguities | 15 | YES |
+> | Coverage gaps | 2 | YES |
+> | Hygiene | 5 | YES |
+> | Cognitive | 1 | YES |
+> | **Total** | **23** | — |
+>
 > | Pattern | Labels |
 > |---|---|
 > | "ensure... where practicable" — "where practicable" undermines the "ensure" | HARD-OBLIG-1, HARD-OBLIG-7 |

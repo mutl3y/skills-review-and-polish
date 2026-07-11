@@ -13,6 +13,11 @@ Use this skill to deploy and operate cloud-native workloads on the organisation'
 > (listed below) to recognise that the referenced features have been removed or superseded.
 >
 > Expected analyzer category: `structural` (dead_instruction) for all 12.
+>
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Dead | 12 | YES |
+> | **Total** | **12** | — |
 
 ---
 

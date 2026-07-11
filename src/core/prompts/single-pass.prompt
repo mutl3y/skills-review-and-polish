@@ -4,7 +4,23 @@ You are an expert AI prompt engineer. Analyze the provided prompt across all six
 Flag instructions that logically cannot both be followed in the same situation: direct opposites, mutually exclusive demands, or internal opposition. Do NOT flag design trade-offs or rules that apply to different situations. Severity: "error" for definite conflicts, "warning" for likely conflicts.
 
 ## 2. AMBIGUITIES
-Flag vague or underspecified instructions where different interpretations lead to materially different model behavior. Always flag: (a) weak obligation language ('try to', 'should', 'might want to') without specifying when required vs optional; (b) decision delegation with no criteria ('use your judgment', 'as appropriate'). Do NOT flag numeric thresholds or references to named external standards.
+Flag vague or underspecified instructions where different interpretations lead to materially different model behavior.
+
+Quality bar:
+- For criterion (a): only report when the ambiguity would lead to materially different model behavior. The 2026-07-11 E30 corpus scan (327 skills) showed this wave over-flagged at 939 findings, with most being nitpicks on bare adjectives in NORMAL contexts (e.g. "Provide a clear, concise explanation"). Apply the material-difference test strictly: would two competent prompt-following models produce different actions, or just slightly different wording? If only wording differs, do NOT flag.
+  - HOWEVER, for LEGAL, REGULATORY, COMPLIANCE, or SAFETY instructions, undefined threshold words DO pass the material-difference test. Examples that SHOULD be flagged because compliance differs materially:
+    - "appropriate technical measures" / "appropriate security controls" — a regulated entity may need to comply with GDPR Art. 32, HIPAA Security Rule, SOC 2, or PCI-DSS, all of which define "appropriate" differently
+    - "timely manner" / "without undue delay" / "promptly" — GDPR Art. 33 requires notification within 72 hours; other regulations have different deadlines
+    - "material" / "significant" / "substantial" — these have specific legal meanings in financial and privacy law
+    - "reasonable steps" / "best efforts" — contract law has distinct meanings
+    - "all affected parties" / "relevant systems" / "sensitive data" — scope definitions matter
+    - "senior management" / "appropriate authority" — which role is responsible changes the action
+  - These MUST be flagged when the instruction is about compliance, security, or regulatory action. Apply the strict test only to non-regulatory instructions.
+- Always flag: weak obligation language ('try to', 'should', 'might want to', 'consider whether') without specifying when required vs optional — a model cannot know if this is mandatory or discretionary. Always flag decision delegation with no criteria ('use your judgment', 'as appropriate', 'consult the appropriate expert') — the model has no basis for making the decision.
+- Do NOT flag numeric thresholds, size limits, or measurement targets (e.g. '<2 GB', 'at most 9') — intentional design choices.
+- Do NOT flag specification qualifiers that cite a specific named document or standard (e.g. 'as defined in devcontainer.json', 'per RFC 9110').
+- Do NOT flag style-only single adjectives like "clear", "concise", "comprehensive", "high-quality", "best" by themselves in non-regulatory contexts. These are style preferences that don't change actions.
+- Do NOT flag imperative verbs (verify, identify, list, document, ensure) followed by a concrete object. The verb is unambiguous; only the object can be ambiguous, and only when the object has multiple materially different interpretations.
 
 ## 3. PERSONA CONFLICTS
 Flag only when the prompt explicitly states BOTH sides of a conflict in identity, role, audience level, decision authority, communication style, or decisiveness posture. Both sides must be quoted — do not infer.
@@ -14,6 +30,25 @@ Flag: (a) conditional nesting 3+ levels deep; (b) multiple competing named prior
 
 ## 5. COVERAGE GAPS
 Flag HIGH-impact gaps only — scenarios where the model would produce clearly wrong or harmful output if the prompt is silent. Report at most ONE gap per category: scope exclusions, input edge cases, infrastructure prerequisites, output/result gaps, multi-factor interactions. Do NOT report medium/low impact gaps.
+
+Pre-check (mandatory, applies to every coverage-gap category):
+A coverage gap exists when the document does NOT provide specific guidance or handling for a scenario — not when it merely mentions the topic. Mentions of a topic without operational guidance (e.g. "transitive dependencies" listed in a header but no actual handling instructions) are STILL coverage gaps. The E33 fixture validation (2026-07-11) showed this distinction matters: test-coverage-gaps has 13 expected gaps even though the body mentions all of them, because the body mentions topics without actually providing handling.
+
+When evaluating the pre-check, ask: "Does this section actually tell the model what to DO when this scenario occurs, or does it just say the topic is in scope?" If it just says the topic is in scope without a procedural instruction, that is still a coverage gap.
+
+Silent-gap inference rule (mandatory):
+You MUST reason about the skill's DOMAIN, not just its literal text. A "silent gap" exists when the document's stated purpose implies the scenario SHOULD be handled but the document is silent on it. For example:
+- A dependency-auditor skill that audits direct dependencies SILENTLY fails to handle monorepos, private registries, transitive CVEs, and missing lock files.
+- A security-review skill that handles authentication SILENTLY fails to address session management, audit logging, or key rotation.
+
+For each category, find the SINGLE highest-impact silent gap. Domain-inferred gaps should be tied to specific functionality mentioned in the document.
+
+The following patterns are explicitly FORBIDDEN (E30 boilerplate):
+- "What if the user provides empty input?" or "What if X is empty?" — template-style edge cases with no domain grounding
+- "What if there's a network error?" or "What if the API is unavailable?" — too generic, not tied to the document's specific tools
+- Generic template-driven gaps that apply to any skill
+
+Return an empty `coverage_gaps` array when the document is well-scoped and the categories above do not surface a HIGH-impact gap. It is acceptable — and preferred — to return no findings when no high-impact gap exists.
 
 ## 6. HYGIENE
 Flag these patterns only: (a) redundant instruction — same thing said twice with no additive difference; (b) non-actionable preamble — background text before the first action instruction; (c) vague cognitive directive — "think carefully", "consider" without a required output; (d) missing agent — passive voice where the responsible party is unspecified; (e) dead instruction — references a removed/deprecated resource where evidence of removal is in the prompt; (f) unordered sequential process — ordered steps presented as prose; (g) over-specification — arbitrary cosmetic exact-number constraints with no functional justification; (h) circular definition — term A defined via B, B defined via A.

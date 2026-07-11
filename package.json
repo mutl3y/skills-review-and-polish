@@ -2,7 +2,7 @@
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems. VS Code extension provides AI-suggested fixes with diff preview for human review; MCP server returns proposed fixes for agent-controlled application.",
-  "version": "0.1.34",
+  "version": "0.1.35",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",
@@ -54,7 +54,7 @@
         "skillsReviewAndPolish.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Analysis model **id**. Use the _Skills Review: Select Analysis Model_ command — the picker shows the friendly name with its id as description. The id uniquely identifies one model (e.g. `claude-sonnet-4.6`, `gpt-5.4`, `gemini-3-flash-preview`). Empty = auto-select best available model."
+          "markdownDescription": "Analysis model **id**. Use the _Skills Review: Select Analysis Model_ command — the picker shows the friendly name with its id as description. The id uniquely identifies one model (e.g. `claude-sonnet-4.6`, `gpt-5.4`, `gemini-3-flash-preview`). Empty = auto-select best available model. _Recommended for OpenRouter:_ `qwen/qwen3-coder-30b-a3b-instruct` (E29 benchmark winner — $0.17/1M, 100% recall, 0 FPs, ~3x cheaper than gemini-flash-lite)."
         },
         "skillsReviewAndPolish.pickerSortBy": {
           "type": "string",
@@ -74,7 +74,7 @@
         "skillsReviewAndPolish.deepModel": {
           "type": "string",
           "default": "",
-          "description": "Model for the contradictions/deep wave (needs stronger reasoning). Empty = same as analysis model."
+          "description": "Model for the contradictions/deep wave (needs stronger reasoning). Empty = same as analysis model. _Recommended:_ `qwen/qwen3-coder-30b-a3b-instruct` — E27 deep-model leaderboard winner (100% in-cat at $0.17/1M, 15s)."
         },
         "skillsReviewAndPolish.fixModel": {
           "type": "string",
@@ -354,6 +354,11 @@
       {
         "command": "skillsReviewAndPolish.clearAcceptedFindings",
         "title": "Skills Review: Clear Accepted Findings",
+        "category": "Skills Review and Polish"
+      },
+      {
+        "command": "skillsReviewAndPolish.analyzeCognitiveLoad",
+        "title": "Skills Review: Analyze Cognitive Load (structural + persona)",
         "category": "Skills Review and Polish"
       },
       {

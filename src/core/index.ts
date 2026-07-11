@@ -67,11 +67,22 @@ export class Engine {
     const effectiveConfig: EngineConfig = configOverride
       ? { ...this.config, ...configOverride }
       : this.config;
-    // If an explicit override was provided (e.g. from the wave-picker modal or MCP),
-    // always honour it regardless of analysisMode.
+    // Wave-selection priority (highest first):
+    //   1. `enabledWavesOverride` — per-scan modal / MCP override, always honored.
+    //   2. `config.analysisWaves` — direct per-call wave list, bypasses analysisMode.
+    //   3. `config.analysisMode` — the legacy switch (single | focused | multiWave).
+    // `analysisWaves` is purely additive: when undefined / empty, the existing
+    // analysisMode logic runs unchanged. See
+    // `.github/experiments/documentation-review/notes/e21-analysisWaves-api.md`.
     let waves: WaveName[];
     if (enabledWavesOverride) {
       waves = enabledWavesOverride;
+    } else if (effectiveConfig.analysisWaves && effectiveConfig.analysisWaves.length > 0) {
+      const log = createLogger('engine');
+      log.info(
+        `analysisWaves override active: running waves=${JSON.stringify(effectiveConfig.analysisWaves)} (analysisMode=${effectiveConfig.analysisMode} bypassed)`,
+      );
+      waves = effectiveConfig.analysisWaves;
     } else if (effectiveConfig.analysisMode === 'single') {
       // 'single' mode: one combined LLM call covering all 6 categories.
       // Lower recall than multiWave but only 1 API call.

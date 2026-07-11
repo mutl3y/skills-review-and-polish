@@ -278,3 +278,23 @@ Findings: 3 (1 CRITICAL, 1 HIGH, 1 MEDIUM)
 - [MCP Specification](https://modelcontextprotocol.io/)
 - [Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit) — Full governance framework with MCP trust proxy
 - [OWASP ASI-02: Insecure Tool Use](https://owasp.org/www-project-agentic-ai-threats/)
+
+---
+
+## Test metadata
+
+This is a real-world sample (not a labelled fixture) — used to probe analyzer
+noise and variance, not to assert a fixed detection count.
+
+E12-N3 Gemini median across 3 runs (model: `google/gemini-2.5-flash-lite`):
+
+| Category | Expected count | Detectable? |
+| --- | ---: | --- |
+| Ambiguities | 2 | YES |
+| Coverage gaps | 1 | YES |
+| Hygiene | 4 | YES |
+| **Median total** | **7** | — |
+
+Note: R1 reported 10, R2 reported 2, R3 reported 5 — illustrating the ±6 noise
+floor and the reason the README recommends an N≥3 median workflow before judging
+detection. See `.github/experiments/documentation-review/notes/e12-n3-analysis.md`.

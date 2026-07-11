@@ -9,6 +9,16 @@ Use this skill to produce technical documentation for engineering teams from Ope
 
 > **Test metadata:** 15 injected instruction quality issues (QUALITY-1 through QUALITY-15).
 >
+> | Category | Expected count | Detectable? |
+> | --- | ---: | --- |
+> | Ambiguities | 8 | YES |
+> | Hygiene | 7 | YES |
+> | Coverage gaps | 2 | YES |
+> | Contradictions | 1 | YES |
+> | Cognitive | 4 | YES |
+> | Dead | 1 | MAYBE (qualifies as dead-instruction) |
+> | **Total** | **23** | — |
+>
 > | Label | Pattern | Expected analyzer category | Detectable? |
 > |---|---|---|---|
 > | QUALITY-1 | "try to include" — weak directive | ambiguity (unclear obligation) | MAYBE |
