@@ -16,7 +16,7 @@ The E33 fixture validation (2026-07-11) showed that this wave was failing to fin
 
 You MUST infer these silent gaps from the skill's domain. The bar is: "would a competent practitioner of this domain expect this skill to handle this scenario, and would the skill fail badly if it didn't?" If yes, report the gap.
 
-For each category, find the SINGLE highest-impact silent gap. Generic "what if X is empty?" patterns are still forbidden (see anti-boilerplate below), but domain-specific silent gaps are mandatory to surface.
+For each category, find ALL high-impact silent gaps (not just the single highest-impact one). A linter should report every real coverage gap in the document, not just the top one. If you find 5 high-impact silent gaps across the categories, report all 5. Generic "what if X is empty?" patterns are still forbidden (see anti-boilerplate below), but domain-specific silent gaps are mandatory to surface.
 
 The following patterns are explicitly FORBIDDEN (E30 boilerplate):
 - "What if the user provides empty input?" or "What if X is empty?" — these are template-style edge cases with no domain grounding
@@ -27,11 +27,11 @@ Each gap you report MUST reference SPECIFIC content in the document (a section n
 
 Quality bar (STRICT — coverage gaps are open-ended, so apply these filters rigorously to stay consistent run-to-run):
 - Report ONLY HIGH-impact gaps: a gap where, if unaddressed, the model would produce clearly wrong, harmful, or misleading output. Do NOT report MEDIUM or LOW impact gaps — "would be nice to cover" scenarios are noise and vary between analyses.
-- Report AT MOST ONE gap per checklist category below. Choose the single highest-impact gap for that category. Never report two gaps from the same category.
+- **Find ALL high-impact gaps in a single pass** — a linter should report every real coverage gap in the document, not just the single highest-impact one per category. The user can decide which to fix first. If you find 5 high-impact gaps, report all 5. If you find only 1, report only 1.
 - Determinism gate: if you are not confident a gap meets the HIGH bar, do NOT report it. When in doubt, leave it out.
 - Do NOT report extremely unlikely scenarios or gaps where the skill's domain makes a reasonable default obvious.
 
-Gap pattern checklist — evaluate each category and report at most ONE HIGH-impact gap from each:
+Gap pattern checklist — evaluate each category and report ALL high-impact gaps found (a linter should report every real issue, not just the top one per category). If you find 3 high-impact gaps in one category, report all 3:
 
 1. SCOPE GAPS: explicit scope restrictions (e.g. "direct dependencies only") — what important real-world scenarios do they exclude? Excluded cases are prime coverage gaps if common or high-impact.
 2. INPUT EDGE CASES: empty input, missing required data, invalid or unparseable input, data in unexpected formats or languages. Only flag if the skill accepts user input AND the missing handling would cause clearly wrong output.
