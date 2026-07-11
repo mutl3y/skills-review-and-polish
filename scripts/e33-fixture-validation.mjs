@@ -123,8 +123,8 @@ const CATEGORY_MAP = {
 const MODEL = 'qwen/qwen3-coder-30b-a3b-instruct';
 const N_RUNS = 3;
 const ALL_WAVES = ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'];
-const PER_CALL_TIMEOUT_MS = 180_000;
-const BATCH_SIZE = 5;
+const PER_CALL_TIMEOUT_MS = 360_000;
+const BATCH_SIZE = 4;
 
 function withTimeout(promise, ms, label) {
   return Promise.race([
