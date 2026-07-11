@@ -279,7 +279,7 @@ Use some tools and do things.
         return;
       }
       if (ambiguities.length === 0) {
-        console.log('[MCP analyze] SKIPPED: 0 ambiguities but', llmErrors.length, 'LLM errors. Sample errors:', llmErrors.slice(0, 2).map(e => e.message?.slice(0, 100)));
+        console.log('[MCP analyze] SKIPPED: 0 ambiguities but', llmErrors.length, 'LLM errors');
         return;
       }
       expect(ambiguities.length).toBeGreaterThan(0);
