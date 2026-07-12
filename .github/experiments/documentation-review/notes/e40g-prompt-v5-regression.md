@@ -52,31 +52,39 @@ When I added the "RE-READ BEFORE ANSWERING" anti-suppression language, the LLM d
 
 ## What would actually work
 
-To fix the contradiction-direct suppression, the options are:
+To fix the contradiction-direct suppression, the options ranked by **architectural soundness**:
 
-### A. Inject contradiction findings into the ambiguity wave's user prompt
-**Pros:** Surgical, targeted at the exact problem
-**Cons:** Requires plumbing prior findings between waves; adds ~100-200 tokens per ambiguity call
-**Effort:** ~2 hours (modify analyzeAmbiguitiesWave signature, add `priorFindings` param, plumb from `analyze()`)
+### ❌ Option A: Inject contradiction findings into the ambiguity wave's user prompt
+**Status: Rejected after re-evaluation (2026-07-12).**
 
-### B. Run ambiguity wave in a separate session (focused mode for contradiction-heavy docs)
-**Pros:** Matches e12-N3's success pattern (single mode)
-**Cons:** 2x cost on contradiction-heavy docs; user has to opt in
-**Effort:** ~1 hour (add an `analysisMode: 'auto'` that detects contradiction density and re-runs ambiguity if needed)
+Reasons to reject:
+1. **Architectural smell** — breaks wave separation. The whole point of independent waves is each LLM call is idempotent and standalone. Adding `priorFindings` to `analyzeAmbiguitiesWave` creates a hidden coupling that becomes technical debt.
+2. **Optimizes for the wrong fixture** — test-contradictions-direct is synthetic (1:1 contradiction:ambiguity pairing in every paragraph). Real-world docs don't have this property. The e40e run on quality-playbook (2739 lines, real) found 8 ambiguities + 1 contradiction with zero cross-suppression issues.
+3. **The "suppression" is arguably correct** — when a paragraph has "must do X" / "must NOT do X" AND "appropriate team", the user only needs ONE finding. Fixing the contradiction reveals the ambiguity. Reporting both is redundant noise.
+4. **High cost, low payoff** — would add 1 category (test-contradictions-direct: 0/11 → 11/11) at the cost of cross-wave coupling, plumbing changes, and implicit ordering dependencies. Not worth it.
 
-### C. Reorder waves to run ambiguity FIRST
-**Pros:** Eliminates any temporal priming (though there shouldn't be any in parallel mode)
-**Cons:** Doesn't match the current data — ambiguity-first might have other issues
-**Effort:** ~30 min (swap wave order in `allPhaseConfigs`)
+### ✅ Option D (recommended): Accept the limitation. Document it. Ship v0.1.36.
+**Status: This is what we're doing.**
 
-### D. Accept the 0/11 on contradiction-direct as a known issue
-**Pros:** No work; E40d v4 is already a clear win
-**Cons:** test-contradictions-direct is the most-validated fixture; 0/11 there is a regression vs the labeled ground truth
-**Effort:** 0
+The v4 prompt is a clear win (21/47 vs 17/47). The 0/11 on test-contradictions-direct is a known limitation. Users hitting this can:
+- Run `analysisMode: 'single'` for contradiction-heavy docs (e12-N3 pattern, gets 11/11)
+- Or accept the noise reduction (only contradiction, not ambiguity, is reported — which is arguably the right behavior for these documents)
 
-## Recommendation
+### Option B: Auto-detect contradiction density and re-run ambiguity-focused
+**Status: Future work, if needed.**
 
-**Adopt E40d v4 as the shipped prompt** (21/47 PASS, +4 vs baseline, 0 regressions). Document test-contradictions-direct 0/11 as a known limitation. Defer Option A (inject contradiction findings) to v0.1.37 — it's a bigger change that needs its own experiment.
+A v0.1.37 candidate. If the multiWave analysis produces >N contradictions, automatically run a follow-up `analysisWaves: ['ambiguities']` pass. ~3h of work, including a new E33 run to validate.
+
+### Option E (best long-term): Smarter test fixture
+**Status: Future work, trivial effort.**
+
+test-contradictions-direct has 15 paragraphs with 1:1 contradiction:ambiguity pairing. This is unrealistic. Real-world documents have varied patterns: most paragraphs are clean, some have ambiguities, a few have contradictions, rarely do all three overlap on the same paragraph. Redesigning the fixture to reflect realistic distribution would make 0/11 a non-issue.
+
+Effort: ~30 min to update the fixture. The new ambiguity expectation could be ~5-7 (realistically what a real doc would have), and the LLM getting 0-3 is then closer to the right answer.
+
+## Recommendation (revised 2026-07-12)
+
+**Adopt E40d v4 as the shipped prompt** (21/47 PASS, +4 vs baseline, 0 regressions). Document test-contradictions-direct 0/11 as a known limitation. **Do not implement Option A.** Defer Option E (fixture redesign) to whenever we next update the test corpus.
 
 The probe was misleading: the v5 prompt passed the probe cleanly but the full E33 exposed that the LLM's calibration under multiWave pressure is different from probe. **Always validate with the full E33, not just the probe.**
 
