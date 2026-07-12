@@ -135,15 +135,11 @@ function withTimeout(promise, ms, label) {
 
 /** Count findings by category, mapping top-level categories to their codes. */
 function countByCategory(findings, expectedKey) {
-  const directCode = expectedKey;
-  let count = findings.filter(f => f.code === directCode).length;
-  // Also check the category map for top-level keys
-  if (CATEGORY_MAP[expectedKey]) {
-    for (const code of CATEGORY_MAP[expectedKey]) {
-      count += findings.filter(f => f.code === code).length;
-    }
-  }
-  return count;
+  // Build the set of codes that count toward this expected key
+  const codes = new Set([expectedKey, ...(CATEGORY_MAP[expectedKey] || [])]);
+  // Count each finding at most once (deduped by code, not by finding — since
+  // multiple findings can share the same code).
+  return findings.filter(f => codes.has(f.code)).length;
 }
 
 async function runOne(fixture, runIdx) {
