@@ -2,6 +2,13 @@
 
 Core planning documents for the Skills Review and Polish project. For practical development workflows, see [../DEVELOPER-GUIDE.md](../DEVELOPER-GUIDE.md).
 
+## Active Plans
+
+| Plan | Status | Purpose |
+| --- | --- | --- |
+| [20260710-documentation-review-experiment/](20260710-documentation-review-experiment/plan.yaml) | Active (v0.1.36 shipped) | Documentation-review skill experiments (E1-E7) — v8 documentation-review skill shipped in v0.1.35, ambiguity prompt v4 shipped in v0.1.36 |
+| [20260712-v0.1.37-remaining-work/](20260712-v0.1.37-remaining-work/plan.yaml) | Ready | Follow-up tasks after v0.1.36: E43 coverage, E44 subtle fixture, E45 circular, E47 publish |
+
 ## Documents (3 core files)
 
 | Document | Purpose | Audience |

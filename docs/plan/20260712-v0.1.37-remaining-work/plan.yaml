@@ -1,0 +1,287 @@
+plan_id: 20260712-v0.1.37-remaining-work
+objective: >
+  Continue improving the Skills Review and Polish analyzer after the v0.1.36
+  release (commit `bc4f7a4`). v0.1.36 shipped the E40d v4 ambiguity prompt,
+  the redesigned test-contradictions-direct fixture, and the E33 dedup fix.
+  Current E33 pass rate: 21/47 (45%). This plan covers the remaining issues
+  identified but not addressed in the E40-E42 session.
+created_at: 2026-07-12T00:00:00Z
+created_by: e40-e42-session
+status: ready
+parent_plan: docs/plan/20260710-documentation-review-experiment/plan.yaml
+shipped_in: v0.1.36 (bc4f7a4)
+
+related_artifacts:
+  shipped_commits:
+    - ec3333a: E40d v4 ambiguity prompt
+    - 38bf829: redesigned test-contradictions-direct fixture
+    - aace2c7: E33 dedup fix
+    - bc4f7a4: v0.1.36 release
+  experiment_notes:
+    - .github/experiments/documentation-review/notes/e40b-ambiguity-prompt-fix.md
+    - .github/experiments/documentation-review/notes/e40d-ambiguity-prompt-fix.md
+    - .github/experiments/documentation-review/notes/e40d-validation-report.md
+    - .github/experiments/documentation-review/notes/e40g-prompt-v5-regression.md
+    - .github/experiments/documentation-review/notes/e41-fixture-redesign.md
+    - .github/experiments/documentation-review/notes/e42-dedup-fix.md
+  data_files:
+    - .github/experiments/documentation-review/data/e33-fixture-validation-2026-07-12T09-44-48-342Z.json
+    - .github/experiments/documentation-review/data/e33-fixture-validation-2026-07-12T13-00-14-181Z.json
+  scripts:
+    - scripts/e40c-ambiguity-probe.mjs
+    - scripts/e40e-realworld-skill.mjs
+    - scripts/e40f-multi-skill-batch.mjs
+    - scripts/e33-fixture-validation.mjs
+  current_results:
+    overall_pass: "21/47 (45%) — E42 with redesigned fixture + dedup fix"
+    baseline_pass: "14/47 (30%) — e12-N3 baseline"
+
+starting_state:
+  version: 0.1.36 (committed in `bc4f7a4`)
+  branch: main
+  tests: "466/466 unit tests pass"
+  compile: clean
+  known_limitations:
+    - "test-contradictions-direct / ambiguity-llm: 2/11 (down from 0/11 in baseline, still well below 11 expected)"
+    - "test-contradictions-subtle / hygiene: 0/6"
+    - "test-contradictions-subtle / cognitive-nested-conditions: 0/2"
+    - "test-cognitive-structural / cognitive: 2/5"
+    - "test-coverage-gaps / coverage-gap: 5/13 (38%)"
+    - "test-coverage-gaps / hygiene: 1/5"
+    - "test-coverage-gaps / cognitive: 0/1"
+    - "test-instruction-quality / hygiene: 3/7"
+    - "test-instruction-quality / cognitive: 1/4"
+    - "test-instruction-quality / contradiction: 0/1"
+    - "test-contradictions-hard / ambiguity-llm: 2/11"
+    - "test-ambiguities-hard / hygiene: 0/1"
+    - "test-coverage-gaps-hard / coverage-gap: 5/15 (33%)"
+    - "test-coverage-gaps-hard / hygiene: 0/7"
+    - "test-obligation-hard / hygiene: 0/5"
+    - "test-obligation-hard / cognitive: 0/1"
+    - "test-circular-hard / circular: 2/10"
+    - "test-circular-hard / cognitive: 0/1"
+    - "test-mixed-hard / cognitive: 1/4"
+
+success_criteria:
+  - "All planned experiments (E43+) have notes in `.github/experiments/documentation-review/notes/`"
+  - "Each prompt change is validated with at least 6 E33 runs (3 runs × 2 separate E33 invocations) to overcome single-run noise"
+  - "v0.1.37 release shows improvement on at least one targeted fixture without regression on others"
+  - "No regression on any fixture that was at PASS in v0.1.36"
+  - "Tests still pass: 466+ unit tests, `npm run compile` clean"
+  - "Each task's notes include: hypothesis, methodology, results table with per-fixture breakdown, decision (ship / iterate / reject)"
+
+principles:
+  aggregate_before_deciding: >
+    Single E33 runs are too noisy for per-fixture decisions. Aggregate 6+
+    runs (3 runs × 2 E33 invocations on different days) before making
+    ship/revert decisions. Documented in e41-fixture-redesign.md lessons.
+  probe_first: >
+    For prompt iterations, use `scripts/e40c-ambiguity-probe.mjs` (or
+    analogous) to test on 3 key fixtures in <2 min before running full
+    E33. Probe ≠ full E33 — always validate with full E33.
+  realistic_fixtures: >
+    The redesigned test-contradictions-direct fixture (separated
+    ambiguities from contradictions) revealed hidden findings the v1
+    fixture was suppressing. Apply the same "realistic structure"
+    principle to fixtures where it's missing.
+  document_what_didnt_work: >
+    Negative results (E40b, E40c, E40g, E41-attempt) are valuable —
+    they prevent future sessions from re-doing the same dead ends.
+    Always commit the "rejected" note even if the experiment failed.
+
+known_e40e42_results:
+  prompt_v4_v_ambiguity:
+    shipped: E40d v4 (commit ec3333a)
+    pass_rate: "21/47 (45%) — up from 17/47 (36%) baseline"
+    improvements: "8/10 ambiguity fixtures improved, 0 regressed"
+    key_wins:
+      - "test-ambiguities-hard: 4/20 → 17/20 (13x improvement)"
+      - "test-cognitive-structural: 4/6 → 11/6 (1.8x improvement)"
+    remaining_issues:
+      - "test-contradictions-direct: 0/11 → 2/11 (still mostly suppressed)"
+      - "test-contradictions-subtle: 0/4 → 0-2/4 (noise)"
+      - "test-contradictions-hard: 3/11 → 4/11 (noise)"
+  prompt_v5_rejected:
+    prompt: E40g v5 (REJECTED)
+    change: "Added 'this wave runs INDEPENDENTLY of the contradiction wave' + 'RE-READ BEFORE ANSWERING'"
+    probe_result: "11/11 on test-contradictions-direct (passed!)"
+    full_e33_result: "18/47 PASS — REGRESSED from 21/47"
+    lesson: "Probe ≠ full E33. Probe results don't generalize to multiWave mode."
+  fixture_redesign:
+    shipped: E41 redesign of test-contradictions-direct (commit 38bf829)
+    change: "Split contradictions and ambiguities into separate sentences within the same paragraph"
+    results_6run_aggregate:
+      ambiguity: "0/11 → 2/11"
+      hygiene: "0/5 → 4/5"
+      contradiction: "45/15 → 42/15 (less over-firing)"
+    surfaced_findings:
+      - "'staging' / 'production' / 'developer convenience credentials' (undefined domain terms)"
+      - "Multiple hygiene issues (over-specification, unordered process, vague-cognitive-directive)"
+  e33_dedup:
+    shipped: E42 dedup fix (commit aace2c7)
+    change: "Use Set in countByCategory so each finding is counted at most once per category"
+    effect: "Contradiction inflation 280-300% → 186-200%"
+    overall_pass: "21/47 (unchanged from before — fix corrects a counting bug, not detection)"
+
+tasks:
+
+  - id: E43-coverage-prompt
+    title: Investigate coverage-gap under-detection (5/13, 5/15)
+    priority: high
+    estimated_effort: 2-3 hours
+    rationale: >
+      The coverage wave underperforms on test-coverage-gaps (5/13, 38%) and
+      test-coverage-gaps-hard (5/15, 33%). E40d-style "Default: FLAG" treatment
+      worked for ambiguity; the same principle may apply to coverage.
+    approach:
+      - Read current `src/core/prompts/coverage.prompt` to understand the structure
+      - Read `scripts/e31-prompt-fix-eval.mjs` and `notes/e31-prompt-fix.md`,
+        `e32-corpus-rescan.md` to understand what E31/E32 already changed
+      - Hypothesis: the LLM is under-firing on coverage gaps. Add "Default: FLAG"
+        framing similar to E40d
+      - Iterate prompt versions (e.g. v2, v3) with probe-then-full-E33 discipline
+      - Aggregate 6+ runs before ship/revert decisions
+    success_metric: "coverage-gap recall on test-coverage-gaps and test-coverage-gaps-hard improves without regression on test-coverage-gaps fixtures at PASS"
+    related_artifacts:
+      - src/core/prompts/coverage.prompt
+      - scripts/e31-prompt-fix-eval.mjs
+      - .github/experiments/documentation-review/notes/e31-prompt-fix.md
+      - .github/experiments/documentation-review/notes/e32-corpus-rescan.md
+    expected_output:
+      - .github/experiments/documentation-review/notes/e43-coverage-prompt.md
+      - (optional) Updated src/core/prompts/coverage.prompt if a v2 wins
+
+  - id: E44-contradictions-subtle-fixture
+    title: Apply realistic-structure principle to test-contradictions-subtle
+    priority: medium
+    estimated_effort: 30 min
+    rationale: >
+      Current pass rate: 0/6 hygiene, 0/2 cognitive. Same pattern as the
+      pre-redesign test-contradictions-direct fixture (rules in the same
+      section as their contradictions). The redesigned-direct principle
+      (separate sections) may help.
+    approach:
+      - Read current `tests/fixtures/primary/test-contradictions-subtle/SKILL.md`
+      - Decide if the issue is fixture structure or prompt calibration
+      - If fixture: split each SUBTLE's positive rule and contradicting rule
+        into clearly-separated sections, like the redesigned contradictions-direct
+      - If prompt: defer to E43 (the coverage prompt work may inform coverage
+        and other prompt work)
+    caution: >
+      The previous E41 attempt (test-contradictions-direct redesign) showed that
+      a single E33 run can be misleading. Run 6+ E33 invocations before
+      deciding ship/revert.
+    success_metric: "hygiene 0/6 → ≥3/6 OR cognitive 0/2 → ≥1/2"
+    related_artifacts:
+      - tests/fixtures/primary/test-contradictions-subtle/SKILL.md
+      - .github/experiments/documentation-review/notes/e41-fixture-redesign.md
+    expected_output:
+      - .github/experiments/documentation-review/notes/e44-subtle-fixture.md
+      - (optional) Updated fixture if redesign helps
+
+  - id: E45-circular-detection
+    title: Investigate circular detection (2/10 on test-circular-hard)
+    priority: low
+    estimated_effort: 1-2 hours
+    rationale: >
+      Pre-existing issue. The circular wave finds 2/10 expected circular
+      definitions. May be a prompt or post-processor issue. Lower priority
+      because circular definitions are rare in real-world skills.
+    approach:
+      - Read `src/core/prompts/hygiene.prompt` and search for circular-related rules
+      - Check `src/core/findingFilter.ts` for any circular-specific rules
+      - Test with focused mode on test-circular-hard to see what the LLM actually finds
+    success_metric: "circular recall on test-circular-hard improves to ≥5/10"
+    expected_output:
+      - .github/experiments/documentation-review/notes/e45-circular-detection.md
+
+  - id: E46-test-dead-hard-regression
+    title: Verify test-dead-hard 0/12 regression is OpenRouter noise, not real
+    priority: low
+    estimated_effort: 15 min
+    rationale: >
+      E42 had test-dead-hard / hygiene-dead-instruction = 0/12 due to all 3
+      runs timing out (OpenRouter slow that day). E40d and E41b had 12/12.
+      Need to re-run to confirm.
+    approach:
+      - `node scripts/e33-fixture-validation.mjs` (should complete normally
+        if OpenRouter is faster)
+      - If still timing out, increase `PER_CALL_TIMEOUT_MS` in
+        `scripts/e33-fixture-validation.mjs` to 600000 (10 min)
+    expected_output: "Note confirming 12/12 PASS in E47 (next run)"
+
+  - id: E4-specification-style
+    title: E4 — Specification-style prompt experiment (planned from E2)
+    priority: low
+    estimated_effort: 2-4 hours
+    rationale: >
+      E4 is in the EXPERIMENTS backlog from E2 era. Would test whether
+      writing skills in spec-style (declarative, testable) vs narrative-style
+      changes the analyzer's findings on the same content. Would require
+      creating paired fixtures.
+    approach:
+      - Read `.github/experiments/EXPERIMENTS.md` and `.github/experiments/SUCCESS-CRITERIA.md`
+        to understand the original E4 scope
+      - Create 2-3 paired fixtures (narrative + spec versions of same content)
+      - Run analyzer on both, measure finding distribution
+    caution: >
+      E4 was originally planned but never executed. The priority is lower
+      because the E40d ambiguity work has higher impact and is closer to
+      shipping. Defer to a future session if resources are limited.
+    expected_output:
+      - .github/experiments/documentation-review/notes/e4-specification-style.md
+
+  - id: E6-multi-model-comparison
+    title: E6 — Mark as completed (already covered by E12-N3 cross-model work)
+    priority: trivial
+    estimated_effort: 5 min
+    rationale: >
+      E6 was "multi-model comparison" in the original E2-era backlog. This
+      was implicitly completed by the E12-N3 work (gemini-flash-lite vs
+      qwen/qwen3-coder-30b cross-model benchmark) and E25 (model comparison).
+      Should be marked completed with a reference rather than re-executed.
+    approach:
+      - Update `.github/experiments/EXPERIMENTS.md` to mark E6 as completed
+      - Reference `.github/experiments/documentation-review/notes/e12-n3-analysis.md`
+        and `e25-model-comparison.md`
+    expected_output: "Updated EXPERIMENTS.md entry"
+
+  - id: E47-publish-v0.1.37
+    title: Publish v0.1.37 after E43-E46 complete
+    priority: high
+    estimated_effort: 30 min
+    rationale: >
+      v0.1.36 is committed but not yet published to the marketplace. Once
+      E43-E46 land meaningful improvements, ship v0.1.37 with the new
+      prompts and any new fixtures.
+    approach:
+      - Update `package.json` version 0.1.36 → 0.1.37
+      - Add CHANGELOG entry with all E43-E46 results
+      - Run `npm run compile` to verify clean
+      - Run `npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.test.ts"` to verify tests
+      - Commit and publish
+    success_metric: "v0.1.37 published, 466+ tests pass, compile clean"
+    expected_output: "v0.1.37 commit + marketplace publish"
+
+ordering_notes:
+  - "E43 (coverage) is the highest-impact remaining task"
+  - "E44 (subtle fixture) is low-effort, do it before E43 if time-constrained"
+  - "E45 (circular) and E46 (dead-hard) are quick wins, do them after E43-E44"
+  - "E4 and E6 are nice-to-haves, defer"
+  - "E47 (publish) is the final step, only after at least E43 + E44 land"
+
+risk_register:
+  - risk: "E43 prompt iteration regresses other categories"
+    mitigation: "Aggregate 6+ E33 runs before deciding. Compare per-fixture deltas, not just totals. Document rejected iterations in notes."
+  - risk: "E44 fixture redesign makes subtle worse"
+    mitigation: "Same as E41 redesign — use 6-run aggregate, not single 3-run E33. Document failures in notes (e41 is the template)."
+  - risk: "E47 publish fails due to packaging issues"
+    mitigation: "Run `npm run compile` and full test suite before commit. Manual smoke test if possible."
+
+notes_for_next_session: |
+  Welcome back! v0.1.36 is committed (`bc4f7a4`) and ready to publish.
+  This plan covers 6 follow-up tasks ordered by impact. Start with E43
+  (coverage) — it's the biggest miss in E42. Use the probe-then-full-E33
+  discipline from E40/E41. Aggregate 6+ runs before ship/revert decisions.
+  All scripts in `scripts/` are ready to use. All experiment notes are
+  in `.github/experiments/documentation-review/notes/`.
