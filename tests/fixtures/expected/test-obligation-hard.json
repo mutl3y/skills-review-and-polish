@@ -1,0 +1,16 @@
+{
+  "fixture": "test-obligation-hard",
+  "description": "Expected findings for the cleaned test-obligation-hard skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "ambiguity-llm": 15,
+    "coverage-gap": 2,
+    "hygiene": 5
+  },
+  "detectable": {
+    "Ambiguities": "YES",
+    "Coverage gaps": "YES",
+    "Hygiene": "YES",
+    "Cognitive": "YES"
+  },
+  "notes": "Original counts from test metadata: {\"Ambiguities\":15,\"Coverage gaps\":2,\"Hygiene\":5,\"Cognitive\":1}. Calibration applied per e33-calibration.md honest review."
+}

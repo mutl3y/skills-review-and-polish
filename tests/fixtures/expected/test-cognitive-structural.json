@@ -1,0 +1,21 @@
+{
+  "fixture": "test-cognitive-structural",
+  "description": "Expected findings for the cleaned test-cognitive-structural skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "cognitive": 5,
+    "ambiguity-llm": 6,
+    "coverage-gap": 4,
+    "hygiene": 4,
+    "persona-inconsistency": 4,
+    "circular": 1
+  },
+  "detectable": {
+    "Cognitive": "YES",
+    "Ambiguities": "YES",
+    "Coverage gaps": "YES",
+    "Hygiene": "YES",
+    "Persona": "YES",
+    "Circular": "MAYBE"
+  },
+  "notes": "Original counts from test metadata: {\"Cognitive\":5,\"Ambiguities\":6,\"Coverage gaps\":4,\"Hygiene\":4,\"Persona\":4,\"Circular\":1}. Calibration applied per e33-calibration.md honest review."
+}

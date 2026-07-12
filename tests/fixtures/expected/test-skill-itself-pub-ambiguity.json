@@ -1,0 +1,16 @@
+{
+  "fixture": "test-skill-itself-pub-ambiguity",
+  "description": "Expected findings for the cleaned test-skill-itself-pub-ambiguity skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "ambiguity-llm": 1,
+    "coverage-gap": 1,
+    "hygiene-dead-instruction": 1
+  },
+  "detectable": {
+    "Ambiguities": "YES",
+    "Coverage gaps": "YES",
+    "Hygiene": "YES",
+    "Dead": "MAYBE"
+  },
+  "notes": "Original counts from test metadata: {\"Ambiguities\":1,\"Coverage gaps\":1,\"Hygiene\":4,\"Dead\":1}. Calibration applied per e33-calibration.md honest review."
+}

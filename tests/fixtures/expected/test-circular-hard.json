@@ -1,0 +1,15 @@
+{
+  "fixture": "test-circular-hard",
+  "description": "Expected findings for the cleaned test-circular-hard skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "circular": 7,
+    "hygiene": 2,
+    "cognitive": 1
+  },
+  "detectable": {
+    "Circular": "YES",
+    "Hygiene": "YES",
+    "Cognitive": "MAYBE"
+  },
+  "notes": "Original counts from test metadata: {\"Circular\":10,\"Hygiene\":2,\"Cognitive\":1}. Calibration applied per e33-calibration.md honest review."
+}

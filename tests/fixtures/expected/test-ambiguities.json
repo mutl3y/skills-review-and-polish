@@ -1,0 +1,11 @@
+{
+  "fixture": "test-ambiguities",
+  "description": "Expected findings for the cleaned test-ambiguities skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "ambiguity-llm": 20
+  },
+  "detectable": {
+    "Ambiguities": "YES"
+  },
+  "notes": "Original counts from test metadata: {\"Ambiguities\":20}. Calibration applied per e33-calibration.md honest review."
+}

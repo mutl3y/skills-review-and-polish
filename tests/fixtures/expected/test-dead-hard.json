@@ -1,0 +1,11 @@
+{
+  "fixture": "test-dead-hard",
+  "description": "Expected findings for the cleaned test-dead-hard skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "hygiene-dead-instruction": 12
+  },
+  "detectable": {
+    "Dead": "YES"
+  },
+  "notes": "Original counts from test metadata: {\"Dead\":12}. Calibration applied per e33-calibration.md honest review."
+}

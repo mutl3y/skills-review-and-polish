@@ -1,0 +1,17 @@
+{
+  "fixture": "test-contradictions-subtle",
+  "description": "Expected findings for the cleaned test-contradictions-subtle skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "ambiguity-llm": 4,
+    "coverage-gap": 1,
+    "cognitive-nested-conditions": 1
+  },
+  "detectable": {
+    "Contradictions": "YES",
+    "Ambiguities": "YES",
+    "Coverage gaps": "YES",
+    "Hygiene": "YES",
+    "Cognitive": "YES"
+  },
+  "notes": "Original counts from test metadata: {\"Contradictions\":12,\"Ambiguities\":4,\"Coverage gaps\":1,\"Hygiene\":6,\"Cognitive\":2}. Calibration applied per e33-calibration.md honest review."
+}

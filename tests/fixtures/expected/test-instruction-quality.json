@@ -1,0 +1,19 @@
+{
+  "fixture": "test-instruction-quality",
+  "description": "Expected findings for the cleaned test-instruction-quality skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "ambiguity-llm": 8,
+    "hygiene": 7,
+    "coverage-gap": 2,
+    "contradiction": 1,
+    "cognitive": 2
+  },
+  "detectable": {
+    "Ambiguities": "YES",
+    "Hygiene": "YES",
+    "Coverage gaps": "YES",
+    "Contradictions": "YES",
+    "Cognitive": "YES"
+  },
+  "notes": "Original counts from test metadata: {\"Ambiguities\":8,\"Hygiene\":7,\"Coverage gaps\":2,\"Contradictions\":1,\"Cognitive\":4}. Calibration applied per e33-calibration.md honest review."
+}

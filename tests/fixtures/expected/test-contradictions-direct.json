@@ -1,11 +1,17 @@
 {
   "fixture": "test-contradictions-direct",
-  "description": "Expected findings for the cleaned test-contradictions-direct skill body. These are the counts the LLM should achieve when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "description": "Expected findings for the cleaned test-contradictions-direct skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
   "expected": {
     "contradiction": 15,
     "ambiguity-llm": 11,
     "coverage-gap": 2,
     "hygiene": 5
   },
-  "notes": "Counts derived from the test-contradictions-direct test metadata (15 DIRECT-N contradictions, 11 ambiguous terms, 2 coverage gaps, 5 hygiene issues). These are the pre-calibration v0.1.36 baseline expected counts. The LLM is graded against these."
+  "detectable": {
+    "Contradictions": "YES",
+    "Ambiguities": "YES",
+    "Coverage gaps": "YES",
+    "Hygiene": "YES"
+  },
+  "notes": "Original counts from test metadata: {\"Contradictions\":15,\"Ambiguities\":11,\"Coverage gaps\":2,\"Hygiene\":5}. Calibration applied per e33-calibration.md honest review."
 }

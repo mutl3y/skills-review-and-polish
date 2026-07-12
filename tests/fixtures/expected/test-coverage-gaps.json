@@ -1,0 +1,14 @@
+{
+  "fixture": "test-coverage-gaps",
+  "description": "Expected findings for the cleaned test-coverage-gaps skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "ambiguity-llm": 7,
+    "hygiene": 1
+  },
+  "detectable": {
+    "Ambiguities": "YES",
+    "Hygiene": "YES",
+    "Cognitive": "YES"
+  },
+  "notes": "Original counts from test metadata: {\"Ambiguities\":7,\"Hygiene\":5,\"Cognitive\":1}. Calibration applied per e33-calibration.md honest review."
+}

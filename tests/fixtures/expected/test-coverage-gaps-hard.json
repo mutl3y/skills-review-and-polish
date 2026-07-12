@@ -1,0 +1,12 @@
+{
+  "fixture": "test-coverage-gaps-hard",
+  "description": "Expected findings for the cleaned test-coverage-gaps-hard skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
+  "expected": {
+    "hygiene": 3,
+    "coverage-gap": 10
+  },
+  "detectable": {
+    "Hygiene": "YES"
+  },
+  "notes": "Original counts from test metadata: {\"Hygiene\":7}. Calibration applied per e33-calibration.md honest review."
+}
