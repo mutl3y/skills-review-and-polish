@@ -25,10 +25,16 @@ Detect ONLY these five specific patterns:
    Example: "Subject lines must be exactly 47 characters.", "Each paragraph must contain exactly 3 citations.", "Use exactly 2-space YAML indentation.", "Summaries must be exactly 47 words."
    Do NOT fire when: the metric is functionally important (API rate limits, security constraints, regulated disclosure word counts), or when the rule says "at most N" or "at least N" rather than "exactly N".
 
-(h) CIRCULAR DEFINITION — a term is defined by reference to a second term, and that second term is itself defined by reference back to the first, creating a definitional loop that provides no actionable meaning. Both definitions must appear in the document.
-   Pattern: "An X is [something that satisfies/meets/requires] Y. Y is [the criteria/process/standard] that applies to X."
-   Example: "A formal warning is issued when conduct warrants formal disciplinary action. Formal disciplinary action is the process applied when conduct warrants a formal warning."
-   Only flag when BOTH sides of the loop are explicitly stated in the document. Do NOT flag a single-sided definition, even if it seems circular in isolation.
+(h) CIRCULAR DEFINITION — a term is defined in a way that depends on itself, either directly or transitively, creating a definitional loop that provides no actionable meaning. The loop may take any of these forms:
+   - **2-hop (most common)**: term A is defined using term B, and term B is defined using term A.
+     Pattern: "An X is [something that satisfies/meets/requires] Y. Y is [the criteria/process/standard] that applies to X."
+     Example: "A formal warning is issued when conduct warrants formal disciplinary action. Formal disciplinary action is the process applied when conduct warrants a formal warning."
+   - **Near-synonym / reciprocal**: A is defined using a near-synonym of A, or two terms are defined in terms of each other using jargon that sounds self-contained.
+     Example: "Credit risk is the risk that a counterparty will fail to discharge a financial obligation, resulting in a credit loss. A credit loss is the financial loss that materialises when a counterparty fails to discharge an obligation that gave rise to credit risk."
+   - **3-hop (multi-term chain)**: A is defined using B, B is defined using C, C is defined using A. The definitional chain closes after three or more hops without an external anchor.
+   - **Tautological legal/regulatory pattern (DO NOT FLAG)**: a term is defined by reference to a NAMED external rulebook, statute, regulation, or authoritative criteria document (e.g. "per [Regulation X]", "as defined in [the Y Act]"). This is the standard pattern of statutes and legal definitions. Do NOT report tautological definitions when the definition explicitly cites such a named external authority. When the loop has no such citation, the loop IS a real circular definition that should be flagged.
+
+   Both/all sides of the loop must appear in the document. Do NOT flag a single-sided definition, even if it seems circular in isolation. Do NOT flag a definition that is genuinely anchored to a measurable numeric or external standard.
 
 Quality bar: Only report issues you are confident about. Each issue must clearly match one of the eight patterns above.
 
