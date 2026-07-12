@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (v0.1.35 — 2026-07-11)
+### Added (v0.1.36 — 2026-07-12)
+
+- **Ambiguity prompt v4** (commit `ec3333a`) — replaces the E33 v5/E38 prompt with a simpler, more effective structure. Uses "Default: FLAG" + "Aim for high recall" + flat criteria. Long positive example list of concrete terms (appropriate team, high-throughput, etc.). Verified at fixture scale: 8/10 ambiguity fixtures improved, 0 regressed. Overall 17/47 → 21/47 PASS.
+- **Test fixture redesign: test-contradictions-direct** (commit `38bf829`) — splits each rule's contradiction and ambiguous term into separate sentences within the same paragraph. The v1 fixture stacked both in the same sentence, which caused the LLM in multiWave mode to context-shift into suppression. v2 surfaces REAL findings the v1 was hiding ("staging", "production", "developer convenience credentials" undefined terms; multiple hygiene issues). Results (6-run aggregate): ambiguity-llm 0/11 → 2/11, hygiene 0/5 → 4/5, contradiction 45/15 → 42/15.
+- **E33 dedup fix** (commit `aace2c7`) — fixes a counting bug where the `contradiction` category was double-counting each `contradiction` + `contradiction-related` finding pair. Uses a Set so each finding is counted at most once. Reduces reported contradiction inflation from 280-300% to 186-200% (closer to the natural ratio from the analyzer's intentional two-line design).
+- **E40 evaluation scripts** (commit `ec3333a`) — `scripts/e40b-ambiguity-probe.mjs` (3-run probe), `scripts/e40c-ambiguity-probe.mjs` (multi-fixture probe), `scripts/e40e-realworld-skill.mjs` (evaluate on any SKILL.md), `scripts/e40f-multi-skill-batch.mjs` (multi-skill batch).
+- **E40 experiment notes** (commits `ec3333a`, `38bf829`, `e03c8d9`) — `notes/e40b-ambiguity-prompt-fix.md`, `e40d-ambiguity-prompt-fix.md`, `e40d-validation-report.md`, `e40g-prompt-v5-regression.md`, `e41-fixture-redesign.md`, `e42-dedup-fix.md`.
+- **Tests/fixtures/README.md** updated with E40d v4 + redesigned fixture results (commit `1ca9ec2`).
+
+### Fixed
+
+- **E33 contradiction double-counting** — the `countByCategory` function was adding `contradiction` and `contradiction-related` counts separately, inflating detection rates. Now uses a Set so each finding is counted at most once per category.
 
 - **`analysisWaves` config field** — clean per-call wave selection that bypasses `analysisMode`. New `Engine.analyze(input, customDiags, enabledWavesOverride, configOverride)` signature.
 - **MCP `analysisWaves` parameter** — per-wave analysis from MCP server (`qwen/qwen3-coder-30b-a3b-instruct` recommended in package.json description).
