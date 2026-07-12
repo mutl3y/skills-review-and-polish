@@ -129,6 +129,21 @@ The table below shows the median detection count from the E33 fixture validation
 
 **14/47 (30%) category-fixture pairs at 100% recall.** The "300% over" cases (contradiction detection) are correct over-detection — the contradiction wave finds more than the labeled count because the body also has unlabeled contradictions (E30 corpus scan confirmed this is real signal, not hallucination).
 
+## E33 v2 — Current detection rates (2026-07-12, post E40d v4 prompt + redesigned contradictions-direct fixture)
+
+After deploying the E40d v4 ambiguity prompt and the redesigned test-contradictions-direct fixture (separates ambiguities from contradictions into different sentences), 6-run aggregate medians on the targeted fixture show real improvement:
+
+| Fixture | Category | Expected | E40d v4 (orig fixture) | **E41 v2 (redesigned, 6 runs)** | Change |
+|---|---:|---:|---:|---:|---|
+| test-contradictions-direct | ambiguity-llm | 11 | 0 | **2** | +2 |
+| test-contradictions-direct | hygiene | 5 | 0 | **4** | +4 |
+| test-contradictions-direct | contradiction | 15 | 45 | 42 | -3 (less over-fire) |
+| test-contradictions-subtle | ambiguity-llm | 4 | 0 | **2** | +2 |
+
+The redesigned fixture surfaces REAL findings the original was hiding: "staging", "production", "developer convenience credentials" (undefined domain terms) and multiple hygiene issues (over-specification, unordered process, vague-cognitive-directive).
+
+See `notes/e41-fixture-redesign.md` for full analysis.
+
 ### Known limitations (2026-07-11)
 
 1. **Coverage-gap silent-gap inference (test-coverage-gaps, test-coverage-gaps-hard):** 1/13, 1/15 — the LLM treats body section mentions as "addressed" even when the body doesn't actually provide handling. The "mentioned but not handled" rule added in E33 v4 didn't fully solve this. The cognitive gap is the LLM's ability to do fine-grained inference from domain knowledge.
