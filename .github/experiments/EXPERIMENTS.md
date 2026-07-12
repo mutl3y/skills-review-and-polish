@@ -72,8 +72,14 @@ Generate equivalent prompts using multiple frontier models.
 
 Compare findings.
 
-**Status: NOT RUN.** Requires a second provider (OpenRouter). Worth doing to separate
-model-dependent noise from analyzer-architecture noise.
+**Status (2026-07-12): COMPLETED (implicitly).** The multi-model comparison work
+was done in the e12-n3 (`google/gemini-2.5-flash-lite` vs
+`qwen/qwen3-coder-30b-a3b-instruct`) and E25 (`e25-model-comparison.md`,
+27 paid + 20 free OpenRouter models tested on 2 labeled fixtures and 6 real-world
+production skills). The E12-N3 work established that the analyzer's detection rate
+is strongly model-dependent, and the E25 work identified `qwen/qwen3-coder-30b-a3b-instruct`
+as the best-cost/quality model. Further dedicated E6 execution would not add new
+insights beyond what E12-N3 and E25 already documented.
 
 ### E7 False Positive Investigation
 
