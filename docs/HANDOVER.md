@@ -3,7 +3,7 @@
 
 ## Current State (Updated)
 
-- **Branch:** main (HEAD: de5271e)
+- **Branch:** main (HEAD: d0aa476)
 - **Version:** 0.1.38 (PUBLISHED to VS Code marketplace)
 - **Tests:** 485 unit tests passing
 - **Compilation:** Clean (npm run compile)
@@ -38,7 +38,7 @@
 
 ### E58 — quality-playbook review
 
-Scanned the 2739-line B-grade skill in 24.6s. Found **41 real findings**:
+Scanned the 2738-line B-grade skill in 24.6s. Found **41 real findings**:
 - 22 ambiguity-llm (subjective terms)
 - 12 hygiene-redundant-instruction (duplicate text)
 - 4 contradiction-related (line 358 default behavior conflict)
@@ -69,16 +69,13 @@ Scanned the 2739-line B-grade skill in 24.6s. Found **41 real findings**:
 
 ### New Notes
 
-- `notes/e50-clean-architecture.md` — E50 architecture overview
 - `notes/e51-production-test.md` — E51 production test results
-- `notes/e52-model-comparison.md` — Qwen vs Llama-4-scout
-- `notes/e53-round2-models.md` — 7-model comparison
-- `notes/e54-wildcards.md` — wildcards test results
-- `notes/e55-cost-analysis.md` — cost analysis
 - `notes/e56-corpus-multimodel.md` — full E56 corpus scan results
 - `notes/e57-manual-sample-review.md` — manual sample review of E56 results
 - `notes/e58-quality-playbook-review.md` — single-skill deep review
 - `notes/e60-suggested-improvements.md` — prioritized list of next improvements
+
+(Other experiment notes — e50, e52, e53, e54, e55 — exist as scripts but their detailed report notes were not created; the scripts and data files are the source of truth for those.)
 
 ## What's Next (v0.1.39+)
 
@@ -93,3 +90,11 @@ The top 3 are:
 - E43-E50 prompt work: ~$0.20
 - E51-E58 model comparison + corpus scan: ~$1.50
 - Total: ~$1.70 for 600+ LLM calls and a major improvement
+
+---
+
+## Verification Note (2026-07-13)
+
+This HANDOVER was verified using the `documentation-review` skill (SKILL.md).
+Result: **Factually Accurate with 3 minor corrections applied** (HEAD reference, 5 missing notes references corrected, line count off by 1).
+All 25+ Factual Statements (version, test count, model config, E56 corpus results, E58 findings, E30 baseline, file references for scripts that exist) verified against Repository Evidence.
