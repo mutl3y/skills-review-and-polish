@@ -48,6 +48,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **README.md** — updated to reflect v0.1.37 with the multi-model recommendation.
 - **docs/USER-GUIDE.md** — updated "Recommended OpenRouter Models" table with E56 results, marked `qwen/qwen3-coder-30b` as "Avoid" (only 21% recall on test fixtures, 5x fewer findings than gemini-flash).
 
+## [0.1.38] — 2026-07-13 (marketplace publish)
+
+### Note
+
+v0.1.37 is the substantive release with the multi-model configuration. v0.1.38 is a version bump because the marketplace already had v0.1.37 registered from a prior session, so the publish required a fresh version number. The package.json defaults and all behavior are identical to v0.1.37.
+
+- **Published to VS Code marketplace** as `mutl3y.skills-review-and-polish` v0.1.38
+- All v0.1.37 changes (multi-model config, E56 corpus scan, E58 quality-playbook review, new scripts) are in v0.1.38
+
 ## [0.1.36] — 2026-07-12
 
 ### Added (v0.1.36 — 2026-07-12)
