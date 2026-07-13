@@ -278,7 +278,6 @@ risk_register:
   - risk: "E47 publish fails due to packaging issues"
     mitigation: "Run `npm run compile` and full test suite before commit. Manual smoke test if possible."
 
-be cayeful to keep the prompts genneric that theynotes_for_next_session: |
   Welcome back! v0.1.36 is committed (`bc4f7a4`) and ready to publish.
   This plan covers 6 follow-up tasks ordered by impact. Start with E43
   (coverage) — it's the biggest miss in E42. Use the probe-then-full-E33
