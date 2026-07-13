@@ -2,7 +2,7 @@
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems. VS Code extension provides AI-suggested fixes with diff preview for human review; MCP server returns proposed fixes for agent-controlled application.",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",
@@ -53,8 +53,8 @@
         },
         "skillsReviewAndPolish.model": {
           "type": "string",
-          "default": "",
-          "markdownDescription": "Analysis model **id**. Use the _Skills Review: Select Analysis Model_ command — the picker shows the friendly name with its id as description. The id uniquely identifies one model (e.g. `claude-sonnet-4.6`, `gpt-5.4`, `gemini-3-flash-preview`). Empty = auto-select best available model. _Recommended for OpenRouter:_ `qwen/qwen3-coder-30b-a3b-instruct` (E29 benchmark winner — $0.17/1M, 100% recall, 0 FPs, ~3x cheaper than gemini-flash-lite)."
+          "default": "google/gemini-2.5-flash-lite",
+          "markdownDescription": "Analysis model **id**. Use the _Skills Review: Select Analysis Model_ command — the picker shows the friendly name with its id as description. The id uniquely identifies one model (e.g. `claude-sonnet-4.6`, `gpt-5.4`, `gemini-3-flash-preview`). Empty = auto-select best available model. _Recommended for OpenRouter:_ `google/gemini-2.5-flash-lite` (E56 corpus-scan winner — 47% recall on test fixtures, 41% on full corpus, $0.15 per 340-skill scan, ~5x cheaper than qwen3-coder-30b). For best results, pair with `deepseek/deepseek-chat-v3` as the `deepModel`."
         },
         "skillsReviewAndPolish.pickerSortBy": {
           "type": "string",
@@ -73,8 +73,8 @@
         },
         "skillsReviewAndPolish.deepModel": {
           "type": "string",
-          "default": "",
-          "description": "Model for the contradictions/deep wave (needs stronger reasoning). Empty = same as analysis model. _Recommended:_ `qwen/qwen3-coder-30b-a3b-instruct` — E27 deep-model leaderboard winner (100% in-cat at $0.17/1M, 15s)."
+          "default": "deepseek/deepseek-chat-v3",
+          "description": "Model for the contradictions/deep wave (needs stronger reasoning). Empty = same as analysis model. _Recommended for OpenRouter:_ `deepseek/deepseek-chat-v3` — E54/E56 corpus-scan winner on circular definitions (90% on test-circular-hard vs 67% for gemini-flash) and contradictions (3x improvement). E56 corpus scan: 8811 findings vs E30's 1664 with qwen-only."
         },
         "skillsReviewAndPolish.fixModel": {
           "type": "string",

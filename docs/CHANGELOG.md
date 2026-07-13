@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (v0.1.37 — 2026-07-13)
+
+- **Multi-model scan recommended configuration** (E53/E54/E56) — `model: google/gemini-2.5-flash-lite` + `deepModel: deepseek/deepseek-chat-v3`. E56 corpus scan on 327 awesome-copilot skills: 8811 findings (vs 1664 in E30 with qwen-only) — a 429% improvement at half the cost ($0.24 vs $0.50). Key wins:
+  - **Circular definitions**: 1 → 15 (15x) — deepseek-chat-v3 is 90% on test-circular-hard vs 67% for gemini-flash
+  - **Contradictions**: 11 → 35 (3x) — deepseek-chat-v3 deepModel wins the contradictions wave
+  - **Dead instructions**: 0 → 29 (new category)
+  - **Persona inconsistencies**: 1 → 15 (15x)
+  - **Ambiguity**: 939 → 5235 (5.6x)
+  - **Coverage gaps**: 323 → 2103 (6.5x)
+  - **Hygiene-vague-cognitive-directive**: 1 → 221 (220x)
+  - **Hygiene-missing-agent**: 7 → 76 (11x)
+- **Updated package.json defaults** to use the new multi-model config:
+  - `model` default: `google/gemini-2.5-flash-lite` (was `qwen/qwen3-coder-30b-a3b-instruct`)
+  - `deepModel` default: `deepseek/deepseek-chat-v3` (was empty, defaulted to model)
+- **Test infrastructure (E50 clean architecture)** — separate the LLM-readable skill body from the expected answer key. The LLM only sees a clean skill body, never the test scaffolding. New scripts:
+  - `scripts/e50-clean-architecture.mjs` — test runner using clean fixtures + separate expected files
+  - `scripts/e50-generate-clean-fixtures.mjs` — generator that strips test scaffolding from SKILL.md files
+  - `tests/fixtures/clean/` — 15 clean skill bodies (no labels, no metadata, no hint comments)
+  - `tests/fixtures/expected/` — 15 expected answer files (separate from skill bodies)
+- **Hygiene circular rule (E45)** — improved the rule to add near-synonym / reciprocal / 3-hop / tautological-legal patterns. E50 test-circular-hard: 0/7 → 5/7 (0% → 71%).
+- **Model selection tools (E52, E53, E54, E55)** — systematic model comparison on clean test fixtures and production skills:
+  - `scripts/e51-production-skill-test.mjs` — production skill recall test
+  - `scripts/e52-model-comparison.mjs` — Qwen vs Llama-4-scout on focus fixtures
+  - `scripts/e53-model-comparison-clean.mjs` — 7 models on clean fixtures
+  - `scripts/e54-models-not-yet-tested.mjs` — wildcards (Claude, Gemini Pro, o1/o3, deepseek, Grok, Mistral)
+  - `scripts/e55-cost-analysis.mjs` — cost estimates for all 340 awesome-copilot skills per model
+  - `scripts/e56-corpus-rescan-multimodel.mjs` — full corpus scan with multi-model mix
+- **Calibrated E33 fixture expectations** (e33-calibration.md) — honest review of which expected counts are realistic vs over-claimed. Used to calibrate the E50 test architecture.
+- **CHANGELOG** — clear documentation of v0.1.37 improvements with E56 results
+
+### Fixed
+
+- **Test fixture label-leverage** — the old E33 test used fixtures with `[DIRECT-N]` labels and "Test metadata" blocks in the SKILL.md body. The LLM was reading this scaffolding, not analyzing the skill. The E50 clean architecture removes this priming, giving more honest recall measurements.
+- **Constraint-overload rule** — updated the structural-quality rule to allow flagging of 5+ simultaneous AND conditions as `deep-decision-tree`. The E50 test-cognitive-structural / cognitive was the only remaining gap after this fix.
+
+### Changed
+
+- **package.json** — `model` and `deepModel` defaults changed from `qwen/qwen3-coder-30b-a3b-instruct` (single-model) to `google/gemini-2.5-flash-lite` + `deepseek/deepseek-chat-v3` (multi-model mix).
+- **README.md** — updated to reflect v0.1.37 with the multi-model recommendation.
+- **docs/USER-GUIDE.md** — updated "Recommended OpenRouter Models" table with E56 results, marked `qwen/qwen3-coder-30b` as "Avoid" (only 21% recall on test fixtures, 5x fewer findings than gemini-flash).
+
+## [0.1.36] — 2026-07-12
+
 ### Added (v0.1.36 — 2026-07-12)
 
 - **Ambiguity prompt v4** (commit `ec3333a`) — replaces the E33 v5/E38 prompt with a simpler, more effective structure. Uses "Default: FLAG" + "Aim for high recall" + flat criteria. Long positive example list of concrete terms (appropriate team, high-throughput, etc.). Verified at fixture scale: 8/10 ambiguity fixtures improved, 0 regressed. Overall 17/47 → 21/47 PASS.

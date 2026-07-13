@@ -6,7 +6,7 @@ Uses your **GitHub Copilot subscription** via the VS Code Language Model API —
 
 ## ✅ Status: v0.1.35 (ready for marketplace)
 
-- **v0.1.35** — Recommended model `qwen/qwen3-coder-30b-a3b-instruct` (E29 benchmark), prompt fixes (-36% boilerplate at corpus scale), MCP `analysisWaves` param, `deepModel` config, cross-wave dedup rule. 459/459 tests pass.
+- **v0.1.37** — Multi-model scan: `google/gemini-2.5-flash-lite` (standard tier) + `deepseek/deepseek-chat-v3` (deepModel). E56 corpus scan found 8811 findings on 327 skills (vs 1664 in E30) — a 429% improvement at half the cost ($0.24 vs $0.50). Particularly strong gains on circular definitions (1→15), contradictions (11→35), and dead instructions (0→29).
 - Core analyzer with 6-wave analysis ✅
 - Surgical fixer with safety guards ✅
 - VS Code integration (diagnostics, code actions, hovers) ✅
@@ -60,7 +60,7 @@ Open VS Code Settings and search "Skills Review":
 
 - `enable` — Turn on/off
 - `provider` — Which LLM to use (Copilot by default, or OpenRouter/GitHub Models)
-- `model` — Model id (use the **Select Analysis Model** command). For OpenRouter, the recommended model is `qwen/qwen3-coder-30b-a3b-instruct` (see [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models))
+- `model` — Model id (use the **Select Analysis Model** command). For OpenRouter, the recommended configuration is `google/gemini-2.5-flash-lite` for `model` + `deepseek/deepseek-chat-v3` for `deepModel` (see [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models))
 - `analysisMode` — `multiWave` (recommended), `focused` (contradictions + ambiguities), or `single` combined pass
 - `logLevel` — `info` (default), `debug` for detailed tracing, or `trace` for full LLM prompt/response logging
 

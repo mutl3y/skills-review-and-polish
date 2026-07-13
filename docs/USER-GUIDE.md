@@ -37,25 +37,33 @@ Leave it as **vscode-lm** if you have Copilot. Otherwise, pick your provider.
 
 ### Recommended OpenRouter Models
 
-If you use **openrouter**, here are the best models for cost/quality (from our 2026-07-11 benchmark of 59 candidates on test fixtures and 6 real-world production skills):
+If you use **openrouter**, here are the best models for cost/quality (from our 2026-07-13 benchmark on 327 production skills + 6 test fixtures, E27/E28/E53/E54/E55/E56):
 
-| Use case | Model | Cost | Why |
+| Use case | Model | Cost (per 340 skills) | Why |
 | --- | --- | ---: | --- |
-| **Best overall (recommended)** | `qwen/qwen3-coder-30b-a3b-instruct` | $0.17 / 1M | 100% in-cat recall, 0 false positives on real-world skills, 3× cheaper than `gemini-flash-lite`. Also works as `deepModel`. |
-| **Speed-optimized** | `qwen/qwen3-vl-8b-instruct` | $0.29 / 1M | Fastest model with 100% recall on long docs (11s avg). Under-detects on short/simple skills. |
-| **Free tier** | `poolside/laguna-xs-2.1:free` | $0 / 1M | 100% recall, 0 FPs. 8 RPM rate limit, 25s avg. |
-| **High-stakes audits** | `meta-llama/llama-4-scout` | $0.20 / 1M | Highest recall of any model, but generates 4× more findings (more FPs). |
-| **Avoid (over-flags)** | `google/gemini-2.5-flash-lite` | $0.25 / 1M | Generates 3× more findings than `qwen3-coder-30b` but most are noise. Was the default before E29. |
+| **Best overall (recommended for `model`)** | `google/gemini-2.5-flash-lite` | **$0.15** | 47% recall on test fixtures, 41% on full corpus. Fastest paid model (~8s/call). E56 corpus-scan winner. |
+| **Best for `deepModel` (contradictions wave)** | `deepseek/deepseek-chat-v3` | **$0.59** (1 wave only) | 90% on test-circular-hard (vs 67% for gemini), 3x improvement on contradictions. |
+| **Free tier** | `poolside/laguna-xs-2.1:free` | **$0.00** | 32% recall. 8 RPM rate limit, 25s avg. |
+| **High-stakes audits** | `meta-llama/llama-4-scout` | $0.65 | 17% recall but generates more findings. |
+| **Avoid** | `qwen/qwen3-coder-30b-a3b-instruct` | $0.52 | Was previous default but only 21% recall on test fixtures. E56 found 5x more findings with gemini-flash. |
 
-**Configuration example** (set in your VS Code `settings.json`):
+**Recommended multi-model configuration** (the E56 winner):
 
 ```json
 {
   "skillsReviewAndPolish.provider": "openrouter",
-  "skillsReviewAndPolish.model": "qwen/qwen3-coder-30b-a3b-instruct",
-  "skillsReviewAndPolish.deepModel": "qwen/qwen3-coder-30b-a3b-instruct"
+  "skillsReviewAndPolish.model": "google/gemini-2.5-flash-lite",
+  "skillsReviewAndPolish.deepModel": "deepseek/deepseek-chat-v3"
 }
 ```
+
+This configuration scanned 327 production skills and found **8811 issues** (vs 1664 with qwen-only) at **half the cost** ($0.24 vs $0.50). Key wins:
+- Circular definitions: 1 → 15 (15x)
+- Contradictions: 11 → 35 (3x)
+- Dead instructions: 0 → 29 (new category)
+- Persona inconsistencies: 1 → 15 (15x)
+
+See [E56 — Corpus scan with multi-model mix](.github/experiments/documentation-review/notes/e56-corpus-multimodel.md) for full results.
 
 You can also use the **Skills Review: Select Analysis Model** command palette command to pick from a sorted list — the picker shows pricing for each model.
 
