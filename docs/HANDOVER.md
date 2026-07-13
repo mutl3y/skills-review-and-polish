@@ -1,343 +1,95 @@
-# Handover - 2026-06-10
-
-## Current State
-
-- Branch: main (HEAD: 9f8df03)
-- Version: 0.1.0
-- Tests: 346 unit tests passing
-- E2E: 10/29 passing (Playwright - timing/activation issues)
-- Compilation: Clean (npm run compile)
-
-## What Is Done (Committed)
-
-### Architecture Review Fixes (commit 2d4e36b)
-14 issues fixed, all Critical/High resolved:
-- C1: MCP error sanitization (x-api-key, auth headers, URLs) -> src/mcp/server.ts
-- C2: UUID delimiters in composition-conflicts (injection) -> src/core/analyzer.ts
-- C3: Accepted findings capped at 500 entries with LRU -> src/core/acceptedFindings.ts
-- H1: AnalysisHistoryStore.get() calls touch() for LRU -> src/core/analyzer.ts
-- H3: Config hash includes prompt file mtimes -> src/extension.ts
-- H4: MCP config watcher 200ms debounce -> src/mcp/server.ts
-- H5: MCP analyze rate limiting 5s cooldown -> src/mcp/server.ts
-- M1: loadPrompt() startup assertion -> src/core/prompts.ts
-- M3: contradiction-related scored in Contradictions pillar -> src/core/scoring.ts
-- M4: Duplicate-anchor guard in MCP fix tool -> src/mcp/server.ts
-- M5: MCP stdio integration tests (4 tests) -> src/mcp/server.stdio.test.ts
-- N1: MCP error standardization (isError flag) -> src/mcp/server.ts
-- N2: Bidirectional doc cross-references -> docs/
-- N3: Playwright auth via DevTools snippet -> tests/e2e/
-
-### Production Bug Fixes (commit b4c66b4)
-- findTextRange progressive fuzzy matching (50%, 25%, 20 char prefixes)
-- Grade capping: empty results show Ungraded not A+
-- buildEngine fallback: clears model names on openrouter->vscode-lm
-- buildUserPrompt: removed static DOCUMENT_TO_ANALYZE tags
-
-### Features (commit 131ac0c)
-- Analyze with Options modal: mode, wave checkboxes, confirm dialog
-- Change Provider command (selectProvider)
-- Analyze File command (analyzeFile)
-- Toggle Log Level command (toggleLogLevel)
-- Clear Accepted Findings command (clearAcceptedFindings)
-- MCP enabledWaves parameter on analyze tool
-- Engine.analyze() accepts wave override as third parameter
-- All 6 commands registered in package.json contributes.commands
-
-### E2E Tests
-- smoke-analyze.test.ts: 6 tests (all pass)
-- ui-commands.test.ts: 14 tests (mostly pass)
-- provider-model-sync.test.ts: 13 tests (some timing failures)
-- setup.ts: Playwright auth state loader
-- capture-auth.ts: DevTools snippet
-- auth-state/: captured browser session (gitignored)
-
-### Other
-- Version bumped to 0.1.0 with activation log
-- Compile script: rm -rf before cp to clean stale .md prompts
-- .gitignore excludes tests/e2e/auth-state/
-- docs/plan/20260610-smoke-test-bugs/ documented
-
-## Known Issues
-
-### E2E Test Failures (4 remaining)
-1. Change Provider not found in palette - VS Code web activation timing
-2. score CodeLens timeout - cascade from previous test
-3. model picker timing - extension not ready
-4. switch from Copilot to OpenRouter - depends on #3
-
-Root cause: Extension activation is async, VS Code web loads slowly,
-Playwright cant wait for extension-ready signal.
-
-## Remaining Items
-
-### H2: ExtensionState Class Refactor (Deferred)
-- 14 module-level variables, 30+ functions, 30 tests depend on pattern
-- High risk: touches core activation/lifecycle
-- Do in dedicated PR alongside extension-shell integration tests
-
-## File Map
-src/extension.ts - Main logic (1241 lines)
-src/core/analyzer.ts - 6-wave LLM analyzer (1147 lines)
-src/core/fixer.ts - Surgical fix pipeline (~600 lines)
-src/core/scoring.ts - Quality scoring
-src/mcp/server.ts - MCP server (7 tools)
-src/providers/vscodeLmProvider.ts - VS Code LM wrapper
-src/providers/externalProvider.ts - OpenRouter/GitHub Models
-
-tests/e2e/ - E2E tests (smoke, ui-commands, provider-model-sync)
-tests/e2e/auth-state/ - Captured browser session (gitignored)
-
-## Quick Commands
-npm run compile
-npm test (346 unit tests)
-npm run test:e2e (Playwright E2E)
-npx playwright test --config tests/playwright.config.ts tests/e2e/smoke-analyze.test.ts
-
-# Handover — 2026-07-11
-
-**Start here tomorrow:** `.github/experiments/documentation-review/notes/lessons-learned.md` (138 lines).
-**Source of truth:** `docs/plan/20260710-documentation-review-experiment/plan.yaml` (2105 lines, valid YAML).
-
-## State
 
-- 452/452 unit tests pass · `npm run compile` clean · branch: main
-- 20 of 22 experiments completed (E4 + E6 still planned)
-- ~$0.30 spent · 94 LLM calls · 0 rate-limits
-- 3 LLM-dependent integration tests in `src/mcp/server.integration.test.ts` are flaky (noise floor, not a regression)
-
-## What shipped this session
-
-5 analyzer fixes (E8, E9, E10, E11, E14, E15) + 2 API improvements (E20, E21):
-
-| ID | What | File |
-| --- | --- | --- |
-| E8 | buildUserPrompt grounding | `src/core/analyzer.ts` |
-| E9 | cognitive-* type disambiguation | `src/core/prompts/structural-quality.prompt` |
-| E10 | "search the doc first" pre-check | `src/core/prompts/coverage.prompt` + `single-pass.prompt` |
-| E11 | 3 post-processor rules | `src/core/findingFilter.ts` |
-| E14 | length tier recalibration | `src/core/scoring.ts` |
-| E15 | scoreSkill "empty=Ungraded" bug fix | `src/core/scoring.ts` |
-| E20 | per-category fixture labels (15 → 59) | 16 SKILL.md + `tests/fixtures/README.md` |
-| E21 | `analysisWaves: [string]` API | `src/core/types.ts` + `src/core/index.ts` |
-
-4 LLM experiments validated (E18, E19, E22, E23) — see lessons-learned.md for the data.
-
-## Top 3 things to remember
-
-1. **LLM noise floor is real** — always use N≥3 medians. Single-run detection varies by ±5-15 findings.
-2. **Focused mode (multiWave + enabledWaves) >> single mode for fixture validation** — gives 98-187% in-cat vs 0-22% with single.
-3. **The "extras" the analyzer finds are real, not hallucinations** — fixture labels were incomplete (E20 fixed).
-
-## Next session
-
-1. **v8 follow-up** — E22 found 5 new contradiction findings on v7 (D8 vs C2/C3/C4/C5). A v8 clarifying the modification taxonomy could move v7 from B- to A on focused mode. Previous v8 attempt (decision table) failed because the LLM now reads the table with the same scrutiny.
-2. **E4 + E6** still in planned state. E6 (multi-model comparison) is implicitly covered by E12-N3 cross-model work — could be marked completed with a reference. E4 (specification style) would require a new fixture set.
-
-## Quick commands
-
-```bash
-npm run compile
-npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.test.ts"
-
-# Re-run any experiment
-source ~/.bashrc && OPENROUTER_API_KEY=$OPENROUTER_API_KEY node scripts/e19-focused-suite.mjs
-
-# Verify plan.yaml
-node -e "const y=require('js-yaml');y.load(require('fs').readFileSync('docs/plan/20260710-documentation-review-experiment/plan.yaml','utf8'));console.log('OK')"
-```
-
-# Handover — 2026-07-11 (v0.1.35)
-
-## State
-
-- 466/466 unit tests pass · `npm run compile` clean · branch: main
-- v0.1.35 ready for marketplace (recommended model + prompt fixes + MCP `analysisWaves` + `deepModel` config)
-- ~$2 spent across 30+ experiments · 1000+ LLM calls · 0 rate-limits
-
-## What shipped in v0.1.35
-
-**Model change:** switched recommended model from `google/gemini-2.5-flash-lite` to `qwen/qwen3-coder-30b-a3b-instruct` (E29 benchmark winner, 100% recall, 0 FPs, $0.17/1M, 32% cheaper).
-
-**Prompt fixes** (E31/E32/E33):
-- Coverage prompt: anti-boilerplate rule + "mentioned but not handled" + silent-gap inference → -38% on real corpus
-- Ambiguity prompt: material-difference test + legal/regulatory exception → -40% on real corpus, +375% on test-ambiguities-hard
-- Single-pass prompt: same fixes applied for legacy single mode
-- Result: real-signal quality UP, boilerplate FPs DOWN
-
-**API improvements:**
-- `analysisWaves: WaveName[]` config field + MCP parameter for per-wave analysis
-- `deepModel` config field + provider tier routing (tier=deep routes to deepModel)
-- `Skills Review: Analyze Cognitive Load` command (one-click structural + persona)
-
-**Filter rules:**
-- Rule 11: crossWaveDedupRule (suppress weak finding when specific finding from different wave covers same span)
-- Rule 12: imperativeAmbiguityRule (suppress "Verify: <action>" style boilerplate)
-
-**v8 documentation-review skill** (E24): eliminated 5 false-positive contradictions in the D8/C2/C3/C4 cluster via explicit modification taxonomy; 33 findings → 8.
-
-## Per-mode recommendation (E34)
-
-| Mode | Findings (6-skill subset) | Cost per scan | When to use |
-|---|---:|---:|---|
-| single + qwen3-coder-30b | 16 | $0.003 | Quick scans, CI gates |
-| multiWave + qwen3-coder-30b | 32 | $0.02 | Thorough analysis, real-world skills |
-| focused (specific waves) | varies | varies | Targeted audits |
-
-Single mode with the new model is now viable for production — finds 78% more real issues than E20 baseline (gpt-4o-mini + v3 prompts) at lower cost.
-
-## Top 3 things to remember
-
-1. **Prompt fix > filter rules** — for LLM-as-judge systems, fixing the prompt that produces the judgment is 10-100x more effective than filtering the output.
-2. **Model + prompt matter more than mode** — single mode with qwen3-coder-30b + new prompts finds 78% more than E20's multiWave. Mode is a secondary lever.
-3. **Test corpus > real corpus for measuring improvement** — E33 fixture validation (13 labeled fixtures, ground truth) is more reliable than E30 corpus scan (327 skills, no ground truth).
-
-## Quick commands
-
-```bash
-npm run compile
-npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.test.ts"
-
-# Re-run any experiment
-source ~/.bashrc && OPENROUTER_API_KEY=$OPENROUTER_API_KEY node scripts/e30-corpus-scan.mjs
-```
-
-# Handover — 2026-07-11 (E40 M3 test + ambiguity prompt fix)
-
-## State
-
-- 466/466 unit tests pass · `npm run compile` clean · branch: main
-- v0.1.35 published to VS Code Marketplace
-- ~$3 spent across 35+ experiments · 1500+ LLM calls · 0 rate-limits
-
-## What shipped in this session (E38-E40)
-
-**E38: Coverage rule fix** — removed "AT MOST ONE gap per category" rule.
-- test-coverage-gaps: 1 → 5 coverage gaps per run (5x improvement)
-- test-coverage-gaps-hard: 1 → 5 coverage gaps per run
-- Full E33 re-run: 14/47 → 17/47 PASS (+3 categories)
-- Commit: `6df0bb4`
-
-**E39: Grade explanation** — why A+ on E20 became C+ on E34.
-- E20's "A+" was a false signal (LLM missed real issues)
-- E34's "C+" is honest (LLM found real issues)
-- A linter that finds more real issues gets penalized by the scoring formula
-- See `notes/e39-grade-explanation.md`
-
-**E40: M3 test on test-contradictions-direct** — minimax/minimax-m3 as analysis model.
-- M3 found 1/11 ambiguities across 3 runs (same as qwen3-coder-30b)
-- M3 hit empty responses on some waves (rate limit / timeout)
-- **Key finding: the prompt is the problem, not the model**
-- See `notes/e40-m3-direct-results.md`
-
-## Current problem: ambiguity prompt misses real issues
-
-**Evidence:**
-- E12-N3 (gemini-flash, v3 prompts): 11 ambiguities on test-contradictions-direct
-- E33 v5 (qwen3-coder-30b, E33 prompts): 0 ambiguities on test-contradictions-direct
-- E40 (M3, E33 prompts): 1 ambiguity on test-contradictions-direct
-
-**Root cause:** The "material-difference test" in the ambiguity prompt asks:
-> "would two competent prompt-following models produce different actions, or just slightly different wording?"
-
-This is too strict. The LLM interprets "different wording" as "same action" and skips flagging.
-
-**The fix:** Changed the test to:
-> "would a reasonable practitioner's action change if the term were interpreted one way vs another?"
-
-This is broader and catches undefined thresholds/actors/scope in MOST contexts, not just legal/regulatory.
-
-**Status:** Prompt updated but not yet validated. Quick test showed 0 ambiguities (same as before). Need to run full E33 re-validation.
-
-## Next session
-
-1. **Validate E40 ambiguity prompt fix** — run E33 re-validation with the updated prompt.
-2. **Investigate why the prompt fix didn't help** — the LLM may still be applying the old "different wording = no flag" logic.
-3. **E4 (specification style)** — still planned, would require a new fixture set.
-4. **E6 (multi-model comparison)** — implicitly covered by E12-N3, can be marked completed.
-
-## Files to review
-
-- `src/core/prompts/ambiguity.prompt` — updated with broader material-difference test
-- `notes/e38-coverage-rule-fix.md` — coverage rule fix results
-- `notes/e39-grade-explanation.md` — why grades went down with better detection
-- `notes/e40-m3-direct-results.md` — M3 test results
-- `notes/e37-session-summary.md` — full session summary
-
-## Quick commands
-
-```bash
-npm run compile
-npx vitest run --config tests/vitest.config.ts --exclude="**/server.integration.test.ts"
-
-# Re-run E33 with updated prompts
-source ~/.bashrc && OPENROUTER_API_KEY=$OPENROUTER_API_KEY node scripts/e33-fixture-validation.mjs
-```
-
-# Handover — 2026-07-11 (E40 ambiguity prompt v4)
-
-## State
-
-- 466/466 unit tests pass · `npm run compile` clean · branch: main
-- v0.1.35 published, working on v0.1.36
-- Commit: `ec3333a` (E40d v4 ambiguity prompt)
-
-## What shipped in this session (E40b–E40g)
-
-**Ambiguity prompt v4** (E40d, commit `ec3333a`) — fixes the E33 v5/E38 baseline's massive under-detection on ambiguity:
-- baseline: 0/11 on test-contradictions-direct, 4/20 on test-ambiguities-hard
-- v4: 0/11 (unchanged), 17/20 (big improvement), 18/20 on test-ambiguities
-- Overall: 17/47 → 21/47 categories at 100% recall (median, full E33)
-
-**Key insight:** "Default: FLAG" + "Aim for high recall" + flat criteria (no structured a1/a2 split) works much better than the over-engineered E33 v4 prompt.
-
-## Iteration history (4 attempts)
-
-| Version | Approach | Result | Outcome |
-|---|---|---|---|
-| E40b v2 | structured a1/a2/b/c split | over-restricted | rejected |
-| E40c v3 | "flag whole instruction" | over-restricted | rejected |
-| E40d v4 | Default: FLAG + flat criteria | 21/47 PASS | **shipped** |
-| E40g v5 | "this wave runs INDEPENDENTLY" | passed probe, regressed full E33 | reverted |
-
-**Lesson learned:** probe results don't always generalize to multiWave. Always validate with full E33.
-
-## What did NOT get fixed
-
-- **test-contradictions-direct ambiguity: 0/11** — the LLM context-shifts when the document has 1:1 contradiction:ambiguity pairing. Prompt-only fixes don't work. Requires code change (Option A in `notes/e40g-prompt-v5-regression.md`): inject contradiction findings into the ambiguity wave's user prompt. Deferred to v0.1.37.
-- **Contradiction inflation (300% on direct/subtle, 225% on hard)** — pre-existing, not introduced by E40d. Out of scope for this session.
-
-## Real-world validation (E40e/f)
-
-- quality-playbook (2739 lines, 292KB): 17 high-quality findings including 8 ambiguities, 5 coverage gaps, 1 contradiction, 1 cognitive-priority-conflict, 2 hygiene issues.
-- All findings are real issues, not false positives.
-
-## Next session
-
-1. **v0.1.36 release** — bump version, update README with E40d results, publish.
-2. **Option A: inject contradiction findings into ambiguity wave** — needs ~2h of plumbing + a new E33 run. Could close the test-contradictions-direct 0/11 gap.
-3. **E4 (specification style) + E6 (multi-model)** still in "planned" state.
-
-## Files
-
-- `src/core/prompts/ambiguity.prompt` — v4 (shipped)
-- `scripts/e40b/c-ambiguity-probe.mjs` — quick 3-run probes
-- `scripts/e40e-realworld-skill.mjs` — evaluate on any SKILL.md
-- `scripts/e40f-multi-skill-batch.mjs` — multi-skill batch evaluator
-- `scripts/e33-fixture-validation.mjs` — timeout 180→360s, batch 5→4
-- `.github/experiments/documentation-review/notes/e40b-ambiguity-prompt-fix.md`
-- `.github/experiments/documentation-review/notes/e40d-ambiguity-prompt-fix.md`
-- `.github/experiments/documentation-review/notes/e40d-validation-report.md`
-- `.github/experiments/documentation-review/notes/e40g-prompt-v5-regression.md`
-
-## Quick commands
-
-```bash
-# Validate v4 prompt
-source ~/.bashrc && node scripts/e33-fixture-validation.mjs
-
-# Run probe on 3 key fixtures
-source ~/.bashrc && node scripts/e40c-ambiguity-probe.mjs
-
-# Evaluate on a real skill
-source ~/.bashrc && node scripts/e40e-realworld-skill.mjs /workspace/awesome-copilot-fork/skills/quality-playbook/SKILL.md
-```
+# Handover Update — 2026-07-13: v0.1.37/v0.1.38 Released
+
+## Current State (Updated)
+
+- **Branch:** main (HEAD: de5271e)
+- **Version:** 0.1.38 (PUBLISHED to VS Code marketplace)
+- **Tests:** 485 unit tests passing
+- **Compilation:** Clean (npm run compile)
+
+## What Was Done in v0.1.37/v0.1.38 (since 2026-07-12)
+
+### Multi-model scan recommended configuration (E53/E54/E56)
+
+**Default config in package.json:**
+- `model`: `google/gemini-2.5-flash-lite` (47% recall on test fixtures)
+- `deepModel`: `deepseek/deepseek-chat-v3` (90% on circular, 3x contradiction improvement)
+
+### E56 corpus scan results
+
+| Metric | E30 (qwen-only) | E56 (multi-model) | Change |
+|---|---:|---:|---:|
+| Total findings | 1664 | **8811** | **+429%** |
+| Cost | $0.50 | **$0.24** | **-52%** |
+| Circular definitions | 1 | 15 | +1400% |
+| Contradictions | 11 | 35 | +218% |
+| Dead instructions | 0 | 29 | new |
+| Ambiguity | 939 | 5235 | +458% |
+| Coverage gaps | 323 | 2103 | +551% |
+| Time | 48 min | 47 min | similar |
+
+### Test architecture (E50)
+
+- **Clean fixtures** (15): `tests/fixtures/clean/*.md` — no labels, no scaffolding
+- **Expected answer files** (15): `tests/fixtures/expected/*.json`
+- **Test runner:** `scripts/e50-clean-architecture.mjs`
+- **Result:** 18/43 = 42% recall on clean fixtures (down from 22/47 = 47% with labels, but more honest)
+
+### E58 — quality-playbook review
+
+Scanned the 2739-line B-grade skill in 24.6s. Found **41 real findings**:
+- 22 ambiguity-llm (subjective terms)
+- 12 hygiene-redundant-instruction (duplicate text)
+- 4 contradiction-related (line 358 default behavior conflict)
+- 2 hygiene-vague-cognitive-directive
+- 1 contradiction (line 358)
+
+**E11 said 0 findings for this skill. E58 found 41. The E11 evaluation was missing real issues.**
+
+### Documents Updated
+
+- `package.json` — model/deepModel defaults, version 0.1.38
+- `README.md` — v0.1.38 status
+- `docs/USER-GUIDE.md` — new model recommendations, marked qwen as "Avoid"
+- `docs/CHANGELOG.md` — full v0.1.37/v0.1.38 changes
+- `src/core/prompts/hygiene.prompt` — circular rule fix (0/7 → 5/7 on test-circular-hard)
+
+### New Scripts
+
+- `scripts/e50-clean-architecture.mjs` — clean architecture test runner
+- `scripts/e50-generate-clean-fixtures.mjs` — generator for clean fixtures
+- `scripts/e51-production-skill-test.mjs` — production skill recall test
+- `scripts/e52-model-comparison.mjs` — 2-model comparison
+- `scripts/e53-model-comparison-clean.mjs` — 7-model comparison on clean fixtures
+- `scripts/e54-models-not-yet-tested.mjs` — wildcards (Claude, Gemini Pro, o1/o3, deepseek, Grok, Mistral)
+- `scripts/e55-cost-analysis.mjs` — cost estimates
+- `scripts/e56-corpus-rescan-multimodel.mjs` — corpus scan with multi-model mix
+- `scripts/e58-quality-playbook-review.mjs` — single-skill deep review
+
+### New Notes
+
+- `notes/e50-clean-architecture.md` — E50 architecture overview
+- `notes/e51-production-test.md` — E51 production test results
+- `notes/e52-model-comparison.md` — Qwen vs Llama-4-scout
+- `notes/e53-round2-models.md` — 7-model comparison
+- `notes/e54-wildcards.md` — wildcards test results
+- `notes/e55-cost-analysis.md` — cost analysis
+- `notes/e56-corpus-multimodel.md` — full E56 corpus scan results
+- `notes/e57-manual-sample-review.md` — manual sample review of E56 results
+- `notes/e58-quality-playbook-review.md` — single-skill deep review
+- `notes/e60-suggested-improvements.md` — prioritized list of next improvements
+
+## What's Next (v0.1.39+)
+
+See `notes/e60-suggested-improvements.md` for a prioritized list of 13 improvements.
+The top 3 are:
+1. **P0: Improve contradiction detection** for test-contradictions-direct (4/15 → 10+/15)
+2. **P0: Improve dead-instruction detection** (2/12 → 8+/12)
+3. **P0: Add MIX model option to config UI** (already in code, just needs UX)
+
+## Cost Summary (v0.1.37 work)
+
+- E43-E50 prompt work: ~$0.20
+- E51-E58 model comparison + corpus scan: ~$1.50
+- Total: ~$1.70 for 600+ LLM calls and a major improvement
