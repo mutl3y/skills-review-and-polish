@@ -18,8 +18,17 @@
  * - openai/gpt-4o-mini (E25 high-precision alternative)
  * - meta-llama/llama-3.3-70b-instruct (E25 high-quality alternative)
  *
- * Cost: ~$0.10 (5 models × 5 focus fixtures × 1 run × 6 waves)
- * Runtime: ~10 min
+ * Models selected (focus on likely-competitive candidates from E27/E28):
+ * - gemini-2.5-flash-lite (E53 round 1 winner, E25 winner on labeled)
+ * - qwen/qwen3-coder-30b-a3b-instruct (current recommendation, E29 winner)
+ * - bytedance-seed/seed-1.6-flash (E27 #3: 100% recall, 0 FPs — NOT YET TESTED ON CLEAN)
+ * - openai/gpt-oss-safeguard-20b (E27 #1: 93% recall, 0 FPs — safety-tuned, worth testing)
+ * - poolside/laguna-xs-2.1:free (E28: 100% recall, 0 FPs, FREE — not yet tested on clean)
+ * - mistralai/ministral-3b-2512 (E27 #2: 73% recall, 0 FPs, $0.10/1M)
+ * - meta-llama/llama-4-scout (E52 winner on focus fixtures)
+ *
+ * Cost: ~$0.15 (7 models × 6 fixtures × 3 runs × 6 waves)
+ * Runtime: ~15-20 min
  */
 import fs from 'fs';
 import path from 'path';
@@ -62,11 +71,13 @@ const FOCUS_FIXTURES = [
 ];
 
 const MODELS = [
+  'gemini-2.5-flash-lite',  // E53 round 1 winner, E25 winner
   'qwen/qwen3-coder-30b-a3b-instruct',  // current recommendation
+  'bytedance-seed/seed-1.6-flash',  // E27 #3: 100% recall, 0 FPs
+  'openai/gpt-oss-safeguard-20b',  // E27 #1: 93% recall, 0 FPs
+  'poolside/laguna-xs-2.1:free',  // E28: 100% recall, 0 FPs, FREE
+  'mistralai/ministral-3b-2512',  // E27 #2: 73% recall, 0 FPs, $0.10/1M
   'meta-llama/llama-4-scout',  // E52 winner
-  'google/gemini-2.5-flash-lite',  // E25 winner (labeled)
-  'openai/gpt-4o-mini',  // E25 high-precision
-  'meta-llama/llama-3.3-70b-instruct',  // E25 high-quality
 ];
 
 const CLEAN_DIR = path.join(__dirname, '..', 'tests', 'fixtures', 'clean');
@@ -164,7 +175,7 @@ for (const model of MODELS) {
     }
   }
   const recallPct = totalExpected > 0 ? (totalHits / totalExpected * 100).toFixed(0) : 0;
-  const modelShort = model.replace('meta-llama/', 'ml/').replace('google/', 'g/').replace('openai/', 'o/');
+  const modelShort = model.replace('meta-llama/', 'ml/').replace('google/', 'g/').replace('openai/', 'o/').replace('bytedance-seed/', 'bs/').replace('poolside/', 'ps/').replace('mistralai/', 'mi/');
   process.stderr.write(`  ${modelShort.padEnd(30)} | ${totalHits}/${totalExpected} = ${recallPct.padStart(3)}% | ${totalFindings} findings | ${totalErrors} errors\n`);
 }
 
@@ -194,7 +205,7 @@ for (const fixture of FOCUS_FIXTURES) {
       }
     }
     const recallPct = totalExpected > 0 ? (totalHits / totalExpected * 100).toFixed(0) : 0;
-    const modelShort = model.replace('meta-llama/', 'ml/').replace('google/', 'g/').replace('openai/', 'o/');
+    const modelShort = model.replace('meta-llama/', 'ml/').replace('google/', 'g/').replace('openai/', 'o/').replace('bytedance-seed/', 'bs/').replace('poolside/', 'ps/').replace('mistralai/', 'mi/');
     process.stderr.write(`  ${modelShort.padEnd(30)} | ${recallPct.padStart(3)}%   | ${totalFindings}\n`);
   }
 }
