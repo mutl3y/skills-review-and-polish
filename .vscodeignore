@@ -14,3 +14,15 @@ vitest.config.ts
 eslint.config.mjs
 **/__tests__/**
 *.vsix
+
+# --- Internal / non-shipped artifacts (keep the VSIX lean) ---
+.github/**
+.archive/**
+logs/**
+.husky/**
+.openmcp/**
+node_modules/**
+scripts/**
+# Regenerable experiment data + logs (see .gitignore)
+.github/experiments/documentation-review/data/**
+.github/experiments/documentation-review/logs/**

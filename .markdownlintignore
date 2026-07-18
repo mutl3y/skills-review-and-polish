@@ -3,3 +3,7 @@ tests/test-results/
 test/fixtures/
 # Archived plan files are historical records — keep original formatting
 docs/plan/archive/
+# Experiment artifacts and skill-under-test files intentionally preserve prompt
+# structure that conflicts with documentation markdown style rules.
+.github/experiments/
+.github/skills/

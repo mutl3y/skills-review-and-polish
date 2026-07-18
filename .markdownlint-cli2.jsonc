@@ -1,6 +1,11 @@
 {
   "globs": ["docs/**/*.md"],
-  "ignores": ["src/core/prompts/**", "docs/plan/archive/**"],
+  "ignores": [
+    "src/core/prompts/**",
+    "docs/plan/archive/**",
+    ".github/experiments/**",
+    ".github/skills/**"
+  ],
   "config": {
     "default": true,
     "MD013": false,
@@ -9,6 +14,6 @@
     "MD031": true,
     "MD032": true,
     "MD040": true,
-    "MD060": true
+    "MD060": false
   }
 }

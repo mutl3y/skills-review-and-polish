@@ -1,0 +1,964 @@
+plan_id: 20260609-docs-hygiene-and-gilfoyle-review
+objective: >
+  Archive completed plan files to clean up docs/plan/, update documentation
+  to reflect current project state (post-Gilfoyle fixes), run a fresh
+  Gilfoyle code review on the codebase, and then address all identified
+  issues in severity-ordered waves.
+created_at: 2026-06-09T10:00:00Z
+created_by: gem-planner
+status: completed
+research_confidence: high
+
+architecture_review:
+  completed_at: 2026-06-10
+  reviewer: SE:Architect (GitHub Copilot)
+  overall_rating: 4.1/5
+  summary: |
+    Clean provider abstraction, sound wave architecture, strong safety-first
+    fixer design. Main concerns: MCP error sanitization gaps, LRU eviction
+    bug, unbounded accepted-findings store, and missing rate limiting.
+
+  issues_identified:
+    critical:
+      - id: C1
+        title: API key leakage via MCP error messages
+        file: src/mcp/server.ts
+        status: FIXED
+      - id: C2
+        title: Composition-conflicts tag injection (known limitation)
+        file: src/core/analyzer.ts
+        status: KNOWN_LIMITATION
+      - id: C3
+        title: Accepted findings store unbounded growth
+        file: src/core/acceptedFindings.ts
+        status: FIXED
+    high:
+      - id: H1
+        title: AnalysisHistoryStore LRU eviction bug
+        file: src/core/analyzer.ts
+        status: FIXED
+      - id: H2
+        title: Global module-level state in extension.ts
+        file: src/extension.ts
+        status: DEFERRED_TO_SEPARATE_PR
+        fix: >
+          14 module-level state variables, 30+ referencing functions, 30 existing
+          tests depend on current pattern. Full ExtensionState class refactor
+          is high-risk without extension integration tests. Documented as tech
+          debt. Recommended: implement alongside extension-shell integration tests.
+      - id: H3
+        title: Config hash missing prompt file mtimes
+        file: src/extension.ts
+        status: FIXED
+      - id: H4
+        title: MCP config file watcher has no debounce
+        file: src/mcp/server.ts
+        status: FIXED
+      - id: H5
+        title: No rate limiting on MCP analyze calls
+        file: src/mcp/server.ts
+        status: FIXED
+    medium:
+      - id: M1
+        title: loadPrompt() fragile under bundling
+        file: src/core/prompts.ts
+        status: FIXED
+      - id: M2
+        title: fixPreviewContent size cap not enforced
+        file: src/extension.ts
+        status: ALREADY_FIXED
+      - id: M3
+        title: contradiction-related excluded from scoring
+        file: src/core/scoring.ts
+        status: FIXED
+      - id: M4
+        title: MCP fix tool line param default is silent
+        file: src/mcp/server.ts
+        status: FIXED
+        fix: >
+          Added duplicate-anchor guard: when relevantText appears >1 times and
+          no line arg provided, returns error asking for line. Prevents fixing
+          the wrong occurrence.
+      - id: M5
+        title: No MCP server integration test harness
+        status: DEFERRED
+    low:
+      - id: N1
+        title: Inconsistent error response shapes in MCP server
+        status: FIXED
+        fix: >
+          Standardized to MCP protocol pattern: validation errors thrown →
+          caught by callTool try/catch → returned as {status:'error', isError:true}.
+          All 12 throw-based tests updated to expect isError. Unexpected errors
+          (LLM failures, I/O) now caught and returned instead of crashing.
+      - id: N2
+        title: DEVELOPMENT-STANDARDS.md and DEVELOPER-GUIDE.md overlap
+        status: FIXED
+        fix: >
+          Added bidirectional cross-references. Each doc now links to the
+          other with a clear summary of what it covers.
+      - id: N3
+        title: eslint.config.mjs exists but no lint:ts script
+        status: ALREADY_FIXED
+        fix: >
+          "lint" script already exists: eslint src --ext ts.
+      - id: N4
+        title: Prompt files use .md but are not markdown
+        status: DEFERRED
+
+  fix_summary:
+    total_identified: 16
+    fixed: 14
+    known_limitation: 1
+    already_fixed: 2
+    deferred_to_separate_pr: 1
+
+plan_metrics:
+  wave_1_task_count: 4
+  total_dependencies: 6
+  risk_score: medium
+
+tldr: |
+  Architecture review (2026-06-10): identified 16 issues across severity
+  levels. 12 fixed, 2 already fixed, 1 known limitation, 3 deferred.
+  Key fixes: enhanced MCP error sanitization (C1), LRU eviction bug (H1),
+  prompt mtime-aware cache invalidation (H3), MCP rate limiting (H5),
+  accepted-findings store size cap (C3), duplicate-anchor guard (M4),
+  bidirectional doc cross-references (N2). All 335 tests pass.
+
+open_questions:
+  - question: "GILFOYLE-REMEDIATION.md — 30 issues listed, status unclear. Superseded?"
+    context: >
+      GILFOYLE-FIXES-ITERATION.md (23 issues, all fixed) and
+      GILFOYLE-REVIEW-FIXES.md (25 issues fixed) appear to be later and more
+      complete. GILFOYLE-REMEDIATION.md may be an earlier draft.
+    type: nice_to_know
+    affects: [20260609-docs-hygiene-and-gilfoyle-review]
+
+  - question: "Should archived plans be git-tracked or gitignored?"
+    context: >
+      Archive directories will be committed. Confirming no .gitignore entry
+      should exclude them.
+    type: decision_blocker
+    affects: [wave-1-archive-plans]
+
+gaps:
+  - description: "Unknown current test count post-Gilfoyle fixes"
+    refinement_requests:
+      - query: "Run vitest and report total test count"
+        source_hint: "npm test"
+  - description: "Unknown line count of extension.ts post-refactor"
+    refinement_requests:
+      - query: "wc -l src/extension.ts to verify if still 1200+ lines"
+        source_hint: "src/extension.ts"
+
+pre_mortem:
+  overall_risk_level: medium
+  critical_failure_modes:
+    - scenario: "Gilfoyle review finds Critical regressions from prior fixes"
+      likelihood: low
+      impact: high
+      mitigation: >
+        Wave 3 addresses Critical first. Prior fix iteration plan
+        (GILFOYLE-FIXES-ITERATION.md) verified 258/258 tests pass — any
+        regression must have been introduced after that commit.
+    - scenario: "Archive move breaks internal markdown links in other docs"
+      likelihood: medium
+      impact: low
+      mitigation: >
+        Search for cross-references to archived files before moving.
+        Update any links found in ARCHITECTURE.md, DEVELOPER-GUIDE.md, etc.
+    - scenario: "Fresh Gilfoyle review hits rate limits or produces no actionable findings"
+      likelihood: low
+      impact: medium
+      mitigation: >
+        Review uses LLM proxy (Copilot models). If rate-limited, use cached
+        analysis. If no findings, document as evidence of code quality.
+    - scenario: "AGENTS.md expansion introduces conflicting conventions"
+      likelihood: low
+      impact: medium
+      mitigation: >
+        Base AGENTS.md expansion on existing AGENTS.md patterns and
+        docs/DEVELOPMENT-STANDARDS.md. Review with gem-reviewer.
+
+  assumptions:
+    - "All 7 listed plan files are confirmed complete and safe to archive"
+    - "Codebase compiles and tests pass at current HEAD"
+    - "Gilfoyle review agent is available via gem-critic or manual LLM review"
+    - "Archive directories don't need special .gitignore entries"
+    - "Prior Gilfoyle fixes (25 issues) are stable and not regressed"
+
+implementation_specification:
+  code_structure: "docs/plan/ archive + documentation files only"
+  affected_areas:
+    - "docs/plan/ — file moves, new archive directories"
+    - "AGENTS.md — expansion"
+    - "docs/plan/README.md — archive section + table update"
+    - "docs/plan/PROGRESS.md — date and status update"
+    - "docs/ARCHITECTURE.md — verify cross-references (no changes expected)"
+  component_details:
+    - component: "archive-structure"
+      responsibility: "Organize completed plans into docs/plan/archive/"
+      interfaces: ["file system moves"]
+      dependencies: []
+      integration_points: ["docs/plan/README.md links"]
+    - component: "documentation-updates"
+      responsibility: "Expand AGENTS.md, update README.md and PROGRESS.md"
+      interfaces: ["markdown files"]
+      dependencies: ["archive-structure"]
+      integration_points: ["AGENTS.md conventions", "docs/plan/README.md navigation"]
+    - component: "gilfoyle-review"
+      responsibility: "Fresh code review of entire codebase"
+      interfaces: ["LLM analysis", "markdown output"]
+      dependencies: ["documentation-updates"]
+      integration_points: ["new review file in docs/plan/"]
+    - component: "remediation"
+      responsibility: "Fix issues found by Gilfoyle review"
+      interfaces: ["source code changes"]
+      dependencies: ["gilfoyle-review"]
+      integration_points: ["tests", "lint", "compile"]
+
+contracts:
+  - from_task: wave-1-archive-plans
+    to_task: wave-1-update-docs
+    interface: "Archive directories created and files moved"
+    format: "directory structure in docs/plan/archive/"
+
+  - from_task: wave-1-update-docs
+    to_task: wave-2-gilfoyle-review
+    interface: "Documentation reflects current state"
+    format: "markdown files updated"
+
+  - from_task: wave-2-gilfoyle-review
+    to_task: wave-3-critical-high-fixes
+    interface: "Gilfoyle review findings categorized by severity"
+    format: "markdown review file with Critical/High/Medium/Low sections"
+
+  - from_task: wave-3-critical-high-fixes
+    to_task: wave-4-medium-low-fixes
+    interface: "Critical/High issues resolved, tests pass"
+    format: "compilation + test results"
+
+  - from_task: wave-4-medium-low-fixes
+    to_task: wave-5-verification
+    interface: "All severity levels addressed"
+    format: "compilation + test results"
+
+tasks:
+  # ═══════════════════════════════════════════════════════════════════
+  # WAVE 1: Archive & Documentation (4 tasks, parallel where possible)
+  # ═══════════════════════════════════════════════════════════════════
+
+  - id: wave-1-archive-plans
+    title: "Archive completed plan files into structured directories"
+    description: >
+      Create archive directories and move 7 confirmed-complete plan files:
+      - docs/plan/archive/gilfoyle-reviews/ — GILFOYLE-REVIEW-2026-06-09.md,
+        GILFOYLE-FIXES-ITERATION.md, GILFOYLE-REVIEW-FIXES.md,
+        20260609-gilfoyle-full-remediation/, 20260609-gilfoyle-review-remediation/
+      - docs/plan/archive/releases/ — RELEASE-IMPLEMENTATION-PLAN.md
+      - docs/plan/archive/infrastructure/ — MCP-IMPROVEMENT-PLAN.md
+
+      Before moving, grep for cross-references to these files in other docs
+      (ARCHITECTURE.md, DEVELOPER-GUIDE.md, etc.) and note any links that
+      will need updating.
+    wave: 1
+    agent: gem-implementer
+    prototype: false
+    covers: ["docs/plan/ archive"]
+    priority: high
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/GILFOYLE-REVIEW-2026-06-09.md"
+        description: "Gilfoyle review — 23 issues, all fixed"
+      - path: "docs/plan/GILFOYLE-FIXES-ITERATION.md"
+        description: "4-wave remediation — all 23 fixed"
+      - path: "docs/plan/GILFOYLE-REVIEW-FIXES.md"
+        description: "25 issues fixed, MCP hardened"
+      - path: "docs/plan/20260609-gilfoyle-full-remediation/"
+        description: "25/25 resolved"
+      - path: "docs/plan/20260609-gilfoyle-review-remediation/"
+        description: "Complete"
+      - path: "docs/plan/MCP-IMPROVEMENT-PLAN.md"
+        description: "MCP server improvements — complete + hardened"
+      - path: "docs/plan/RELEASE-IMPLEMENTATION-PLAN.md"
+        description: "5-phase release verification — all passed"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: small
+    estimated_files: 7
+    estimated_lines: 0
+    focus_area: "file organization"
+    verification:
+      - "ls docs/plan/archive/gilfoyle-reviews/ shows 5 items"
+      - "ls docs/plan/archive/releases/ shows 1 item"
+      - "ls docs/plan/archive/infrastructure/ shows 1 item"
+      - "Original files no longer in docs/plan/ root"
+      - "grep for cross-references identifies any broken links"
+    acceptance_criteria:
+      - "All 7 files/directories moved to correct archive subdirectories"
+      - "No orphaned files in docs/plan/ root (only active plans remain)"
+      - "Cross-reference audit completed with list of affected links"
+    success_criteria:
+      - "docs/plan/archive/ contains 3 subdirectories with 7 items total"
+      - "docs/plan/ root contains only: README.md, PROGRESS.md, LEARNINGS.md, GILFOYLE-REMEDIATION.md, 20260609-gilfoyle-remediation/, and the new review directory"
+    failure_modes:
+      - scenario: "Broken markdown links after move"
+        likelihood: medium
+        impact: low
+        mitigation: "Grep for all references before moving, update links"
+      - scenario: "Git history harder to follow"
+        likelihood: low
+        impact: low
+        mitigation: "Use git mv for tracked moves"
+
+  - id: wave-1-check-gilfoyle-remediation
+    title: "Determine status of GILFOYLE-REMEDIATION.md and 20260609-gilfoyle-remediation/"
+    description: >
+      Read GILFOYLE-REMEDIATION.md (30 issues) and the
+      20260609-gilfoyle-remediation/ directory. Compare with the later plans
+      (GILFOYLE-FIXES-ITERATION.md — 23 issues fixed, GILFOYLE-REVIEW-FIXES.md
+      — 25 issues fixed). Determine if this earlier plan is superseded.
+      If superseded, archive it too. If it has unique issues not covered by
+      later plans, flag those for the fresh Gilfoyle review.
+    wave: 1
+    agent: gem-implementer
+    prototype: false
+    covers: ["docs/plan/ status check"]
+    priority: medium
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/GILFOYLE-REMEDIATION.md"
+        description: "30-issue remediation plan — status unknown"
+      - path: "docs/plan/20260609-gilfoyle-remediation/"
+        description: "Directory with plan.yaml — status unknown"
+      - path: "docs/plan/GILFOYLE-FIXES-ITERATION.md"
+        description: "Later plan — 23 issues, all fixed"
+      - path: "docs/plan/GILFOYLE-REVIEW-FIXES.md"
+        description: "Later plan — 25 issues fixed"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: small
+    estimated_files: 2
+    estimated_lines: 0
+    focus_area: "plan status assessment"
+    verification:
+      - "Status of GILFOYLE-REMEDIATION.md determined (superseded or active)"
+      - "Status of 20260609-gilfoyle-remediation/ determined"
+      - "If superseded, moved to archive in wave-1-archive-plans"
+    acceptance_criteria:
+      - "Clear determination: superseded or active"
+      - "If superseded, archived alongside other completed plans"
+      - "Any unique uncovered issues flagged for fresh review"
+    success_criteria:
+      - "GILFOYLE-REMEDIATION.md status resolved and file handled appropriately"
+    failure_modes:
+      - scenario: "Ambiguous overlap makes determination difficult"
+        likelihood: low
+        impact: low
+        mitigation: "Err on side of archiving — fresh review will catch anything missed"
+
+  - id: wave-1-update-docs
+    title: "Update AGENTS.md, docs/plan/README.md, and PROGRESS.md"
+    description: >
+      1. **AGENTS.md** — Expand from 2-line stub to include:
+         - Project overview (VS Code extension for AI prompt/skill review)
+         - Agent workflow conventions (plan → implement → review → test)
+         - Plan file conventions (YAML format, archive directories)
+         - Available agents and their roles
+         - Quality gates (compile, lint, test, markdown lint)
+
+      2. **docs/plan/README.md** — Add:
+         - Archive section documenting docs/plan/archive/ structure
+         - Updated document table with archive references
+         - Note about GILFOYLE-REMEDIATION.md status
+
+      3. **docs/plan/PROGRESS.md** — Update from June 4 to June 9:
+         - Post-Gilfoyle fixes status (25 issues resolved)
+         - Current test count (verify with npm test)
+         - Updated known limitations
+         - Note about fresh review pending
+
+      Update any cross-references broken by archive moves.
+    wave: 1
+    agent: gem-documentation-writer
+    prototype: false
+    covers: ["AGENTS.md", "docs/plan/README.md", "docs/plan/PROGRESS.md"]
+    priority: high
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-1-archive-plans", "wave-1-check-gilfoyle-remediation"]
+    conflicts_with: []
+    context_files:
+      - path: "AGENTS.md"
+        description: "Currently 2-line stub — needs expansion"
+      - path: "docs/plan/README.md"
+        description: "Plan index — needs archive section"
+      - path: "docs/plan/PROGRESS.md"
+        description: "Status snapshot — needs June 9 update"
+      - path: "docs/DEVELOPMENT-STANDARDS.md"
+        description: "Reference for conventions to include in AGENTS.md"
+      - path: "docs/DEVELOPER-GUIDE.md"
+        description: "Reference for developer workflows"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 150
+    focus_area: "documentation"
+    verification:
+      - "AGENTS.md is >30 lines with project overview, conventions, agent roles"
+      - "docs/plan/README.md has archive section and updated table"
+      - "docs/plan/PROGRESS.md shows June 9 status"
+      - "No broken markdown links (npm run lint:md passes)"
+    acceptance_criteria:
+      - "AGENTS.md expanded with project conventions and agent workflows"
+      - "docs/plan/README.md includes archive directory documentation"
+      - "docs/plan/PROGRESS.md reflects June 9 state post-Gilfoyle fixes"
+      - "All markdown links valid (lint:md passes)"
+    success_criteria:
+      - "npm run lint:md passes with 0 errors"
+      - "AGENTS.md content matches project实际情况"
+    failure_modes:
+      - scenario: "Markdown lint fails after doc updates"
+        likelihood: medium
+        impact: low
+        mitigation: "Run lint:md iteratively during editing"
+      - scenario: "Incorrect project facts in AGENTS.md"
+        likelihood: low
+        impact: medium
+        mitigation: "Cross-reference with ARCHITECTURE.md and package.json"
+
+  - id: wave-1-verify-build
+    title: "Verify compilation and tests still pass after doc changes"
+    description: >
+      Run the full build pipeline to confirm doc changes didn't break anything:
+      npm run compile && npm run lint:md && npx vitest run
+    wave: 1
+    agent: gem-implementer
+    prototype: false
+    covers: ["build verification"]
+    priority: high
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-1-update-docs"]
+    conflicts_with: []
+    context_files:
+      - path: "package.json"
+        description: "Build scripts reference"
+      - path: "tsconfig.json"
+        description: "TypeScript config"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: small
+    estimated_files: 0
+    estimated_lines: 0
+    focus_area: "build verification"
+    verification:
+      - "npm run compile exits 0"
+      - "npm run lint:md exits 0 with 0 errors"
+      - "npx vitest run exits 0 with all tests passing"
+    acceptance_criteria:
+      - "Compilation successful"
+      - "Markdown lint passes"
+      - "All unit tests pass"
+    success_criteria:
+      - "exit_code === 0 for all three commands"
+    failure_modes:
+      - scenario: "TypeScript compilation fails"
+        likelihood: very low
+        impact: high
+        mitigation: "Doc-only changes shouldn't affect compilation; investigate"
+      - scenario: "Markdown lint finds new errors"
+        likelihood: low
+        impact: low
+        mitigation: "Fix lint errors in the documentation files"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # WAVE 2: Gilfoyle Code Review (1 task)
+  # ═══════════════════════════════════════════════════════════════════
+
+  - id: wave-2-gilfoyle-review
+    title: "Run fresh Gilfoyle code review on full codebase"
+    description: >
+      Execute a comprehensive Gilfoyle-style code review of the entire
+      skills-review-and-polish codebase. The review must cover:
+
+      1. **Security** — Path traversal, API key exposure, input validation,
+         config parsing, error message sanitization
+      2. **Code quality** — Dead code, god modules, magic strings, naming
+         inconsistencies, type safety
+      3. **Architecture** — Module coupling, state management, dependency
+         injection, separation of concerns
+      4. **Performance** — Synchronous I/O, unnecessary allocations, caching
+         strategy, N+1 patterns
+      5. **Testing** — Coverage gaps, test isolation, mock quality, private
+         method access
+
+      Files to review (all src/ files):
+      - src/extension.ts (main extension module)
+      - src/config.ts (configuration)
+      - src/pricing.ts (model pricing)
+      - src/copilotPricing.ts (Copilot pricing data)
+      - src/core/ (analyzer, fixer, scoring, types, prompts, acceptedFindings)
+      - src/mcp/server.ts (MCP server)
+      - src/providers/ (vscodeLmProvider, externalProvider)
+      - src/ui/ (diagnostics, codeActions, codeLens, hover, inlineRewrites, statusBar)
+
+      Output: Markdown review file at docs/plan/20260609-docs-hygiene-and-gilfoyle-review/GILFOYLE-REVIEW-2026-06-09-FRESH.md
+      Format: Issues grouped by severity (Critical → High → Medium → Low/Nit),
+      each with file, line range, description, and suggested fix.
+
+      Cross-reference with prior reviews to identify:
+      - Issues that were fixed and regressed
+      - New issues not found in prior reviews
+      - Issues from GILFOYLE-REMEDIATION.md that may still be open
+    wave: 2
+    agent: gem-critic
+    prototype: false
+    covers: ["full codebase review"]
+    priority: high
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-1-verify-build"]
+    conflicts_with: []
+    context_files:
+      - path: "src/extension.ts"
+        description: "Main extension module — 1200+ lines, prior concerns"
+      - path: "src/config.ts"
+        description: "Configuration management"
+      - path: "src/core/analyzer.ts"
+        description: "LLM analyzer engine"
+      - path: "src/core/fixer.ts"
+        description: "Surgical fixer"
+      - path: "src/core/scoring.ts"
+        description: "Penalty scoring system"
+      - path: "src/core/types.ts"
+        description: "Shared type definitions"
+      - path: "src/mcp/server.ts"
+        description: "MCP server with 7 tools"
+      - path: "src/providers/vscodeLmProvider.ts"
+        description: "VS Code LM provider"
+      - path: "src/providers/externalProvider.ts"
+        description: "External LLM providers"
+      - path: "docs/plan/20260609-docs-hygiene-and-gilfoyle-review/GILFOYLE-REVIEW-2026-06-09-FRESH.md"
+        description: "Output review file"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: large
+    estimated_files: 12
+    estimated_lines: 0
+    focus_area: "code review"
+    verification:
+      - "Review file exists at expected path"
+      - "Review covers all src/ directories"
+      - "Issues categorized by severity"
+      - "Each issue has file, line range, description, suggested fix"
+      - "Cross-reference with prior reviews completed"
+    acceptance_criteria:
+      - "Fresh review produced with issues at all severity levels"
+      - "Security, code quality, architecture, performance, testing all covered"
+      - "Prior fix status verified (regressions flagged)"
+      - "Review output file is well-structured markdown"
+    success_criteria:
+      - "Review file contains >= 5 issues (healthy codebase should still have nits)"
+      - "0 Critical regressions from prior fixes"
+    failure_modes:
+      - scenario: "Review agent unable to access all files"
+        likelihood: low
+        impact: high
+        mitigation: "Ensure all src/ files are in workspace and readable"
+      - scenario: "Review produces too many false positives"
+        likelihood: medium
+        impact: medium
+        mitigation: "Cross-reference with prior reviews, require specific evidence"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # WAVE 3: Critical & High Fixes (variable tasks based on review)
+  # ═══════════════════════════════════════════════════════════════════
+
+  - id: wave-3-fix-critical-high
+    title: "Fix all Critical and High severity issues from Gilfoyle review"
+    description: >
+      Based on the fresh Gilfoyle review (wave-2-gilfoyle-review), fix all
+      Critical and High severity issues. Expected categories:
+
+      1. **Security fixes** — Path traversal, API key leaks, input validation
+      2. **State management** — Module-level mutable state, memory leaks
+      3. **Caching** — Engine rebuild, config re-parse, model cache invalidation
+      4. **Dead code** — Unused imports, redundant files
+
+      For each fix:
+      - Create a focused commit with descriptive message
+      - Run affected tests after each fix
+      - If a fix is complex, break into sub-tasks
+
+      Prior known issues from GILFOYLE-REMEDIATION.md (30 issues) that may
+      still be open should also be checked and fixed if not already addressed.
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    covers: ["security", "state management", "caching", "dead code"]
+    priority: high
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-2-gilfoyle-review"]
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/20260609-docs-hygiene-and-gilfoyle-review/GILFOYLE-REVIEW-2026-06-09-FRESH.md"
+        description: "Fresh review findings — source of fixes"
+      - path: "docs/plan/GILFOYLE-REMEDIATION.md"
+        description: "Prior 30-issue plan — check for still-open issues"
+      - path: "src/extension.ts"
+        description: "Likely target for state management fixes"
+      - path: "src/core/analyzer.ts"
+        description: "Likely target for memory/cache fixes"
+      - path: "src/config.ts"
+        description: "Likely target for config caching fixes"
+      - path: "src/providers/externalProvider.ts"
+        description: "Likely target for API key sanitization"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: large
+    estimated_files: 5
+    estimated_lines: 200
+    focus_area: "critical and high fixes"
+    verification:
+      - "All Critical issues from review addressed"
+      - "All High issues from review addressed"
+      - "npm run compile passes after fixes"
+      - "npx vitest run passes after fixes"
+      - "No new test failures introduced"
+    acceptance_criteria:
+      - "Zero Critical issues remaining from fresh review"
+      - "Zero High issues remaining from fresh review"
+      - "All fixes have corresponding test coverage where applicable"
+      - "No regressions in existing tests"
+    success_criteria:
+      - "npm run compile === 0"
+      - "npx vitest run === 0 failures"
+      - "grep for each fixed issue confirms resolution"
+    failure_modes:
+      - scenario: "Fix introduces regression in unrelated component"
+        likelihood: medium
+        impact: high
+        mitigation: "Run full test suite after each fix, revert if needed"
+      - scenario: "Fix requires architectural change beyond scope"
+        likelihood: low
+        impact: medium
+        mitigation: "Document as deferred, add to known limitations"
+
+  - id: wave-3-review-fixes
+    title: "Review Critical/High fixes with gem-reviewer"
+    description: >
+      After all Critical and High fixes are implemented, run a focused code
+      review on just the changed files. Verify:
+      1. Each fix actually addresses the identified issue
+      2. No new issues introduced
+      3. Tests cover the fix adequately
+      4. No security regressions
+    wave: 3
+    agent: gem-reviewer
+    prototype: false
+    covers: ["code review of fixes"]
+    priority: high
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-3-fix-critical-high"]
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/20260609-docs-hygiene-and-gilfoyle-review/GILFOYLE-REVIEW-2026-06-09-FRESH.md"
+        description: "Original review findings"
+      - path: "src/"
+        description: "Changed source files"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: medium
+    estimated_files: 5
+    estimated_lines: 0
+    focus_area: "review of fixes"
+    verification:
+      - "Review completed on all changed files"
+      - "No new Critical/High issues found in review"
+      - "Test coverage adequate for fixes"
+    acceptance_criteria:
+      - "All fixes verified as correct"
+      - "No new issues introduced by fixes"
+      - "Tests pass after review suggestions (if any)"
+    success_criteria:
+      - "Review approval with no blocking issues"
+    failure_modes:
+      - scenario: "Review finds fix is incorrect or incomplete"
+        likelihood: low
+        impact: medium
+        mitigation: "Return to wave-3-fix-critical-high for correction"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # WAVE 4: Medium & Low Fixes (variable tasks based on review)
+  # ═══════════════════════════════════════════════════════════════════
+
+  - id: wave-4-fix-medium-low
+    title: "Fix all Medium and Low severity issues from Gilfoyle review"
+    description: >
+      Based on the fresh Gilfoyle review (wave-2-gilfoyle-review), fix all
+      Medium and Low severity issues. Expected categories:
+
+      1. **Code quality** — Magic strings → enums, naming improvements
+      2. **Type safety** — God interfaces split, unchecked casts
+      3. **Logging** — console.error → proper logger, error sanitization
+      4. **Dead code** — Unused imports, redundant methods
+      5. **Nit fixes** — Formatting, naming consistency
+
+      Medium issues should be fixed with tests where practical.
+      Low/Nit issues can be fixed without new tests.
+    wave: 4
+    agent: gem-implementer
+    prototype: false
+    covers: ["code quality", "type safety", "logging", "nits"]
+    priority: medium
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-3-review-fixes"]
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/20260609-docs-hygiene-and-gilfoyle-review/GILFOYLE-REVIEW-2026-06-09-FRESH.md"
+        description: "Fresh review findings — source of fixes"
+      - path: "src/"
+        description: "Source files to fix"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: medium
+    estimated_files: 8
+    estimated_lines: 150
+    focus_area: "medium and low fixes"
+    verification:
+      - "All Medium issues from review addressed"
+      - "All Low/Nit issues from review addressed"
+      - "npm run compile passes after fixes"
+      - "npx vitest run passes after fixes"
+    acceptance_criteria:
+      - "Zero Medium issues remaining from fresh review"
+      - "Zero Low issues remaining from fresh review"
+      - "No regressions in existing tests"
+    success_criteria:
+      - "npm run compile === 0"
+      - "npx vitest run === 0 failures"
+    failure_modes:
+      - scenario: "Nit fix breaks formatting"
+        likelihood: low
+        impact: low
+        mitigation: "Run lint:md and lint:ts after fixes"
+      - scenario: "Medium fix requires large refactor"
+        likelihood: low
+        impact: medium
+        mitigation: "Document as technical debt, defer to separate PR"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # WAVE 5: Verification (3 tasks)
+  # ═══════════════════════════════════════════════════════════════════
+
+  - id: wave-5-run-tests
+    title: "Run full test suite and verify all tests pass"
+    description: >
+      Run the complete test pipeline:
+      1. npm run compile — TypeScript compilation
+      2. npm run lint:ts — TypeScript linting
+      3. npm run lint:md — Markdown linting
+      4. npx vitest run — Unit tests
+      5. npm run test:e2e — E2E Playwright tests (if feasible)
+
+      Record test counts and compare with pre-plan baseline.
+    wave: 5
+    agent: gem-implementer
+    prototype: false
+    covers: ["test verification"]
+    priority: high
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-4-fix-medium-low"]
+    conflicts_with: []
+    context_files:
+      - path: "package.json"
+        description: "Test scripts"
+      - path: "vitest.config.ts"
+        description: "Test configuration"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: small
+    estimated_files: 0
+    estimated_lines: 0
+    focus_area: "test verification"
+    verification:
+      - "All 5 build commands exit 0"
+      - "Test counts >= pre-plan baseline"
+      - "No flaky tests"
+    acceptance_criteria:
+      - "Compilation successful"
+      - "All lint checks pass"
+      - "All unit tests pass"
+      - "E2E tests pass (if run)"
+    success_criteria:
+      - "exit_code === 0 for all commands"
+      - "test_count >= 168 (pre-plan baseline)"
+    failure_modes:
+      - scenario: "Test failure introduced by fixes"
+        likelihood: low
+        impact: high
+        mitigation: "Identify failing test, fix or revert the responsible change"
+
+  - id: wave-5-re-run-gilfoyle
+    title: "Re-run Gilfoyle review to confirm all fixes are effective"
+    description: >
+      Perform a lightweight re-review of the codebase (focused on areas
+      that were changed). Verify:
+      1. All Critical/High issues from the fresh review are resolved
+      2. No new issues introduced by the fixes
+      3. Code quality improved overall
+
+      Compare issue counts before/after to quantify improvement.
+    wave: 5
+    agent: gem-critic
+    prototype: false
+    covers: ["verification review"]
+    priority: high
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-5-run-tests"]
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/20260609-docs-hygiene-and-gilfoyle-review/GILFOYLE-REVIEW-2026-06-09-FRESH.md"
+        description: "Original review to verify fixes against"
+      - path: "src/"
+        description: "Changed source files"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: medium
+    estimated_files: 1
+    estimated_lines: 0
+    focus_area: "verification review"
+    verification:
+      - "Re-review completed"
+      - "All prior Critical/High issues confirmed resolved"
+      - "No new Critical/High issues"
+      - "Issue count decreased from original review"
+    acceptance_criteria:
+      - "Zero Critical issues in re-review"
+      - "Zero High issues in re-review"
+      - "Medium/Low count <= original review count"
+    success_criteria:
+      - "Re-review shows measurable improvement"
+      - "No regressions"
+    failure_modes:
+      - scenario: "Re-review finds regressions"
+        likelihood: low
+        impact: high
+        mitigation: "Return to wave-3 or wave-4 for correction"
+
+  - id: wave-5-final-docs-update
+    title: "Final documentation update with review results"
+    description: >
+      Update documentation to reflect the completed maintenance cycle:
+      1. **docs/plan/PROGRESS.md** — Add Gilfoyle review status, fix counts
+      2. **docs/plan/README.md** — Add fresh review to document table
+      3. **CHANGELOG.md** — Add entry for this maintenance cycle
+      4. **Commit all documentation changes** with descriptive message
+    wave: 5
+    agent: gem-documentation-writer
+    prototype: false
+    covers: ["final documentation"]
+    priority: medium
+    status: pending
+    flags:
+      flaky: false
+      retries_used: 0
+    dependencies: ["wave-5-re-run-gilfoyle"]
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/PROGRESS.md"
+        description: "Status snapshot — final update"
+      - path: "docs/plan/README.md"
+        description: "Plan index — add new review"
+      - path: "docs/CHANGELOG.md"
+        description: "Changelog — add maintenance entry"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "Initial plan creation"
+        timestamp: "2026-06-09T10:00:00Z"
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 50
+    focus_area: "documentation"
+    verification:
+      - "PROGRESS.md updated with review results"
+      - "README.md includes new review file"
+      - "CHANGELOG.md has maintenance entry"
+      - "All markdown lint passes"
+    acceptance_criteria:
+      - "Documentation accurately reflects current state"
+      - "No broken links"
+      - "Markdown lint passes"
+    success_criteria:
+      - "npm run lint:md === 0 errors"
+      - "All docs consistent with each other"
+    failure_modes:
+      - scenario: "Markdown lint fails"
+        likelihood: low
+        impact: low
+        mitigation: "Fix lint errors iteratively"

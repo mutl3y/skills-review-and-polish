@@ -42,7 +42,7 @@ INFRA_SKIP = new Set([
 
 // ─── Length tiers ─────────────────────────────────────────────────────────────
 // Tuned on 2026-07-10 against 15 representative skills from the
-// awesome-copilot-fork corpus (see docs/plan/20260710-documentation-review-experiment/).
+// awesome-copilot-fork corpus (see docs/plan/archive/releases/20260710-documentation-review-experiment/).
 // Evidence: the previous "≤200 lines ideal" threshold hit 39% of real-world
 // skills (75th percentile is 300 lines, 18% exceed 350 lines, 5% exceed 550).
 // The previous 800+ tier jumped to 35 pts — a single +13 jump that over-penalised

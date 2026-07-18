@@ -156,7 +156,7 @@ Questions?
 
 ### Security
 
-This extension handles LLM API interactions and file system access. Security measures applied after [Gilfoyle code review (2026-06-09)](docs/plan/20260609-gilfoyle-review-remediation/gilfoyle-review.md):
+This extension handles LLM API interactions and file system access. Security measures applied after [Gilfoyle code review (2026-06-09)](docs/plan/archive/gilfoyle-reviews/20260609-gilfoyle-review-remediation/gilfoyle-review.md):
 
 - **API key redaction** — Bearer tokens and API keys stripped from all error messages and status bar tooltips
 - **Path traversal guards** — `references/` directory loader validates resolved paths stay within expected boundary; rejects symlinks
