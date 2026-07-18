@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scripts/probes/e41-minimax-m3.mjs
 /**
  * E33: Fixture validation against ground truth.
  *
@@ -32,7 +33,7 @@ const DATA_DIR = path.join(__dirname, '..', '.github', 'experiments', 'documenta
 fs.mkdirSync(LOG_DIR, { recursive: true });
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const LOG_FILE = path.join(LOG_DIR, `e33-fixture-validation-${STAMP}.log`);
+const LOG_FILE = path.join(LOG_DIR, `e41-minimax-m3-${STAMP}.log`);
 const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 const originalStderrWrite = process.stderr.write.bind(process.stderr);
 process.stderr.write = (chunk, ...args) => {
@@ -113,18 +114,18 @@ const GROUND_TRUTH = [
 
 const CATEGORY_MAP = {
   // Top-level categories
-  'cognitive': ['cognitive-nested-conditions', 'cognitive-deep-decision-tree', 'cognitive-priority-conflict', 'cognitive-delegated-decision', 'cognitive-constraint-overload', 'cognitive-sequencing', 'cognitive-logical-inversion'],
+  'cognitive': ['cognitive-nested-conditions', 'cognitive-deep-decision-tree', 'cognitive-priority-conflict', 'cognitive-delegated-decision', 'cognitive-constraint-overload'],
   'hygiene': ['hygiene-over-specification', 'hygiene-non-actionable-preamble', 'hygiene-redundant-instruction', 'hygiene-vague-cognitive-directive', 'hygiene-unordered-process', 'hygiene-unordered-sequential-process', 'hygiene-ordered-process', 'hygiene-ordered-sequential-process', 'hygiene-missing-agent', 'hygiene-circular-definition', 'hygiene-vague-directive'],
   'contradiction': ['contradiction', 'contradiction-related'],
   'circular': ['hygiene-circular-definition'],
   'dead': ['hygiene-dead-instruction'],
 };
 
-const MODEL = 'qwen/qwen3-coder-30b-a3b-instruct';
+const MODEL = 'minimax/minimax-m3';
 const N_RUNS = 3;
 const ALL_WAVES = ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'];
 const PER_CALL_TIMEOUT_MS = 360_000;
-const BATCH_SIZE = 4;
+const BATCH_SIZE = 5;
 
 function withTimeout(promise, ms, label) {
   return Promise.race([
@@ -135,11 +136,15 @@ function withTimeout(promise, ms, label) {
 
 /** Count findings by category, mapping top-level categories to their codes. */
 function countByCategory(findings, expectedKey) {
-  // Build the set of codes that count toward this expected key
-  const codes = new Set([expectedKey, ...(CATEGORY_MAP[expectedKey] || [])]);
-  // Count each finding at most once (deduped by code, not by finding — since
-  // multiple findings can share the same code).
-  return findings.filter(f => codes.has(f.code)).length;
+  const directCode = expectedKey;
+  let count = findings.filter(f => f.code === directCode).length;
+  // Also check the category map for top-level keys
+  if (CATEGORY_MAP[expectedKey]) {
+    for (const code of CATEGORY_MAP[expectedKey]) {
+      count += findings.filter(f => f.code === code).length;
+    }
+  }
+  return count;
 }
 
 async function runOne(fixture, runIdx) {
@@ -265,7 +270,7 @@ if (misses.length > 0) {
 }
 
 // Persist
-const outFile = path.join(DATA_DIR, `e33-fixture-validation-${STAMP}.json`);
+const outFile = path.join(DATA_DIR, `e41-minimax-m3-${STAMP}.json`);
 fs.writeFileSync(outFile, JSON.stringify({
   model: MODEL,
   n_runs: N_RUNS,

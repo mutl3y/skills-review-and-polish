@@ -64,7 +64,7 @@ const CLEAN_DIR = path.join(__dirname, '..', 'tests', 'fixtures', 'clean');
 const EXPECTED_DIR = path.join(__dirname, '..', 'tests', 'fixtures', 'expected');
 
 const CATEGORY_MAP = {
-  'cognitive': ['cognitive-nested-conditions', 'cognitive-deep-decision-tree', 'cognitive-priority-conflict', 'cognitive-delegated-decision', 'cognitive-constraint-overload'],
+  'cognitive': ['cognitive-nested-conditions', 'cognitive-deep-decision-tree', 'cognitive-priority-conflict', 'cognitive-delegated-decision', 'cognitive-constraint-overload', 'cognitive-sequencing', 'cognitive-logical-inversion'],
   'hygiene': ['hygiene-over-specification', 'hygiene-non-actionable-preamble', 'hygiene-redundant-instruction', 'hygiene-vague-cognitive-directive', 'hygiene-unordered-process', 'hygiene-unordered-sequential-process', 'hygiene-ordered-process', 'hygiene-ordered-sequential-process', 'hygiene-missing-agent', 'hygiene-circular-definition', 'hygiene-vague-directive'],
   'contradiction': ['contradiction', 'contradiction-related'],
   'circular': ['hygiene-circular-definition'],

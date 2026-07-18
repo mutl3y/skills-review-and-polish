@@ -41,7 +41,25 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const LOG_FILE = path.join(LOG_DIR, `e50-clean-architecture-${STAMP}.log`);
 const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 const originalStderrWrite = process.stderr.write.bind(process.stderr);
+const responseHealth = {
+  salvageRecoveries: 0,
+  nonStopFinishReasons: 0,
+  finishReasonErrors: 0,
+  finishReasonLength: 0,
+  deepFallbacks: 0,
+  providerErrors: 0,
+};
+function countOccurrences(text, needle) {
+  return text.split(needle).length - 1;
+}
 process.stderr.write = (chunk, ...args) => {
+  const text = typeof chunk === 'string' ? chunk : chunk?.toString?.() ?? '';
+  responseHealth.salvageRecoveries += countOccurrences(text, 'salvageTruncatedJSON');
+  responseHealth.nonStopFinishReasons += countOccurrences(text, 'non-stop finish reason');
+  responseHealth.finishReasonErrors += countOccurrences(text, '"finishReason":"error"');
+  responseHealth.finishReasonLength += countOccurrences(text, '"finishReason":"length"');
+  responseHealth.deepFallbacks += countOccurrences(text, 'deep tier failed; retrying with standard tier');
+  responseHealth.providerErrors += countOccurrences(text, 'callLLM: provider error');
   logStream.write(chunk);
   return originalStderrWrite(chunk, ...args);
 };
@@ -51,18 +69,76 @@ const CLEAN_DIR = path.join(__dirname, '..', 'tests', 'fixtures', 'clean');
 const EXPECTED_DIR = path.join(__dirname, '..', 'tests', 'fixtures', 'expected');
 
 const CATEGORY_MAP = {
-  'cognitive': ['cognitive-nested-conditions', 'cognitive-deep-decision-tree', 'cognitive-priority-conflict', 'cognitive-delegated-decision', 'cognitive-constraint-overload'],
+  'cognitive': ['cognitive-nested-conditions', 'cognitive-deep-decision-tree', 'cognitive-priority-conflict', 'cognitive-delegated-decision', 'cognitive-constraint-overload', 'cognitive-sequencing', 'cognitive-logical-inversion'],
   'hygiene': ['hygiene-over-specification', 'hygiene-non-actionable-preamble', 'hygiene-redundant-instruction', 'hygiene-vague-cognitive-directive', 'hygiene-unordered-process', 'hygiene-unordered-sequential-process', 'hygiene-ordered-process', 'hygiene-ordered-sequential-process', 'hygiene-missing-agent', 'hygiene-circular-definition', 'hygiene-vague-directive'],
   'contradiction': ['contradiction', 'contradiction-related'],
   'circular': ['hygiene-circular-definition'],
   'dead': ['hygiene-dead-instruction'],
 };
 
-const MODEL = 'qwen/qwen3-coder-30b-a3b-instruct';
-const N_RUNS = 3;
+const MODEL = process.env.ANALYSIS_MODEL || 'google/gemini-2.5-flash-lite';
+const DEEP_MODEL = process.env.DEEP_MODEL || 'deepseek/deepseek-chat-v3';
+const MAX_TOKENS = Number(process.env.MAX_TOKENS || 16384);
+const MAX_RETRIES = Number(process.env.MAX_RETRIES || 0);
+// structuredOutput is a 3-state value:
+//   'schema' (default) → response_format: { type: 'json_schema', ... } (strict)
+//   'json'             → response_format: { type: 'json_object' } (legacy)
+//   'off'              → no response_format (legacy default)
+// Accepts the legacy STRUCTURED_OUTPUT=1 alias for 'json' for backward compat
+// with earlier scripts that only knew the boolean form.
+const RAW_STRUCTURED_OUTPUT = process.env.STRUCTURED_OUTPUT;
+const STRUCTURED_OUTPUT = (() => {
+  if (RAW_STRUCTURED_OUTPUT === undefined || RAW_STRUCTURED_OUTPUT === '') return 'schema';
+  if (RAW_STRUCTURED_OUTPUT === '1' || RAW_STRUCTURED_OUTPUT === 'true') return 'json';
+  if (RAW_STRUCTURED_OUTPUT === '0' || RAW_STRUCTURED_OUTPUT === 'false' || RAW_STRUCTURED_OUTPUT === 'off') return 'off';
+  if (RAW_STRUCTURED_OUTPUT === 'schema' || RAW_STRUCTURED_OUTPUT === 'json') return RAW_STRUCTURED_OUTPUT;
+  return 'schema';
+})();
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 120_000);
+// Adaptive response-token budgeting (plan item 3 / adaptive two-budget clamp).
+// ON by default so long-output waves (e.g. ambiguities) are not silently
+// truncated at the fixed 16384 cap. Disable with ADAPTIVE_RESPONSE_TOKENS=0
+// to reproduce historical fixed-cap behavior.
+const ADAPTIVE_RESPONSE_TOKENS = process.env.ADAPTIVE_RESPONSE_TOKENS !== '0';
+const ADAPTIVE_MAX_RESPONSE_TOKENS = Number(process.env.ADAPTIVE_MAX_RESPONSE_TOKENS || 131_072);
+const ADAPTIVE_MIN_RESPONSE_TOKENS = Number(process.env.ADAPTIVE_MIN_RESPONSE_TOKENS || 16_384);
+const ADAPTIVE_CHARS_PER_TOKEN = Number(process.env.ADAPTIVE_CHARS_PER_TOKEN || 4);
+const N_RUNS = Number(process.env.SCORE_SAMPLES || 3);
+const MIN_RECALL = Number(process.env.MIN_RECALL || 0.42);
+const MAX_OVER_REPORT_RATIO = Number(process.env.MAX_OVER_REPORT_RATIO || 3);
+const RELEASE_GATE = process.env.RELEASE_GATE === '1';
+const FIXTURE_FILTER = (process.env.FIXTURE_FILTER || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+// SKIP_POST_PROCESS=1 disables the finding post-processor (crossWaveDedup,
+// imperativeAmbiguity, etc.) so the script reports the raw analyzer output.
+// Used by the dedup-discovery probe to re-derive stale fixture expected
+// counts; production E50 runs should leave this off.
+const SKIP_POST_PROCESS = process.env.SKIP_POST_PROCESS === '1';
 const ALL_WAVES = ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'];
 const PER_CALL_TIMEOUT_MS = 360_000;
-const BATCH_SIZE = 4;
+// Per-wave timeout (single LLM call, including retries): if any one wave's
+// OpenRouter request hangs, abort that wave and let the run loop mark the
+// fixture as a non-stop finish. Without this, a single hung wave stalls the
+// whole 6-wave analyze call until PER_CALL_TIMEOUT_MS fires (6 min).
+// 2026-07-17: smoke run hung at fixture #41 wave 1 for >5 min and was
+// killed; per-wave timeout lets the run continue past the bad wave.
+const PER_WAVE_TIMEOUT_MS = Number(process.env.PER_WAVE_TIMEOUT_MS || 120_000);
+// Drop BATCH_SIZE to 1 in schema mode. The strict response_format envelope
+// + 6 waves + deep tier + composition-conflicts per fixture = 7+ concurrent
+// LLM calls. With BATCH_SIZE=4 that's 28 concurrent schema requests, which
+// appears to deadlock or rate-limit on the OpenRouter route. 1 fixture at a
+// time keeps the request fanout under the provider's comfortable limit.
+const BATCH_SIZE = 1;
+
+process.stderr.write(`model=${MODEL}\n`);
+process.stderr.write(`deepModel=${DEEP_MODEL}\n`);
+process.stderr.write(`maxTokens=${MAX_TOKENS}\n`);
+process.stderr.write(`maxRetries=${MAX_RETRIES}\n`);
+process.stderr.write(`structuredOutput=${STRUCTURED_OUTPUT}\n`);
+process.stderr.write(`requestTimeoutMs=${REQUEST_TIMEOUT_MS}\n`);
+process.stderr.write(`skipPostProcess=${SKIP_POST_PROCESS}\n`);
 
 function withTimeout(promise, ms, label) {
   return Promise.race([
@@ -114,18 +190,40 @@ async function runOne(fixtureName, fixturePath, expected, runIdx) {
     return { fixture: fixtureName, run: runIdx, error: `clean skill not found: ${fullPath}` };
   }
   const text = fs.readFileSync(fullPath, 'utf8');
-  const provider = new OpenRouterProvider({ apiKey, model: MODEL });
+  const provider = new OpenRouterProvider({
+    apiKey,
+    model: MODEL,
+    deepModel: DEEP_MODEL,
+    maxTokens: MAX_TOKENS,
+    maxRetries: MAX_RETRIES,
+    // hardcode 1M to match Gemini 2.5 Flash Lite (the standard tier);
+    // a hung E50 today because getContextLength() returned undefined and the
+    // analyzer logged a 200K-fallback warning on every wave. See plan item
+    // `complete-e50-schema-validation` for the context-lookup chain.
+    contextLength: 1_000_000,
+    // 'schema' (default) sends strict JSON schema; 'json' sends legacy
+    // json_object; 'off' omits response_format. The provider's own default
+    // is 'schema' too, but we pass it explicitly so the log line reflects
+    // the test's chosen mode.
+    structuredOutput: STRUCTURED_OUTPUT,
+    requestTimeoutMs: REQUEST_TIMEOUT_MS,
+    adaptiveMaxTokens: ADAPTIVE_RESPONSE_TOKENS,
+    adaptiveMaxTokensCap: ADAPTIVE_MAX_RESPONSE_TOKENS,
+    minAdaptiveTokens: ADAPTIVE_MIN_RESPONSE_TOKENS,
+    adaptiveCharsPerToken: ADAPTIVE_CHARS_PER_TOKEN,
+  });
   const engine = new Engine(provider, {
     analysisMode: 'multiWave',
     analysisWaves: ALL_WAVES,
     maxRetries: 0,
+    filterFindings: !SKIP_POST_PROCESS,
   });
   const t0 = Date.now();
   let out;
   try {
     out = await withTimeout(
       engine.analyze({ text, filePath: fullPath }),
-      PER_CALL_TIMEOUT_MS,
+      PER_WAVE_TIMEOUT_MS * 6 + 30_000, // 6 waves × per-wave + 30s for scoring/post-process
       `${fixtureName} r${runIdx}`,
     );
   } catch (err) {
@@ -180,7 +278,7 @@ function findCleanSkillPath(fixtureName) {
 
 // Discover fixtures: every .json in expected/ defines a fixture
 const expectedFiles = fs.readdirSync(EXPECTED_DIR).filter(f => f.endsWith('.json'));
-const fixtures = expectedFiles.map(f => {
+let fixtures = expectedFiles.map(f => {
   const name = f.replace('.json', '');
   const data = JSON.parse(fs.readFileSync(path.join(EXPECTED_DIR, f), 'utf8'));
   const skillPath = findCleanSkillPath(name);
@@ -191,6 +289,11 @@ const fixtures = expectedFiles.map(f => {
     notes: data.notes || '',
   };
 });
+
+if (FIXTURE_FILTER.length > 0) {
+  const wanted = new Set(FIXTURE_FILTER);
+  fixtures = fixtures.filter(f => wanted.has(f.name));
+}
 
 if (fixtures.length === 0) {
   process.stderr.write(`\nNo fixtures found. Add JSON files to ${EXPECTED_DIR}\n`);
@@ -265,6 +368,7 @@ process.stderr.write(`${'Fixture'.padEnd(40)} | ${'Category'.padEnd(28)} | ${'Ex
 process.stderr.write(SEP + '\n');
 
 let totalCats = 0, totalHits = 0, totalMisses = 0;
+let totalExpected = 0, totalDetectedCapped = 0, totalDetectedRaw = 0;
 const misses = [];
 
 for (const fixture of fixtures) {
@@ -279,6 +383,9 @@ for (const fixture of fixtures) {
       `${fixture.name.padEnd(40)} | ${cat.padEnd(28)} | ${exp.toString().padStart(4)} | ${data.median.toString().padStart(4)} | ${recallPct.padStart(7)} | ${runsStr.padStart(15)} | ${status}\n`,
     );
     totalCats++;
+    totalExpected += exp;
+    totalDetectedCapped += Math.min(data.median, exp);
+    totalDetectedRaw += data.median;
     if (data.median >= exp) totalHits++;
     if (data.median < exp) {
       totalMisses++;
@@ -288,7 +395,14 @@ for (const fixture of fixtures) {
 }
 
 process.stderr.write(SEP + '\n');
+const overallRecall = totalExpected > 0 ? totalDetectedCapped / totalExpected : 0;
+const precisionProxy = totalDetectedRaw > 0 ? totalDetectedCapped / totalDetectedRaw : 0;
+const overReportRatio = totalExpected > 0 ? totalDetectedRaw / totalExpected : 0;
 process.stderr.write(`\nSUMMARY: ${totalHits}/${totalCats} categories at 100% recall (median), ${totalMisses} below threshold.\n`);
+process.stderr.write(`Recall: ${(overallRecall * 100).toFixed(1)}% (${totalDetectedCapped}/${totalExpected} capped hits)\n`);
+process.stderr.write(`Precision proxy: ${(precisionProxy * 100).toFixed(1)}% (${totalDetectedCapped}/${totalDetectedRaw} capped/raw detections)\n`);
+process.stderr.write(`Over-report ratio: ${overReportRatio.toFixed(2)}x raw detections vs expected\n`);
+process.stderr.write(`Response health: salvage=${responseHealth.salvageRecoveries}, nonStopFinish=${responseHealth.nonStopFinishReasons}, finishError=${responseHealth.finishReasonErrors}, finishLength=${responseHealth.finishReasonLength}, deepFallback=${responseHealth.deepFallbacks}, providerError=${responseHealth.providerErrors}\n`);
 
 if (misses.length > 0) {
   process.stderr.write(`\n=== GAPS TO FIX ===\n`);
@@ -301,12 +415,37 @@ if (misses.length > 0) {
 const outFile = path.join(DATA_DIR, `e50-clean-architecture-${STAMP}.json`);
 fs.writeFileSync(outFile, JSON.stringify({
   model: MODEL,
+  deep_model: DEEP_MODEL,
   n_runs: N_RUNS,
   fixtures: fixtures.map(f => ({ name: f.name, path: f.path, expected: f.expected, notes: f.notes })),
   results,
   fixture_results: fixtureResults,
-  summary: { total_categories: totalCats, hits: totalHits, misses: totalMisses, miss_list: misses },
+  summary: {
+    total_categories: totalCats,
+    hits: totalHits,
+    misses: totalMisses,
+    total_expected: totalExpected,
+    capped_hits: totalDetectedCapped,
+    raw_detections: totalDetectedRaw,
+    recall: overallRecall,
+    precision_proxy: precisionProxy,
+    over_report_ratio: overReportRatio,
+    min_recall: MIN_RECALL,
+    max_over_report_ratio: MAX_OVER_REPORT_RATIO,
+    release_gate: RELEASE_GATE,
+    response_health: responseHealth,
+    miss_list: misses,
+  },
   captured_at: new Date().toISOString(),
 }, null, 2));
 process.stderr.write(`\nFull results: ${outFile}\n`);
 process.stderr.write(`Log: ${LOG_FILE}\n`);
+
+const gateFailed = RELEASE_GATE && (overallRecall < MIN_RECALL || overReportRatio > MAX_OVER_REPORT_RATIO);
+if (gateFailed) {
+  process.stderr.write(
+    `\nRELEASE GATE FAILED: recall ${overallRecall.toFixed(3)} minimum ${MIN_RECALL}, over-report ${overReportRatio.toFixed(2)}x maximum ${MAX_OVER_REPORT_RATIO}x\n`,
+  );
+}
+
+logStream.end(() => process.exit(gateFailed ? 1 : 0));
