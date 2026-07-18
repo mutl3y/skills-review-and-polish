@@ -4,7 +4,7 @@ import { Analyzer } from './analyzer';
 import { SurgicalFixer } from './fixer';
 import type { AnalysisResult, LlmProvider } from './types';
 
-const provider: LlmProvider = { complete: async () => ({ text: '' }) };
+const provider: LlmProvider = { complete: async () => ({ text: '' }), getContextLength: () => undefined };
 
 function makeResult(code: string, severity: AnalysisResult['severity'] = 'warning'): AnalysisResult {
   return {
@@ -50,6 +50,41 @@ describe('Engine', () => {
     expect(scored.skillType).toBe('workflow');
     expect(scored.lineCount).toBe(4);
     expect(scored.penalty).toBeGreaterThanOrEqual(0);
+  });
+
+  it('uses the median penalty when scoreSamples is greater than one', async () => {
+    const spy = vi.spyOn(Analyzer.prototype, 'analyze')
+      .mockResolvedValueOnce([makeResult('ambiguity-llm', 'warning')])
+      .mockResolvedValueOnce([
+        makeResult('ambiguity-llm', 'warning'),
+        makeResult('coverage-gap', 'warning'),
+      ])
+      .mockResolvedValueOnce([
+        makeResult('contradiction', 'error'),
+        makeResult('coverage-gap', 'warning'),
+        makeResult('hygiene-dead-instruction', 'info'),
+      ]);
+    const engine = new Engine(provider, {
+      analysisMode: 'multiWave',
+      enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      scoreSamples: 3,
+      fixStrategy: 'subtractive',
+      fixSemanticCheck: false,
+      fixSelfCritique: false,
+      fixReferenceGrounding: true,
+    });
+
+    const scored = await engine.score({ text: 'Body' });
+
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Body', skipLoopDetection: true }),
+      undefined,
+      ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      expect.objectContaining({ scoreSamples: 3 }),
+    );
+    expect(scored.penalty).toBe(12);
+    expect(scored.total).toBe(2);
   });
 
   it('passes surgical fix options through to the fixer', async () => {
@@ -168,6 +203,32 @@ describe('Engine', () => {
       ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
       expect.not.objectContaining({ analysisWaves: expect.anything() }),
     );
+  });
+
+  it('analysisMode single uses the finalized single-pass analyzer path', async () => {
+    const singlePassSpy = vi.spyOn(Analyzer.prototype, 'analyzeSinglePass').mockResolvedValue([makeResult('ambiguity-llm')]);
+    const rawSinglePassSpy = vi.spyOn(Analyzer.prototype, 'analyzeSinglePassWave').mockResolvedValue([makeResult('raw-single-pass')]);
+    const multiWaveSpy = vi.spyOn(Analyzer.prototype, 'analyze').mockResolvedValue([]);
+    const engine = new Engine(provider, {
+      analysisMode: 'single',
+      enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      scoreSamples: 1,
+      fixStrategy: 'subtractive',
+      fixSemanticCheck: false,
+      fixSelfCritique: false,
+      fixReferenceGrounding: true,
+      filterFindings: true,
+    });
+
+    const results = await engine.analyze({ text: 'Body', filePath: '/tmp/test.md' });
+
+    expect(singlePassSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Body', filePath: '/tmp/test.md' }),
+      expect.objectContaining({ analysisMode: 'single', filterFindings: true }),
+    );
+    expect(rawSinglePassSpy).not.toHaveBeenCalled();
+    expect(multiWaveSpy).not.toHaveBeenCalled();
+    expect(results[0].code).toBe('ambiguity-llm');
   });
 
   it('analysisWaves overrides analysisMode: single (runs focused multi-wave instead of single-pass)', async () => {

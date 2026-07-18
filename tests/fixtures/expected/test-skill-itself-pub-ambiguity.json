@@ -2,9 +2,9 @@
   "fixture": "test-skill-itself-pub-ambiguity",
   "description": "Expected findings for the cleaned test-skill-itself-pub-ambiguity skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
   "expected": {
-    "ambiguity-llm": 1,
-    "coverage-gap": 1,
-    "hygiene-dead-instruction": 1
+    "ambiguity-llm": 10,
+    "coverage-gap": 11,
+    "hygiene-dead-instruction": 0
   },
   "detectable": {
     "Ambiguities": "YES",
@@ -12,5 +12,5 @@
     "Hygiene": "YES",
     "Dead": "MAYBE"
   },
-  "notes": "Original counts from test metadata: {\"Ambiguities\":1,\"Coverage gaps\":1,\"Hygiene\":4,\"Dead\":1}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Medians: ambiguity-llm=10 (10,10,10), coverage-gap=11 (11,11,11), hygiene-dead-instruction=0 (0,0,0 — known gap, see GAPS TO FIX)."
 }

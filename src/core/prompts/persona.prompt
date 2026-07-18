@@ -23,6 +23,10 @@ Do NOT flag:
 
 Only flag when BOTH conflicting sides are directly quoted from the document.
 
+Output budget: report at most 10 persona conflicts. If more than 10 match, return the clearest conflicts with directly quoted, non-overlapping evidence.
+
+Compactness rule: keep every string field under 240 characters. Quote only the shortest exact spans needed to prove the role conflict.
+
 Respond ONLY with JSON in this exact format (use [] for empty array):
 {
   "persona_issues": [

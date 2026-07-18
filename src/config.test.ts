@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as vscode from 'vscode';
-import { DEFAULT_INCLUDE, isCustomizationPath, readConfig, clearConfigCache } from './config';
+import { DEFAULT_INCLUDE, isCustomizationPath, readConfig, clearConfigCache, readStructuredOutput } from './config';
 
 vi.mock('vscode', () => ({
   workspace: {
@@ -24,7 +24,15 @@ describe('readConfig', () => {
     expect(config.provider).toBe('vscode-lm');
     expect(config.include).toEqual(DEFAULT_INCLUDE);
     expect(config.exclude).toEqual(['**/node_modules/**']);
+    expect(config.analysisMode).toBe('multiWave');
     expect(config.fixReferenceGrounding).toBe(true);
+    expect(config.externalStructuredOutput).toBe('schema');
+    expect(config.externalMaxResponseTokens).toBe(16_384);
+    expect(config.externalAdaptiveResponseTokens).toBe(false);
+    expect(config.externalMinAdaptiveResponseTokens).toBe(4_096);
+    expect(config.externalAdaptiveCharsPerToken).toBe(8);
+    expect(config.externalRequestTimeoutMs).toBe(120_000);
+    expect(config.telemetryEnable).toBe(false);
     expect(config.logLevel).toBe('info');
   });
 
@@ -36,6 +44,13 @@ describe('readConfig', () => {
         model: 'openai/gpt-4o-mini',
         deepModel: 'deep-model',
         fixModel: 'fix-model',
+        'external.structuredOutput': true,
+        'external.maxResponseTokens': 32_768,
+        'external.adaptiveResponseTokens': true,
+        'external.adaptiveMaxResponseTokens': 96_000,
+        'external.minAdaptiveResponseTokens': 8_192,
+        'external.adaptiveCharsPerToken': 6,
+        'external.requestTimeoutMs': 45_000,
         analysisMode: 'multiWave',
         enabledWaves: ['contradictions', 'coverage'],
         scoreSamples: 5,
@@ -68,6 +83,13 @@ describe('readConfig', () => {
     expect(config.include).toEqual(['**/custom.md']);
     expect(config.fixSemanticCheck).toBe(true);
     expect(config.inlineRewrites).toBe(true);
+    expect(config.externalStructuredOutput).toBe(true);
+    expect(config.externalMaxResponseTokens).toBe(32_768);
+    expect(config.externalAdaptiveResponseTokens).toBe(true);
+    expect(config.externalAdaptiveMaxResponseTokens).toBe(96_000);
+    expect(config.externalMinAdaptiveResponseTokens).toBe(8_192);
+    expect(config.externalAdaptiveCharsPerToken).toBe(6);
+    expect(config.externalRequestTimeoutMs).toBe(45_000);
     expect(config.telemetryEnable).toBe(false);
     expect(config.logLevel).toBe('debug');
   });
@@ -102,6 +124,27 @@ describe('isCustomizationPath', () => {
     // picomatch throws on '[invalid' — the catch branch must return false
     expect(() => isCustomizationPath('/tmp/SKILL.md', ['[invalid'])).not.toThrow();
     expect(isCustomizationPath('/tmp/SKILL.md', ['[invalid'])).toBe(false);
+  });
+});
+
+describe('readStructuredOutput', () => {
+  it.each([
+    ['schema', 'schema'],
+    [true, true],
+    [false, false],
+    ['true', true],
+    ['false', false],
+    ['1', true],
+    ['0', false],
+    ['on', true],
+    ['off', false],
+  ] as const)('maps %p to %p', (input, expected) => {
+    expect(readStructuredOutput(input)).toBe(expected);
+  });
+
+  it('falls back to schema for unknown values', () => {
+    expect(readStructuredOutput('gibberish')).toBe('schema');
+    expect(readStructuredOutput(42)).toBe('schema');
   });
 });
 

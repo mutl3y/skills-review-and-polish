@@ -1,6 +1,6 @@
 # Implementation Status
 
-> Updated July 2, 2026. **Status: Published v0.1.6**
+> Updated July 16, 2026. **Status: Beta / release-candidate hardening**
 >
 > For release details, see [archive/releases/RELEASE-IMPLEMENTATION-PLAN.md](archive/releases/RELEASE-IMPLEMENTATION-PLAN.md)
 > For engineering decisions, see [LEARNINGS.md](LEARNINGS.md)
@@ -14,19 +14,25 @@
 - **MCP Server**: 7-tool headless seam (analyze, fix, score, verify_fix, accept_finding, list_accepted_findings, health) with `.skills-review.json` config sync, unit + integration tests
 - **Testing**: 168+ unit tests, 11 E2E Playwright tests, fixture regression suite
 - **Documentation**: User-focused README, developer guide, release gates
-- **Quality Gates**: TypeScript, ESLint, markdownlint all passing
+- **Quality Gates**: TypeScript and unit tests are required; markdownlint currently has pre-existing documentation debt
 
 ## Release Status
 
-All 5 verification phases passed (July 2, 2026):
+Historical marketplace publishing was completed in July 2026, but current
+release readiness is gated by calibration accuracy and documentation truthfulness.
+The current baseline is about 47% labeled-fixture recall and 42% clean-fixture
+recall, so the app should not claim formal accuracy readiness yet.
 
-- ✅ Packaging reproducible (VSIX 4.06 MB)
-- ✅ Docs lint passing (0 errors in source)
-- ✅ Smoke validation (43/43 E2E tests)
-- ✅ Fixture regression (4/4 tests on 6-fixture corpus)
-- ✅ Full command stack (compile → lint → test → test:fixtures → lint:md → package:vsce)
+Historical v0.1.6 packaging evidence:
+
+- Packaging reproducible (VSIX 4.06 MB)
+- Smoke validation (43/43 E2E tests)
+- Fixture regression (4/4 tests on 6-fixture corpus)
+
+Current releases must re-run the commands in [RELEASE-READINESS.md](../RELEASE-READINESS.md).
 
 **Published versions:**
+
 - v0.1.0 — Initial release (June 29, 2026)
 - v0.1.1 — Additional tests and trace logging (June 29, 2026)
 - v0.1.2 — (June 29, 2026)
@@ -53,12 +59,22 @@ Full codebase review completed. **25 issues resolved** across all severity level
 ## Known Limitations
 
 - **On-disk rate limiting**: No persistent tracking across sessions
-- **Telemetry**: Setting exists but not implemented
+- **Telemetry**: Disabled by default; no telemetry is sent
 - **External provider setup**: Requires manual API key configuration
+- **Output-budget sizing on large skills**: Fixed 2026-07-18 — `resolveMaxTokens`
+  now sizes the output budget from the model's generation cap
+  (`adaptiveMaxTokensCap`) instead of input length, so large skills get the
+  full budget. Residual `finish_reason: length` on `quality-playbook` (2,739
+  lines) is the model's *realized* generation limit (~73K tokens / ~293K chars)
+  even when `max_tokens` is set to the API max (384K for `deepseek-v4-flash`);
+  the analyzer salvages partial findings. Skill chunking is **deferred** (not a
+  planned fix) — long skills are rare in the wild and should be split by their
+  author, not worked around in the analyzer. See plan
+  `20260717-…-release-blockers.md` → "Model output-cap limitations".
 
 ## Active Work
 
-- [`20260609-docs-hygiene-and-gilfoyle-review`](20260609-docs-hygiene-and-gilfoyle-review/) — Documentation cleanup and Gilfoyle review (current)
+- [`20260716-release-readiness-remediation`](20260716-release-readiness-remediation/) — Release-readiness remediation after independent review
 
 ## Next Steps
 

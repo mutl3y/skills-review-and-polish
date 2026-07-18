@@ -7,6 +7,7 @@
  */
 
 import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
+import { LLM_RESPONSE_JSON_SCHEMA_BODY } from './llmResponseSchema';
 
 /**
  * HTTP error with status code — allows retry logic to distinguish
@@ -31,11 +32,65 @@ export interface ExternalProviderOptions {
   deepModel?: string;
   /** Model identifier for fix operations (optional, falls back to model). */
   fixModel?: string;
-  /** Maximum tokens in the response (default 4096). */
+  /** Maximum tokens in the response (default 16384). Used as the cap when adaptive mode is OFF. */
   maxTokens?: number;
+  /** Enable per-request max_tokens sizing from prompt length. */
+  adaptiveMaxTokens?: boolean;
+  /** Upper bound when adaptive mode is ON (default 65536). Larger than `maxTokens` so long prompts can request more output. */
+  adaptiveMaxTokensCap?: number;
+  /** Lower bound when adaptive max-tokens mode is enabled (default 4096). */
+  minAdaptiveTokens?: number;
+  /** Heuristic scale in adaptive mode: desiredTokens = ceil(promptChars / this value). */
+  adaptiveCharsPerToken?: number;
   /** Maximum retries on 429 / 5xx (default 2). */
   maxRetries?: number;
+  /** Maximum wall-clock time for a single HTTP request (default 120000ms). */
+  requestTimeoutMs?: number;
+  /**
+   * Request OpenAI-compatible structured JSON response mode.
+   *   - `'schema'` (default when this option is unset): strict JSON schema mode
+   *     via `response_format: { type: 'json_schema', json_schema: { ... } }`.
+   *     OpenRouter translates this per provider — OpenAI/Fireworks passthrough,
+   *     Gemini → `generationConfig.responseSchema`, Anthropic → tool-use
+   *     `input_schema`. This eliminates the `salvageTruncatedJSON` near-miss
+   *     shapes that `json_object` mode produces on Gemini.
+   *   - `true`: legacy `response_format: { type: 'json_object' }`. Kept for
+   *     users who validated that mode on a specific model before schema mode
+   *     existed.
+   *   - `false`: no `response_format` field. Pre-existing default-off mode for
+   *     models that reject both shapes.
+   *
+   * Default is `'schema'` because the live probe matrix
+   * (`docs/plan/research/structured-output-provider-surfaces.md`) confirmed
+   * that the current OpenRouter routes handle schema mode with no truncation
+   * and exact adherence, while `json_object` causes the analyzer to drift
+   * into invented sub-schemas that require `salvageTruncatedJSON`.
+   */
+  structuredOutput?: boolean | 'schema';
+  /**
+   * Optional: the input context length (in tokens) of the model. When
+   * provided, the analyzer scales `MAX_ANALYSIS_DOCUMENT_CHARS` to a
+   * fraction of this context so large-context models don't silently
+   * truncate real production skills. When omitted, the analyzer falls
+   * back to a 200K-char budget and logs a warning.
+   *
+   * For OpenRouter, resolve via `modelCatalog.resolveContextLength(model)`
+   * at construction time. For GitHub Models, the static table in
+   * `modelCatalog.ts` covers the common cases.
+   */
+  contextLength?: number;
+  /** Sampling controls. Defaults favor determinism for analyzer use. */
+  temperature?: number;
+  topP?: number;
 }
+
+/** Match the VS Code LM provider budget to reduce mid-JSON truncation. */
+export const DEFAULT_MAX_RESPONSE_TOKENS = 16384;
+export const DEFAULT_ADAPTIVE_MAX_RESPONSE_TOKENS = 65536;
+export const DEFAULT_MIN_ADAPTIVE_RESPONSE_TOKENS = 4096;
+export const DEFAULT_ADAPTIVE_CHARS_PER_TOKEN = 8;
+/** Bound external provider calls so one stalled model response cannot hang analysis. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 
 // --------------------------------------------------------------------------
 // Shared retry / fetch logic
@@ -49,6 +104,11 @@ interface ChatBody {
   model: string;
   messages: { role: string; content: string }[];
   max_tokens: number;
+  temperature?: number;
+  top_p?: number;
+  response_format?:
+    | { type: 'json_object' }
+    | { type: 'json_schema'; json_schema: { name: string; strict: boolean; schema: unknown } };
 }
 
 /**
@@ -62,29 +122,55 @@ async function fetchWithRetry(
   body: ChatBody,
   extraHeaders: Record<string, string>,
   maxRetries: number,
+  requestTimeoutMs: number,
+  token?: LlmRequest['token'],
 ): Promise<LlmResponse> {
-  const jsonBody = JSON.stringify(body);
+  let activeBody = body;
+  let retriedWithoutStructuredOutput = false;
   let lastError = '';
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
       await sleep(1000 * attempt);
     }
     try {
-      const resp = await fetchJson(url, jsonBody, extraHeaders);
+      const resp = await fetchJson(url, JSON.stringify(activeBody), extraHeaders, requestTimeoutMs, token);
       const apiErr = getApiError(resp);
       if (apiErr) {
         lastError = String(apiErr.message ?? apiErr);
+        if (shouldRetryWithoutStructuredOutput(activeBody, apiErr.code ?? apiErr.status, lastError) && !retriedWithoutStructuredOutput) {
+          activeBody = withoutStructuredOutput(activeBody);
+          retriedWithoutStructuredOutput = true;
+          attempt--;
+          continue;
+        }
         if (!isRetryable(apiErr.code ?? apiErr.status)) break;
         continue;
       }
       const text = extractText(resp);
-      return { text };
+      const finishReason = extractFinishReason(resp);
+      if (
+        shouldRetryWithoutStructuredOutputOnFinishReason(activeBody, finishReason, text)
+        && !retriedWithoutStructuredOutput
+      ) {
+        activeBody = withoutStructuredOutput(activeBody);
+        retriedWithoutStructuredOutput = true;
+        attempt--;
+        continue;
+      }
+      return { text, finishReason };
     } catch (e) {
       if (e instanceof HttpError && isNonRetryableStatus(e.status)) {
         lastError = `HTTP ${e.status}: ${e.message}`;
+        if (shouldRetryWithoutStructuredOutput(activeBody, e.status, e.message) && !retriedWithoutStructuredOutput) {
+          activeBody = withoutStructuredOutput(activeBody);
+          retriedWithoutStructuredOutput = true;
+          attempt--;
+          continue;
+        }
         break;
       }
       lastError = String(e).replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
+      if (isTimeoutOrCancellationError(lastError)) break;
     }
   }
   return { text: '', error: lastError, isRateLimit: isRateLimitError(lastError) };
@@ -94,6 +180,12 @@ async function fetchWithRetry(
 function extractText(resp: Record<string, unknown>): string {
   const choices = resp['choices'] as Array<Record<string, unknown>> | undefined;
   return ((choices?.[0]?.['message'] as Record<string, unknown> | undefined)?.['content'] as string) ?? '';
+}
+
+function extractFinishReason(resp: Record<string, unknown>): string | undefined {
+  const choices = resp['choices'] as Array<Record<string, unknown>> | undefined;
+  const finishReason = choices?.[0]?.['finish_reason'];
+  return typeof finishReason === 'string' ? finishReason : undefined;
 }
 
 // --------------------------------------------------------------------------
@@ -110,15 +202,39 @@ export class OpenRouterProvider implements LlmProvider {
   private readonly deepModel?: string;
   private readonly fixModel?: string;
   private readonly maxTokens: number;
+  private readonly adaptiveMaxTokens: boolean;
+  private readonly adaptiveMaxTokensCap: number;
+  private readonly minAdaptiveTokens: number;
+  private readonly adaptiveCharsPerToken: number;
   private readonly maxRetries: number;
+  private readonly requestTimeoutMs: number;
+  private readonly structuredOutput: boolean | 'schema';
+  private readonly contextLength?: number;
+  private readonly temperature: number;
+  private readonly topP: number;
 
   constructor(opts: ExternalProviderOptions) {
     this.apiKey = opts.apiKey;
     this.model = opts.model || 'openai/gpt-4o-mini';
     this.deepModel = opts.deepModel;
     this.fixModel = opts.fixModel;
-    this.maxTokens = opts.maxTokens ?? 4096;
+    this.maxTokens = opts.maxTokens ?? DEFAULT_MAX_RESPONSE_TOKENS;
+    this.adaptiveMaxTokens = opts.adaptiveMaxTokens ?? false;
+    this.adaptiveMaxTokensCap = opts.adaptiveMaxTokensCap ?? DEFAULT_ADAPTIVE_MAX_RESPONSE_TOKENS;
+    this.minAdaptiveTokens = opts.minAdaptiveTokens ?? DEFAULT_MIN_ADAPTIVE_RESPONSE_TOKENS;
+    this.adaptiveCharsPerToken = Math.max(1, opts.adaptiveCharsPerToken ?? DEFAULT_ADAPTIVE_CHARS_PER_TOKEN);
     this.maxRetries = opts.maxRetries ?? 2;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    // Default to schema mode: live probe matrix showed it is the only mode
+    // that produces strict adherence on the current OpenRouter routes.
+    this.structuredOutput = opts.structuredOutput ?? 'schema';
+    this.contextLength = opts.contextLength;
+    this.temperature = opts.temperature ?? 0;
+    this.topP = opts.topP ?? 0;
+  }
+
+  getContextLength(): number | undefined {
+    return this.contextLength;
   }
 
   async complete(req: LlmRequest): Promise<LlmResponse> {
@@ -129,17 +245,63 @@ export class OpenRouterProvider implements LlmProvider {
         : this.model);
     return fetchWithRetry(
       'https://openrouter.ai/api/v1/chat/completions',
-      { model: modelToUse, messages: [
-        { role: 'system', content: req.systemPrompt },
-        { role: 'user', content: req.prompt },
-      ], max_tokens: this.maxTokens },
+      this.buildBody(modelToUse, req),
       {
         Authorization: `Bearer ${this.apiKey}`,
         'HTTP-Referer': 'vscode://skills-review-and-polish',
         'X-Title': 'Skills Review and Polish',
       },
       this.maxRetries,
+      this.requestTimeoutMs,
+      req.token,
     );
+  }
+
+  private buildBody(model: string, req: LlmRequest): ChatBody {
+    // OpenRouter translates response_format per underlying provider:
+    //   - OpenAI / Fireworks: passthrough
+    //   - Gemini: json_schema -> generationConfig.responseSchema; json_object
+    //     -> responseMimeType only (no schema enforcement, prone to drift)
+    //   - Anthropic: json_schema -> tool-use with input_schema
+    // A per-request `disableStructuredOutput` override (set by the analyzer
+    // after a non-stop finish reason on a wave) drops response_format even in
+    // schema mode — see plan item 3a.
+    const mode: boolean | 'schema' = req.disableStructuredOutput ? false : this.structuredOutput;
+      return {
+      model,
+      messages: [
+        { role: 'system', content: req.systemPrompt },
+        { role: 'user', content: req.prompt },
+      ],
+      max_tokens: this.resolveMaxTokens(req.prompt, req.maxTokensMultiplier ?? 1),
+      temperature: this.temperature,
+      top_p: this.topP,
+      ...buildResponseFormat(mode),
+    };
+  }
+
+  private resolveMaxTokens(prompt: string, multiplier = 1): number {
+    const scaledCap = Math.round(this.adaptiveMaxTokensCap * multiplier);
+    if (!this.adaptiveMaxTokens) return Math.round(this.maxTokens * multiplier);
+    // Output budget must reach the model's real generation cap for large
+    // documents. Deriving `desired` purely from input length under-sizes the
+    // budget: a 293K-char skill yields only ~73K output tokens, but models
+    // like deepseek-v4-flash can emit up to 384K output tokens. So we take
+    // the max of (input-derived estimate, the model's adaptive cap) — the
+    // model stops early when the document is small, but large documents get
+    // the full generation budget instead of being silently truncated.
+    const desired = Math.max(
+      Math.ceil(prompt.length / this.adaptiveCharsPerToken) * multiplier,
+      scaledCap,
+    );
+    // Scale the floor by the multiplier too, otherwise the fixed
+    // minAdaptiveTokens floor (16384) overrides the per-wave multiplier for
+    // small-prompt waves and silently caps output at 16K tokens (the
+    // ambiguities/contradiction waves then truncate at ~17K regardless of
+    // model). See plan item 4 follow-up / e61 deep-model investigation.
+    const floor = Math.min(this.minAdaptiveTokens * multiplier, scaledCap);
+    const cap = Math.max(this.maxTokens * multiplier, scaledCap);
+    return clamp(desired, floor, cap);
   }
 }
 
@@ -157,7 +319,16 @@ export class GitHubModelsProvider implements LlmProvider {
   private readonly deepModel?: string;
   private readonly fixModel?: string;
   private readonly maxTokens: number;
+  private readonly adaptiveMaxTokens: boolean;
+  private readonly adaptiveMaxTokensCap: number;
+  private readonly minAdaptiveTokens: number;
+  private readonly adaptiveCharsPerToken: number;
   private readonly maxRetries: number;
+  private readonly requestTimeoutMs: number;
+  private readonly structuredOutput: boolean | 'schema';
+  private readonly contextLength?: number;
+  private readonly temperature: number;
+  private readonly topP: number;
   private static readonly BASE_URL =
     'https://models.inference.ai.azure.com/chat/completions';
 
@@ -166,8 +337,23 @@ export class GitHubModelsProvider implements LlmProvider {
     this.model = opts.model || 'gpt-4o-mini';
     this.deepModel = opts.deepModel;
     this.fixModel = opts.fixModel;
-    this.maxTokens = opts.maxTokens ?? 4096;
+    this.maxTokens = opts.maxTokens ?? DEFAULT_MAX_RESPONSE_TOKENS;
+    this.adaptiveMaxTokens = opts.adaptiveMaxTokens ?? false;
+    this.adaptiveMaxTokensCap = opts.adaptiveMaxTokensCap ?? DEFAULT_ADAPTIVE_MAX_RESPONSE_TOKENS;
+    this.minAdaptiveTokens = opts.minAdaptiveTokens ?? DEFAULT_MIN_ADAPTIVE_RESPONSE_TOKENS;
+    this.adaptiveCharsPerToken = Math.max(1, opts.adaptiveCharsPerToken ?? DEFAULT_ADAPTIVE_CHARS_PER_TOKEN);
     this.maxRetries = opts.maxRetries ?? 2;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    // Default to schema mode: GitHub Models (Azure AI) is OpenAI-compatible
+    // and supports strict JSON schema response_format.
+    this.structuredOutput = opts.structuredOutput ?? 'schema';
+    this.contextLength = opts.contextLength;
+    this.temperature = opts.temperature ?? 0;
+    this.topP = opts.topP ?? 0;
+  }
+
+  getContextLength(): number | undefined {
+    return this.contextLength;
   }
 
   async complete(req: LlmRequest): Promise<LlmResponse> {
@@ -178,14 +364,91 @@ export class GitHubModelsProvider implements LlmProvider {
         : this.model);
     return fetchWithRetry(
       GitHubModelsProvider.BASE_URL,
-      { model: modelToUse, messages: [
-        { role: 'system', content: req.systemPrompt },
-        { role: 'user', content: req.prompt },
-      ], max_tokens: this.maxTokens },
+      this.buildBody(modelToUse, req),
       { Authorization: `Bearer ${this.apiKey}` },
       this.maxRetries,
+      this.requestTimeoutMs,
+      req.token,
     );
   }
+
+  private buildBody(model: string, req: LlmRequest): ChatBody {
+    // GitHub Models uses the OpenAI-compatible Azure AI chat-completions API,
+    // which supports both json_object and json_schema response_format. Default
+    // to schema mode for strict adherence.
+    // A per-request `disableStructuredOutput` override (set by the analyzer
+    // after a non-stop finish reason on a wave) drops response_format even in
+    // schema mode — see plan item 3a.
+    const mode: boolean | 'schema' = req.disableStructuredOutput ? false : this.structuredOutput;
+    return {
+      model,
+      messages: [
+        { role: 'system', content: req.systemPrompt },
+        { role: 'user', content: req.prompt },
+      ],
+      max_tokens: this.resolveMaxTokens(req.prompt, req.maxTokensMultiplier ?? 1),
+      temperature: this.temperature,
+      top_p: this.topP,
+      ...buildResponseFormat(mode),
+    };
+  }
+
+  private resolveMaxTokens(prompt: string, multiplier = 1): number {
+    const scaledCap = Math.round(this.adaptiveMaxTokensCap * multiplier);
+    if (!this.adaptiveMaxTokens) return Math.round(this.maxTokens * multiplier);
+    // Output budget must reach the model's real generation cap for large
+    // documents. Deriving `desired` purely from input length under-sizes the
+    // budget: a 293K-char skill yields only ~73K output tokens, but models
+    // like deepseek-v4-flash can emit up to 384K output tokens. So we take
+    // the max of (input-derived estimate, the model's adaptive cap).
+    const desired = Math.max(
+      Math.ceil(prompt.length / this.adaptiveCharsPerToken) * multiplier,
+      scaledCap,
+    );
+    // Scale the floor by the multiplier too, otherwise the fixed
+    // minAdaptiveTokens floor (16384) overrides the per-wave multiplier for
+    // small-prompt waves and silently caps output at 16K tokens (the
+    // ambiguities/contradiction waves then truncate at ~17K regardless of
+    // model). See plan item 4 follow-up / e61 deep-model investigation.
+    const floor = Math.min(this.minAdaptiveTokens * multiplier, scaledCap);
+    const cap = Math.max(this.maxTokens * multiplier, scaledCap);
+    return clamp(desired, floor, cap);
+  }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+/**
+ * Map the `structuredOutput` option to the OpenRouter/OpenAI-compatible
+ * `response_format` body fragment.
+ *
+ *   - `'schema'` → strict JSON schema envelope (default)
+ *   - `true`     → legacy `json_object` (kept for backward compatibility)
+ *   - `false`    → omit `response_format` entirely
+ */
+function buildResponseFormat(
+  mode: boolean | 'schema',
+): { response_format: ChatBody['response_format'] } | Record<string, never> {
+  if (mode === 'schema') {
+    return {
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: LLM_RESPONSE_JSON_SCHEMA_BODY.name,
+          strict: LLM_RESPONSE_JSON_SCHEMA_BODY.strict,
+          schema: LLM_RESPONSE_JSON_SCHEMA_BODY.schema,
+        },
+      },
+    };
+  }
+  if (mode === true) {
+    return { response_format: { type: 'json_object' } };
+  }
+  return {};
 }
 
 // --------------------------------------------------------------------------
@@ -196,21 +459,56 @@ async function fetchJson(
   url: string,
   body: string,
   extraHeaders: Record<string, string>,
+  requestTimeoutMs: number,
+  token?: LlmRequest['token'],
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...extraHeaders,
-    },
-    body,
-  });
+  if (token?.isCancellationRequested) {
+    throw new Error('Request cancelled');
+  }
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, requestTimeoutMs);
+  const cancellation = token?.onCancellationRequested(() => controller.abort());
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...extraHeaders,
+      },
+      body,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (timedOut) {
+      throw new Error(`Request timed out after ${requestTimeoutMs}ms`);
+    }
+    if (token?.isCancellationRequested) {
+      throw new Error('Request cancelled');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+    cancellation?.dispose();
+  }
+  if (!response.ok && (response.status === 400 || response.status === 422)) {
+    try {
+      return (await response.json()) as Record<string, unknown>;
+    } catch {
+      throw new HttpError(`HTTP ${response.status}`, response.status);
+    }
+  }
   if (!response.ok && response.status !== 429) {
     // Don't include response body — it may contain session tokens, debug info,
     // or other sensitive data that would leak into user-visible error messages.
     throw new HttpError(`HTTP ${response.status}`, response.status);
   }
-  return (await response.json()) as Record<string, unknown>;
+  const rawResp = (await response.json()) as Record<string, unknown>;
+  return rawResp;
 }
 
 function getApiError(resp: Record<string, unknown>): ApiError | undefined {
@@ -222,12 +520,60 @@ function isRetryable(code: number | string | undefined): boolean {
   return n === 429 || n === 500 || n === 502 || n === 503 || n === 504;
 }
 
+function shouldRetryWithoutStructuredOutput(
+  body: ChatBody,
+  code: number | string | undefined,
+  message: string,
+): boolean {
+  if (!body.response_format) return false;
+  const n = Number(code);
+  if (n !== 400 && n !== 422) return false;
+  // Match provider error messages about any of the supported response_format
+  // variants. Accept both spaced ("json schema") and underscored ("json_schema")
+  // forms because OpenRouter uses the underscore form in error text.
+  return /response[_ -]?format|structured output|json[_ -]?schema|json[_ -]?mode/i.test(message);
+}
+
+function withoutStructuredOutput(body: ChatBody): ChatBody {
+  const { response_format: _responseFormat, ...rest } = body;
+  return rest;
+}
+
+function shouldRetryWithoutStructuredOutputOnFinishReason(
+  body: ChatBody,
+  finishReason: string | undefined,
+  responseText?: string,
+): boolean {
+  if (!body.response_format) return false;
+  // Only retry on `error`. A `length` finish means the model hit the
+  // output cap, which is fixed upstream of this call — retrying without
+  // response_format does not raise the cap, so the retry is wasted.
+  // The schema→no-format fallback exists for `error` because the
+  // structured-output schema is sometimes the cause of provider-side
+  // failure responses; that reasoning does not extend to length caps.
+  //
+  // Scoped to short bodies only: a long body that hit `error` is more
+  // likely a real provider-side issue than a schema-fit issue. We do not
+  // want to silently downgrade a 10K-char successful emission to a
+  // no-format attempt. Threshold: 2048 chars covers every realistic
+  // schema-fit failure (a JSON parse error is usually << 2K). The actual
+  // assistant text is passed in (previously read from an unpopulated
+  // `body._text` field, which made this guard dead code).
+  if (responseText && responseText.length > 2048) return false;
+  return finishReason === 'error';
+}
+
 /** Check if an error message indicates rate limiting. */
 function isRateLimitError(msg: string): boolean {
   const lower = msg.toLowerCase();
   return lower.includes('rate limit') || lower.includes('429') || lower.includes('too many requests')
     || lower.includes('userconcurrentrequests') || lower.includes('userbymodelbyminute')
     || lower.includes('exceeded');
+}
+
+function isTimeoutOrCancellationError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return lower.includes('timed out') || lower.includes('request cancelled');
 }
 
 /** Status codes that should never be retried — client errors are permanent. */

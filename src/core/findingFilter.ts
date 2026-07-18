@@ -18,6 +18,9 @@ import {
   EMPHASIS_SCOPE_WORDS,
   REQUIREMENT_VERBS,
 } from './vocabulary';
+import { createLogger } from './logger';
+
+const log = createLogger('finding-filter');
 
 // --------------------------------------------------------------------------
 // Public API
@@ -46,12 +49,25 @@ export function filterFindings(
     return results.map((r) => applyOverrides(r, config));
   }
   const out: AnalysisResult[] = [];
+  const suppressedByRule: Record<string, number> = {};
   for (const r of results) {
-    if (shouldSuppress(r, config, doc)) continue;
+    const ruleId = suppressionRuleId(r, config, doc);
+    if (ruleId) {
+      suppressedByRule[ruleId] = (suppressedByRule[ruleId] ?? 0) + 1;
+      continue;
+    }
     out.push(applyOverrides(r, config));
   }
   // Apply cross-finding batch rules (e.g. duplicate suppression across waves)
-  return applyBatchRules(out, config, doc);
+  const filtered = applyBatchRules(out, config, doc);
+  const batchSuppressed = out.length - filtered.length;
+  if (batchSuppressed > 0) {
+    suppressedByRule['batch-rules'] = (suppressedByRule['batch-rules'] ?? 0) + batchSuppressed;
+  }
+  if (Object.keys(suppressedByRule).length > 0) {
+    log.debug('suppressed findings by rule', suppressedByRule);
+  }
+  return filtered;
 }
 
 /** Public predicate for tests. Same logic as `filterFindings` but per-finding. */
@@ -60,10 +76,18 @@ export function shouldSuppress(
   config: Readonly<EngineConfig>,
   doc: string,
 ): boolean {
+  return suppressionRuleId(result, config, doc) !== null;
+}
+
+function suppressionRuleId(
+  result: AnalysisResult,
+  config: Readonly<EngineConfig>,
+  doc: string,
+): string | null {
   for (const rule of FILTER_RULES) {
-    if (rule.matches(result, config, doc)) return true;
+    if (rule.matches(result, config, doc)) return rule.id;
   }
-  return false;
+  return null;
 }
 
 // --------------------------------------------------------------------------
@@ -141,6 +165,36 @@ function findFrontmatterEnd(doc: string): number {
     if (lines[i].trim() === '---') return i;
   }
   return -1;
+}
+
+function getResultLine(result: AnalysisResult, doc: string): string {
+  const line = result.range?.start?.line ?? -1;
+  if (line < 0) return '';
+  return doc.split('\n')[line] ?? '';
+}
+
+function lineContainsFlaggedText(line: string, text: string): boolean {
+  const normalize = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const normalizedLine = normalize(line);
+  const normalizedText = normalize(text);
+  return normalizedText.length > 0 && normalizedLine.includes(normalizedText);
+}
+
+function isMarkdownReferenceTableText(text: string): boolean {
+  return /\|/.test(text) && /\[[^\]]+\]\((?:\.\/)?references\/[^)]+\)/i.test(text);
+}
+
+function isInsideFencedBlock(doc: string, lineNo: number): boolean {
+  if (lineNo < 0) return false;
+  const lines = doc.split('\n');
+  let inFence = false;
+  for (let i = 0; i <= lineNo && i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) {
+      if (i === lineNo) return true;
+      inFence = !inFence;
+    }
+  }
+  return inFence;
 }
 
 /**
@@ -557,8 +611,16 @@ const crossWaveDedupRule: BatchFilterRule = {
     if (!SUPPRESSABLE_WEAK_CODES.has(candidate.code)) return false;
     const candSpec = specificity(candidate.code);
     if (candSpec === -1) return false;
-    for (const other of others) {
-      if (other === candidate) continue;
+    const sortedOthers = others
+      .filter((other) => other !== candidate)
+      .slice()
+      .sort((left, right) =>
+        (left.analyzer ?? '').localeCompare(right.analyzer ?? '') ||
+        left.code.localeCompare(right.code) ||
+        (left.range?.start?.line ?? 0) - (right.range?.start?.line ?? 0) ||
+        (left.range?.start?.character ?? 0) - (right.range?.start?.character ?? 0),
+      );
+    for (const other of sortedOthers) {
       // Different wave (analyzer ID) — within-wave dedup is not this rule's job
       if (other.analyzer === candidate.analyzer) continue;
       const otherSpec = specificity(other.code);
@@ -618,6 +680,84 @@ const imperativeAmbiguityRule: FilterRule = {
   },
 };
 
+// --------------------------------------------------------------------------
+// Rule 13 — Markdown structure ambiguity suppression
+// --------------------------------------------------------------------------
+
+/**
+ * Production skills often include output templates, code examples, reference
+ * tables, and headings. The ambiguity wave can mistake those structural labels
+ * for executable instructions ("Window function approach", "When to Use",
+ * table-cell descriptions, etc.). Suppress ambiguity findings whose source
+ * line is Markdown structure rather than a normative instruction.
+ *
+ * Source of authority: E61 production validation on context-map,
+ * sql-optimization, and audit-integrity (2026-07-16).
+ */
+const markdownStructureAmbiguityRule: FilterRule = {
+  id: 'markdown-structure-ambiguity',
+  description:
+    'ambiguity-llm on fenced examples, headings, tables, frontmatter, or ' +
+    'other Markdown structure rather than executable prompt instructions.',
+  appliesTo: ['ambiguity-llm'],
+  matches(result, _config, doc) {
+    if (result.code !== 'ambiguity-llm') return false;
+    const text = extractQuotedText(result);
+    if (!text) return false;
+    const lineNo = result.range?.start?.line ?? -1;
+    if (lineNo < 0) return false;
+    const line = getResultLine(result, doc).trim();
+    if (!lineContainsFlaggedText(line, text)) return false;
+    if (isInsideFencedBlock(doc, lineNo)) return true;
+
+    if (!line) return false;
+    if (/^---$/.test(line)) return true;
+    if (/^#{1,6}\s+\S/.test(line)) return true;
+    if (/^\|.*\|$/.test(line)) return true;
+
+    const frontmatterEnd = findFrontmatterEnd(doc);
+    if (frontmatterEnd >= 0 && lineNo <= frontmatterEnd) return true;
+
+    return false;
+  },
+};
+
+const MARKDOWN_STRUCTURE_HYGIENE_CODES = [
+  'hygiene-missing-agent',
+  'hygiene-vague-cognitive-directive',
+  'hygiene-vague-directive',
+  'hygiene-dead-instruction',
+  'hygiene-circular-definition',
+  'hygiene-over-specification',
+];
+
+const markdownStructureHygieneRule: FilterRule = {
+  id: 'markdown-structure-hygiene',
+  description:
+    'hygiene finding on fenced examples, headings, tables, or frontmatter ' +
+    'rather than executable prompt instructions.',
+  appliesTo: MARKDOWN_STRUCTURE_HYGIENE_CODES,
+  matches(result, _config, doc) {
+    if (!MARKDOWN_STRUCTURE_HYGIENE_CODES.includes(result.code)) return false;
+    const text = extractQuotedText(result);
+    if (!text) return false;
+    if (isMarkdownReferenceTableText(text)) return true;
+    const lineNo = result.range?.start?.line ?? -1;
+    if (lineNo < 0) return false;
+    const line = getResultLine(result, doc).trim();
+    if (!lineContainsFlaggedText(line, text)) return false;
+    if (isInsideFencedBlock(doc, lineNo)) return true;
+
+    if (!line) return false;
+    if (/^---$/.test(line)) return true;
+    if (/^#{1,6}\s+\S/.test(line)) return true;
+    if (/^\|.*\|$/.test(line)) return true;
+
+    const frontmatterEnd = findFrontmatterEnd(doc);
+    return frontmatterEnd >= 0 && lineNo <= frontmatterEnd;
+  },
+};
+
 /** Batch rule shape — operates on the full filtered finding set. */
 export interface BatchFilterRule {
   readonly id: string;
@@ -668,6 +808,8 @@ export const FILTER_RULES: ReadonlyArray<FilterRule> = [
   definitionsPreambleRule,
   skillOpeningParagraphRule,
   imperativeAmbiguityRule,
+  markdownStructureAmbiguityRule,
+  markdownStructureHygieneRule,
 ];
 
 /** Cross-finding batch rules. Applied after FILTER_RULES. */

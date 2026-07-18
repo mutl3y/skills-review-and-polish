@@ -62,21 +62,3 @@ The Document must not be modified in a way that makes a Claim stronger than the 
 ## R4. Numeric claims are exact
 
 Every Numeric Claim in the Document must match the Evidence exactly. If the Evidence shows `6`, the Document must say `6`, not "several" or "multiple".
-
-# Injected issue table
-
-**Test metadata:** E12-N3 Gemini median across 3 runs:
-
-| Category | Expected count | Detectable? |
-| --- | ---: | --- |
-| Ambiguities | 1 | YES |
-| Coverage gaps | 1 | YES |
-| Hygiene | 4 | YES |
-| Dead | 1 | MAYBE |
-| **Total** | **7** | — |
-
-**Expected analyzer category:** `ambiguity`
-
-| # | Section | Category | Expected code | Notes |
-|---|---------|----------|---------------|-------|
-| 1 | R2 "must not be published" | ambiguity | `ambiguity-llm` | "Published" is not defined in this version of the skill (Published is removed) |

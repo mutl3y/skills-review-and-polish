@@ -4,12 +4,12 @@
   "expected": {
     "contradiction": 2,
     "ambiguity-llm": 5,
-    "hygiene": 5
+    "hygiene": 7
   },
   "detectable": {
     "Contradictions": "YES",
     "Ambiguities": "YES",
     "Hygiene": "YES"
   },
-  "notes": "Original counts from test metadata: {\"Contradictions\":2,\"Ambiguities\":5,\"Hygiene\":5}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Medians: contradition=2 (2,2,2), ambiguity-llm=5 (5,5,5), hygiene=7 (7,7,7)."
 }

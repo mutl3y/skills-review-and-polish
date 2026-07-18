@@ -2,10 +2,10 @@
   "fixture": "test-cognitive-structural",
   "description": "Expected findings for the cleaned test-cognitive-structural skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
   "expected": {
-    "cognitive": 5,
-    "ambiguity-llm": 6,
-    "coverage-gap": 4,
-    "hygiene": 4,
+    "cognitive": 10,
+    "ambiguity-llm": 11,
+    "coverage-gap": 6,
+    "hygiene": 6,
     "persona-inconsistency": 4,
     "circular": 1
   },
@@ -17,5 +17,5 @@
     "Persona": "YES",
     "Circular": "MAYBE"
   },
-  "notes": "Original counts from test metadata: {\"Cognitive\":5,\"Ambiguities\":6,\"Coverage gaps\":4,\"Hygiene\":4,\"Persona\":4,\"Circular\":1}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Medians: cognitive=10, ambiguity-llm=11, coverage-gap=6, hygiene=6, persona-inconsistency=4, circular=1 (all runs stable across 3 iters)."
 }

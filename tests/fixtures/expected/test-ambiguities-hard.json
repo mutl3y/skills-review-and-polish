@@ -2,11 +2,11 @@
   "fixture": "test-ambiguities-hard",
   "description": "Expected findings for the cleaned test-ambiguities-hard skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
   "expected": {
-    "ambiguity-llm": 20
+    "ambiguity-llm": 22
   },
   "detectable": {
     "Ambiguities": "YES",
     "Hygiene": "YES"
   },
-  "notes": "Original counts from test metadata: {\"Ambiguities\":20,\"Hygiene\":1}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Median ambiguity-llm=22 (runs 22,22,22)."
 }

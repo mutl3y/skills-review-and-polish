@@ -2,7 +2,7 @@
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems. VS Code extension provides AI-suggested fixes with diff preview for human review; MCP server returns proposed fixes for agent-controlled application.",
-  "version": "0.1.38",
+  "version": "0.1.39",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",
@@ -53,8 +53,8 @@
         },
         "skillsReviewAndPolish.model": {
           "type": "string",
-          "default": "google/gemini-2.5-flash-lite",
-          "markdownDescription": "Analysis model **id**. Use the _Skills Review: Select Analysis Model_ command — the picker shows the friendly name with its id as description. The id uniquely identifies one model (e.g. `claude-sonnet-4.6`, `gpt-5.4`, `gemini-3-flash-preview`). Empty = auto-select best available model. _Recommended for OpenRouter:_ `google/gemini-2.5-flash-lite` (E56 corpus-scan winner — 47% recall on test fixtures, 41% on full corpus, $0.15 per 340-skill scan, ~5x cheaper than qwen3-coder-30b). For best results, pair with `deepseek/deepseek-chat-v3` as the `deepModel`."
+          "default": "",
+          "markdownDescription": "Analysis model **id**. Empty = use the provider default / selected Copilot model, which is recommended for first run with `vscode-lm`. Use the _Skills Review: Select Analysis Model_ command to choose a specific model. **The picker marks the currently recommended OpenRouter models with ⭐.** See `scripts/e56-corpus-rescan-multimodel.mjs` and the [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models) table for the experiment that produced the recommendations."
         },
         "skillsReviewAndPolish.pickerSortBy": {
           "type": "string",
@@ -73,8 +73,8 @@
         },
         "skillsReviewAndPolish.deepModel": {
           "type": "string",
-          "default": "deepseek/deepseek-chat-v3",
-          "description": "Model for the contradictions/deep wave (needs stronger reasoning). Empty = same as analysis model. _Recommended for OpenRouter:_ `deepseek/deepseek-chat-v3` — E54/E56 corpus-scan winner on circular definitions (90% on test-circular-hard vs 67% for gemini-flash) and contradictions (3x improvement). E56 corpus scan: 8811 findings vs E30's 1664 with qwen-only."
+          "default": "",
+          "description": "Model for the contradictions/deep wave. Empty = same as analysis model/provider default. **OpenRouter recommendation:** `deepseek/deepseek-chat-v3` paired with `google/gemini-2.5-flash-lite` as the standard model (see `scripts/e56-corpus-rescan-multimodel.mjs` and the [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models) table in USER-GUIDE.md)."
         },
         "skillsReviewAndPolish.fixModel": {
           "type": "string",
@@ -85,6 +85,61 @@
           "type": "string",
           "default": "",
           "markdownDescription": "_(Read-only - set automatically by the model picker.)_ Friendly name of the currently selected fix model, shown here so you can see what `skillsReviewAndPolish.fixModel` refers to without re-opening the picker."
+        },
+        "skillsReviewAndPolish.external.structuredOutput": {
+          "type": [
+            "boolean",
+            "string"
+          ],
+          "enum": [
+            true,
+            false,
+            "schema",
+            "true",
+            "false"
+          ],
+          "default": "schema",
+          "markdownDescription": "Structured JSON response mode for external providers. **Default: `schema`** — sends a strict JSON schema via `response_format: { \"type\": \"json_schema\" }` so OpenAI, Gemini, Anthropic (Sonnet 4.5+), and Fireworks all return the analyzer's expected shape with no truncation. Set to `true` to use the legacy `response_format: { \"type\": \"json_object\" }` (only recommended for models that validated well under that mode). Set to `false` to omit `response_format` entirely (use only when both shapes are rejected). See `docs/plan/research/structured-output-provider-surfaces.md` for the probe matrix that informed the default."
+        },
+        "skillsReviewAndPolish.external.requestTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 5000,
+          "maximum": 600000,
+          "description": "Maximum wall-clock time for a single external-provider HTTP request before it is cancelled."
+        },
+        "skillsReviewAndPolish.external.maxResponseTokens": {
+          "type": "number",
+          "default": 16384,
+          "minimum": 512,
+          "maximum": 262144,
+          "description": "Maximum output tokens requested from external providers (`max_tokens`). Increase this if long prompts are getting cut off."
+        },
+        "skillsReviewAndPolish.external.adaptiveResponseTokens": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, scale response `max_tokens` per request from prompt length (bounded by min/max settings) instead of always using a fixed value."
+        },
+        "skillsReviewAndPolish.external.adaptiveMaxResponseTokens": {
+          "type": "number",
+          "default": 65536,
+          "minimum": 512,
+          "maximum": 262144,
+          "description": "Upper bound for adaptive response-token sizing. Only used when external.adaptiveResponseTokens is enabled. Defaults higher than external.maxResponseTokens so long prompts can request more output than the fixed-mode ceiling."
+        },
+        "skillsReviewAndPolish.external.minAdaptiveResponseTokens": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 512,
+          "maximum": 262144,
+          "description": "Lower bound for adaptive response-token sizing. Ignored unless external.adaptiveResponseTokens is enabled."
+        },
+        "skillsReviewAndPolish.external.adaptiveCharsPerToken": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 128,
+          "description": "Heuristic scale used by adaptive response-token sizing: desired tokens = ceil(promptChars / this value). Lower values request more output tokens."
         },
         "skillsReviewAndPolish.analysisMode": {
           "type": "string",
@@ -238,6 +293,13 @@
           "default": true,
           "description": "Show a CodeLens with the quality score and issue count at the top of customization files."
         },
+        "skillsReviewAndPolish.maxDiagnostics": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 500,
+          "markdownDescription": "Maximum number of findings rendered as editor diagnostics. When a skill produces more findings, the top-N by severity are shown and the remainder are summarized with a 'Show All Findings' hint. Raise for large skills (e.g. 294K-char skills can produce 30+ findings)."
+        },
         "skillsReviewAndPolish.experimental.inlineRewrites": {
           "type": "boolean",
           "default": false,
@@ -245,8 +307,8 @@
         },
         "skillsReviewAndPolish.telemetry.enable": {
           "type": "boolean",
-          "default": true,
-          "description": "Enable anonymous usage telemetry."
+          "default": false,
+          "description": "Reserved for future anonymous usage telemetry. Currently disabled and no telemetry is sent."
         },
         "skillsReviewAndPolish.logLevel": {
           "type": "string",
@@ -367,6 +429,11 @@
         "category": "Skills Review and Polish"
       },
       {
+        "command": "skillsReviewAndPolish.showAllFindings",
+        "title": "Skills Review: Show All Findings",
+        "category": "Skills Review and Polish"
+      },
+      {
         "command": "skillsReviewAndPolish.inspectModels",
         "title": "Skills Review: Inspect Models (Debug)",
         "category": "Skills Review and Polish"
@@ -460,17 +527,24 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./ && rm -rf out/core/prompts && rm -rf out/core/prompts && cp -r src/core/prompts out/core/prompts",
+    "compile": "tsc -p ./ && rm -rf out/core/prompts && rm -rf out/core/prompts && cp -r src/core/prompts out/core/prompts && rm -rf out/assets && cp -r assets out/assets",
+    "refresh-fixtures": "node scripts/refresh-openrouter-catalog.mjs",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "lint:md": "markdownlint-cli2 '.github/**/*.md' 'docs/**/*.md' 'src/**/*.md' 'README.md'",
+    "lint:md:fix": "node scripts/fix-markdown.mjs",
     "test": "vitest run --config tests/vitest.config.ts",
     "test:fixtures": "vitest run --config tests/vitest.config.ts src/fixture-validation.test.ts",
+    "test:calibration": "npm run compile && RELEASE_GATE=1 node scripts/e50-clean-architecture.mjs",
+    "test:calibration:log": "npm run compile && node scripts/run-with-log.mjs e50-calibration -- RELEASE_GATE=1 node scripts/e50-clean-architecture.mjs",
     "test:e2e": "playwright test --config tests/playwright.config.ts",
+    "test:e2e:log": "node scripts/run-with-log.mjs e2e -- playwright test --config tests/playwright.config.ts",
+    "vitest:log": "node scripts/run-with-log.mjs vitest -- vitest run --config tests/vitest.config.ts",
     "package:vsce": "npx @vscode/vsce package",
     "mcp": "node out/mcp/server.js",
     "clean": "rm -rf out",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run refresh-fixtures && npm run compile",
+    "release:gate": "npm run refresh-fixtures && npm run compile && npm run test && npm run lint && npm run lint:md"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

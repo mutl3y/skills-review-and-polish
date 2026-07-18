@@ -5,6 +5,46 @@
 > them even without access to saved memories. **Read before changing scoring,
 > the fixer, or the analyzer prompts.**
 
+## Table of contents
+
+- **[Priority list](#priority-list)** — read this first
+- [The single most important fact: the noise floor is ±6](#the-single-most-important-fact-the-noise-floor-is-6)
+- [Model choice: gpt-4.1 stays as the analyzer](#model-choice-gpt-41-stays-as-the-analyzer)
+- [Surgical fixer: what's safe and what's not](#surgical-fixer-whats-safe-and-whats-not)
+- [Fix QUALITY is the real bottleneck (detection is solved)](#fix-quality-is-the-real-bottleneck-detection-is-solved)
+- [Autonomous --apply is NOT production-safe without HITL](#autonomous---apply-is-not-production-safe-without-hitl)
+- [The risk classifier + dropped-detail flag](#the-risk-classifier--dropped-detail-flag)
+- [Three-layer fix safety architecture (proven)](#three-layer-fix-safety-architecture-proven)
+- [Determinism: pin params, rely on guards](#determinism-pin-params-rely-on-guards)
+- [Process learnings](#process-learnings)
+- [Playwright E2E test learnings (2026-06-27)](#playwright-e2e-test-learnings-2026-06-27)
+- [Finding post-processor: deterministic suppression of LLM self-reference false positives](#finding-post-processor-deterministic-suppression-of-llm-self-reference-false-positives)
+- [Pointer to experiment folder](#pointer-to-experiment-folder)
+- [Never head/tail slice a document the analyzer is supposed to review in full](#never-headtail-slice-a-document-the-analyzer-is-supposed-to-review-in-full)
+- [Adaptive response-token sizing needs two budgets, not one](#adaptive-response-token-sizing-needs-two-budgets-not-one)
+- [Adaptive output budgeting is not the same as prompt-budgeting](#adaptive-output-budgeting-is-not-the-same-as-prompt-budgeting)
+- [Calibration & noise sections (moved out)](#calibration--noise-sections-moved-out)
+
+## Priority list
+
+If you only read three things, read these — they are load-bearing for any
+future prompt/analyzer work and the most common sources of regressions:
+
+1. **The noise floor is ±6** (median-of-N at the scoring layer, not per-prompt
+   gates). Never chase score gains below the margin.
+2. **Never head/tail slice a document** the analyzer must review in full —
+   the input budget must come from the model's context window, and slicing
+   must drop whole files, never truncate mid-content.
+3. **The finding post-processor is the only fix for finding variance** (not
+   sample variance). Keep its rules conservative and rule-specific.
+4. **Surgical-fixer safety rules** (YAML protection, 1.5× growth guard,
+   anti-hallucination, penalty-revert safety net) are non-negotiable.
+
+> Calibration-noise detail, the Gilfoyle review section, and the pricing-cache
+> incident were moved to [`LEARNINGS-CALIBRATION.md`](./LEARNINGS-CALIBRATION.md)
+> to keep this file navigable. They are coherent as a unit and only needed for
+> calibration/noise-floor work.
+
 ## The single most important fact: the noise floor is ±6
 
 - Scanning the SAME unchanged file 5× (gpt-4.1) gives penalties like 30/32/38/38/42. This is irreducible LLM variance even at temperature 0 / top_p 0.
@@ -17,16 +57,6 @@
 - **Claude Haiku 4.5 was tested and REJECTED**: noisier and its detection count is erratic (6→22 issues on the same file vs gpt-4.1's tight 10–12).
 - A severity rubric prompt was tested and **NOT shipped** (recalibrated harsher without clearly cutting noise).
 - For the extension, the equivalent is: let `vscode.lm` pick a strong Copilot model (e.g. gpt-4.1 family) for analysis; allow override via the model settings.
-
-## Two systematic noise drivers were found and FIXED
-
-1. **`coverage-gap` was the #1 noise driver** — open-ended gap brainstorming emitted a variable-length list each run. FIX (commit bd3615b): coverage prompt = HIGH-impact-only + one-gap-per-category cap. coverage-gap count range → 0 on all skills, **sensitivity preserved** (genuinely gappy skills still report many gaps deterministically).
-2. **`llm-parse-error` root cause was a fence-regex bug, NOT truncation** (commit f2f7438). The `extractJSON` fence regex matched an INNER ```` ```python ```` example embedded inside a JSON string value. FIX: strip a code fence ONLY when it wraps the WHOLE response (anchored leading/trailing), never an inner fence. Applied in both `llm.ts` and `cli-analyzer.js`. Kept `max_tokens: 16384` + a `salvageTruncatedJSON` helper as harmless defense-in-depth.
-   - **LESSON:** when `llm-parse-error` flickers, FIRST capture raw responses and check `finish_reason` before assuming truncation — fence/parse bugs look identical at the score layer.
-
-## Per-prompt determinism gates DON'T work — rejected twice
-
-- Adding "confidence gates" to the contradiction wave (Exp2) and ambiguity wave (Exp4) both **recalibrated harder or over-suppressed real signal** without cutting range. Conservation of difficulty. **Do not add more per-prompt confidence gates.** Use median-of-N instead.
 
 ## Surgical fixer: what's safe and what's not
 
@@ -76,92 +106,6 @@
 
 ---
 
-## Gilfoyle review learnings (2026-06-09)
-
-> 25 issues found across CRITICAL/HIGH/MEDIUM/LOW. All fixed. Key takeaways.
-
-### `String.replace()` is a trap for text editing
-
-- Using `String.replace(anchor, replacement)` with a string first arg has TWO failure modes:
-  1. Replaces the **first** occurrence, not the intended one if anchor appears multiple times
-  2. `$` characters in the replacement string (`$&`, `$'`, `` $` ``) are interpreted as replacement patterns, silently corrupting output
-- **Fix:** Always use `text.replace(anchor, () => replacement)` — the function-as-replacement form prevents `$` interpretation. Add an occurrence-count check (`countOf(content, anchor) === 1`) before replacing.
-- This affected both `fixer.ts` (fixDocument) and `extension.ts` (runFixIssue). It's a systemic pattern — any future text-replacement code must use this form.
-
-### Module-load-time I/O is fragile
-
-- `loadPrompt()` was called as `const SYSTEM_PROMPT = loadPrompt('name')` at module import time. If the file was missing (path wrong after bundling, file renamed), the entire module threw and the extension refused to activate.
-- **Fix:** Wrap `loadPrompt()` in try/catch with a safe fallback string. Log the error but never throw at import time. Lazy-load is better but try/catch is the minimal fix.
-- **General principle:** Extension activation code must never throw on I/O. The user loses the entire extension because one file is missing.
-
-### Module-level mutable state needs per-key locks
-
-- `lastResults` Map was shared across all commands. If "Analyze" fires twice quickly (manual + onSave), the second call overwrites `lastResults` mid-fix, and the user applies a fix based on stale results.
-- **Fix:** Add `analysisLocks` Map (`Map<string, Promise<void>>`) keyed by URI. Before starting analysis, await any in-flight analysis for the same URI. Clean up in `finally` block.
-- **General principle:** Any module-level Map that stores per-document state needs concurrency serialization. This is the VS Code extension equivalent of a database row lock.
-
-### `process.cwd()` is never the workspace root
-
-- In the VS Code extension host, `process.cwd()` is the Electron binary directory (`/usr/share/code/`), not the workspace root.
-- **Fix:** Always use `vscode.workspace.workspaceFolders[0].uri.fsPath` for workspace-relative paths. For MCP server context, use the `MCP_SERVER_WORKSPACE` env var.
-- This is a recurring trap — at least 3 separate issues (acceptedFindings path, MCP server path, config sync) were caused by the same wrong assumption.
-
-### `model.dispose()` matters for native resources
-
-- `VsCodeLmProvider` cached model references but never disposed them on retry/invalidation. VS Code language model objects may hold native resources.
-- **Fix:** Call `(model as any).dispose?.()` before setting to undefined. The optional chaining is necessary because dispose may not exist on all implementations.
-- **General principle:** Any cached native-ish resource needs explicit cleanup on invalidation, not just nullification.
-
-### Path traversal in file loaders is a real attack vector
-
-- `loadReferenceGrounding()` read any file in a sibling `references/` directory. A malicious SKILL.md could symlink to sensitive files, which get fed to the LLM as context and returned in diagnostics.
-- **Fix:** Two guards: (1) `fs.lstatSync().isSymbolicLink()` to reject symlinks, (2) `path.resolve(full).startsWith(path.resolve(refDir))` to enforce directory boundary.
-- **General principle:** Any `readdirSync` + `readFileSync` loop over user-controlled directories needs both symlink rejection and path-boundary validation.
-
-### Error messages leak secrets
-
-- API keys, Bearer tokens, and auth headers were surfacing in: error messages from `fetchWithRetry`, VS Code status bar tooltips, and MCP tool responses.
-- **Fix:** `sanitizeErrorMessage()` function that strips Bearer tokens, known key prefixes (`sk-`, `ghp_`, `glpat-`, `xox[bpsa]-`), and Authorization header values. Apply at the boundary before returning to user.
-- **General principle:** Error messages from HTTP clients are NOT safe for display. Always sanitize at the presentation boundary.
-
-### Config caching needs event-loop tick TTL
-
-- `readConfig()` called `vscode.workspace.getConfiguration()` on every keystroke. Not slow per call, but unnecessary repeated work.
-- **Fix:** Cache config for one event-loop tick (`setTimeout(() => cache = null, 0)`). Multiple synchronous reads in the same tick share the cache; next user action gets fresh config.
-- **General principle:** For VS Code settings, a tick-long cache prevents redundant reads without risking stale data across user actions.
-
-### `out.show()` should respect trigger source
-
-- `out.show(false)` resizes the editor to make room for the output panel, causing visible flicker during onType analysis (every 2 seconds of typing).
-- **Fix:** Only call `out.show()` when `triggerSource === 'manual'`. Pass trigger source through the call chain.
-- **General principle:** UI side effects (panels, notifications, status changes) should be gated on user intent, not code-triggered events.
-
-### The bi-directional `includes()` trap in fuzzy matching
-
-- `isFindingAccepted()` used `resultText.includes(pattern) || pattern.includes(resultText)`. A 3-character pattern like "vague" would suppress any finding shorter than "vague" that contains it — nearly everything.
-- **Fix:** Forward-only matching (`resultText.includes(pattern)`) with minimum pattern length (5 chars).
-- **General principle:** Bidirectional string containment is almost never the right semantics for matching. Short patterns match everything.
-
-### `configHash` must cover all engine-relevant fields
-
-- `computeConfigHash()` only hashed `provider:model:deepModel:fixModel`. Changing `enabledWaves`, `fixStrategy`, `fixSemanticCheck`, etc. didn't invalidate the cached engine.
-- **Fix:** Include all fields that affect analysis behavior in the hash. If in doubt, include it.
-- **General principle:** Cache invalidation is hard. When the cost of a false cache hit (stale engine) is worse than the cost of a rebuild, err toward including more fields.
-
-### `salvageTruncatedJSON` must recover all arrays, not just the first
-
-- The JSON recovery only found and recovered the first array key from truncated output. If the LLM truncated after `{"coverage_analysis": [...]}` but before `"hygiene_issues": [...]`, 30-40% of results were silently dropped.
-- **Fix:** Use regex with `g` flag to find and recover all array keys. Log a warning listing recovered keys when truncation recovery is used.
-- **General principle:** Truncation recovery that only partially recovers data is worse than no recovery — it gives false confidence in incomplete results. Either recover everything or report the failure.
-
-### Duplicate interfaces are a maintenance hazard
-
-- `EngineConfig` was defined in both `src/core/types.ts` and `src/mcp/server.ts` with different shapes. Someone will inevitably import the wrong one.
-- **Fix:** Rename the MCP-local version to `McpEngineConfig`.
-- **General principle:** Two types with the same name in the same codebase is a bug waiting to happen. Rename immediately.
-
----
-
 ## Playwright E2E test learnings (2026-06-27)
 
 > All 43 e2e tests were broken after re-capturing auth state. Root cause was a
@@ -200,57 +144,6 @@
 - **General principle:** The model picker and the analysis engine are separate concerns. The picker must independently discover available models regardless of which provider is configured for analysis.
 
 ---
-
-## OpenRouter pricing cache corruption (2026-07-08)
-
-> Spent ~5 hours debugging why OpenRouter-only models showed no pricing while
-> Copilot models did. Root cause was a stale disk cache populated by test mocks.
-
-### The symptom was misleading
-
-- Models also in Copilot showed `💰 $X.XX/M in` correctly.
-- OpenRouter-only models showed `❓ cost unknown`.
-- Initial assumption: "the matching logic is broken for OpenRouter-only models."
-
-### The real cause was upstream
-
-- The OpenRouter pricing disk cache (`/tmp/skills-review-and-polish-openrouter-pricing-cache-v1.json`) had **6 entries** instead of the expected **~1000** (340 models × 3 keys each).
-- The cache was written by a test run that used a mock `fetch` returning 2 models.
-- The 15-minute disk cache TTL meant all subsequent fetches within that window returned the truncated dataset.
-- `Promise.allSettled` in `fetchPricing()` masked the failure — the fetch "succeeded" (it read from cache) and the merged map just had fewer entries.
-
-### How to diagnose "missing pricing" in the future
-
-1. **Check cache file entry count first:**
-   ```bash
-   cat /tmp/skills-review-and-polish-openrouter-pricing-cache-v1.json | jq '.entries | length'
-   ```
-   Should be ~1000+ for a healthy cache.
-
-2. **Verify the raw API has pricing for the model:**
-   ```bash
-   curl -s https://openrouter.ai/api/v1/models | jq '.data[] | select(.id | contains("poolside")) | {id, name, pricing}'
-   ```
-
-3. **Check the extension log for pricing map size:**
-   ```
-   selectModel: fetched N pricing entries, ...
-   ```
-   A healthy `N` is ~1000+.
-
-### The fix
-
-- Delete the cache file and reload VS Code:
-  ```bash
-  rm /tmp/skills-review-and-polish-openrouter-pricing-cache-v1.json
-  ```
-- No code change needed — the pricing fetch and matching logic were correct.
-
-### Lessons
-
-- **Disk caches populated by test mocks are a trap.** Tests that use `vi.mock` or stubbed `fetch` can still write to real disk caches if they don't mock the cache-write path. The cache will then poison production until the TTL expires.
-- **`Promise.allSettled` hides partial failures.** When one source fails, the merged map silently has fewer entries. Consider adding a size check or logging the per-source entry count.
-- **"Missing data" symptoms often point to the data source, not the matching logic.** Before debugging matching code, verify the data is actually present and complete. See [docs/PRICING.md](../PRICING.md) for full details.
 
 ## Finding post-processor: deterministic suppression of LLM self-reference false positives
 
@@ -356,3 +249,136 @@ and tracked: v1 only suppresses; rank/merge/reclassify are future work.
 For experiments on the analyzer itself (not prompts), use the same
 protocol: change one thing, measure the delta, record Resolved / New /
 Unchanged / Regression.
+
+## Never head/tail slice a document the analyzer is supposed to review in full
+
+**Discovery date:** 2026-07-17 (caught while re-running E50 schema-mode validation).
+**Impact:** High — silently destroyed analyzer quality on any skill over 60K chars.
+
+The original `MAX_ANALYSIS_DOCUMENT_CHARS = 60_000` cap and the head/tail
+slicing helper ("take the first 30K + last 30K chars") were invisible in
+testing because every fixture in the calibration corpus is well under 60K
+chars. But **real skills blow past 60K constantly**: `quality-playbook` is
+294K chars / 2,739 lines, `multilingualy-foreman` is 7K + 63 references.
+On those skills, lines 256-2262 of `quality-playbook` — the actual quality
+protocols, decision trees, and verification logic — were **never sent to
+the model**. The contradiction wave would systematically miss cross-section
+findings because the middle of the document never reached the LLM.
+
+The probe that caught it (`scripts/probes/verify-full-doc.mjs`): build the analyzer
+prompt for a 292K skill on a 1M-context gemini. The prompt came back at
+293K chars (whole skill + 6 reference files), no head/tail marker. Before
+the fix it was 60K chars, head marker + last 30K, with a `[... middle
+elided ...]` marker in the middle that the model dutifully read.
+
+**Lesson 1: don't cap the analyzer's input by a global char budget.**
+The budget must come from the model's context window. Today the chain is
+`provider.getContextLength()` → `max(MIN, ctxTokens × 4 × 0.8)`. If the
+provider doesn't know its context length, use a 200K fallback and warn.
+
+**Lesson 2: slicing should always drop, never truncate mid-content.**
+If you can't fit the whole document + references, drop individual
+files with a clear marker (`<!-- reference not loaded: too large -->`)
+rather than slicing in the middle. The slice silently destroys finding
+quality; the drop tells the model which sections are out of scope.
+
+**Lesson 3: probe prompts, not fixtures.** Fixture scale tests pass
+because fixtures are small. The 60K cap was wrong but invisible because
+fixtures fit. Probe the analyzer's actual prompt for a real production
+skill before trusting the recall/precision numbers.
+
+**Encoded as:** `src/core/analyzer.ts` no longer has a hard cap;
+`provider.getContextLength()` is a required interface method;
+`src/modelCatalog.ts` is the three-tier lookup (live OpenRouter →
+bundled asset → static fallback).
+
+## Adaptive response-token sizing needs two budgets, not one
+
+**Discovery date:** 2026-07-17.
+**Impact:** First version of adaptive budgeting silently capped output at the
+fixed `maxResponseTokens` (16384). For long prompts, that meant adaptive mode
+delivered *less* output than fixed mode — silent regression masked by an
+intuitive-looking formula.
+
+The original formula was
+`clamp(ceil(promptChars / adaptiveCharsPerToken), minAdaptive, maxTokens)`.
+For a 50K-char prompt with `charsPerToken=8`, desired = 6250 → sent on the
+wire as 6250. The fixed ceiling of 16384 was never reachable, because
+`clamp(desired, …, maxTokens)` always uses `maxTokens` as the upper bound.
+
+The two-budget fix is
+`clamp(ceil(promptChars / charsPerToken), min(minAdaptive, cap), max(maxTokens, cap))`.
+A new `adaptiveMaxResponseTokens` setting (default 65536) sits above the
+fixed `maxResponseTokens` so long prompts can request more output than the
+fixed-mode ceiling, but `max(maxTokens, cap)` still respects the user's
+fixed-mode preference.
+
+**Lesson 1: adaptive scaling always needs a separate upper bound.**
+Don't reuse the fixed-mode ceiling as the adaptive cap. They answer
+different questions — "what should I never ask for" vs "what is the
+heuristic upper bound for prompt-sensitive sizing".
+
+**Lesson 2: validate on real prompts at production scale.** The unit
+test only checked the clamp arithmetic with synthetic prompts. The
+quality-playbook live demo on a real 292K-char skill surfaced the issue
+immediately: default knobs requested fewer output tokens than fixed mode.
+
+**Recommended starting knobs for OpenRouter + schema mode:**
+
+```json
+{
+  "external.adaptiveResponseTokens": true,
+  "external.adaptiveMaxResponseTokens": 131072,
+  "external.minAdaptiveResponseTokens": 16384,
+  "external.adaptiveCharsPerToken": 4
+}
+```
+
+Validated by `scripts/demos/adaptive-quality-playbook-live.mjs`.
+
+**Encoded as:** `resolveMaxTokens` in `src/providers/externalProvider.ts`
+now uses `floor = min(minAdaptive, adaptiveMaxTokensCap)` and
+`cap = max(maxTokens, adaptiveMaxTokensCap)`. New setting
+`skillsReviewAndPolish.external.adaptiveMaxResponseTokens` (default 65536,
+schema max 262144).
+
+## Adaptive output budgeting is not the same as prompt-budgeting
+
+**Discovery date:** 2026-07-17.
+**Impact:** The analyzer's input budget (`provider.getContextLength()` →
+`max(MIN, ctxTokens × 4 × CONTEXT_FRACTION)`) and the LLM's *output* budget
+are different concerns that share the word "budget". They used to be
+silently conflated in code review.
+
+- Input budget: "how much can we send to the model?" — bounded by the model's
+  context window. Required to be ≥ the whole skill + references.
+- Output budget: "how many output tokens can we ask for?" — bounded by
+  what the user is willing to pay and what the model needs to fully
+  emit the JSON. Independent of input budget; small inputs can need huge
+  outputs (e.g. "list every ambiguity in this 10K-char document").
+
+Adaptive output budgeting *is* useful; what mattered was capping it by the
+fixed ceiling. Default values reflect that 1M-context Gemini users want
+up to 131K output tokens, but a 128K-context model user wants no more than
+32768. Both are reachable with the new `adaptiveMaxResponseTokens` knob
+plus `external.maxResponseTokens` as the lower cap.
+
+**Encoded as:** settings schema in `package.json` and `config.ts`,
+productionised by `scripts/demos/adaptive-quality-playbook-live.mjs`.
+
+---
+
+## Calibration & noise sections (moved out)
+
+The following sections were extracted to [`LEARNINGS-CALIBRATION.md`](./LEARNINGS-CALIBRATION.md)
+during the 2026-07-17 "Restructure + trim" pass to keep this file navigable:
+
+- Two systematic noise drivers (coverage-gap, llm-parse-error fence bug)
+- Per-prompt determinism gates (rejected twice)
+- Wave architecture decision (benchmark)
+- Gilfoyle review learnings (2026-06-09)
+- OpenRouter pricing cache corruption incident (2026-07-08)
+
+They are coherent as a unit and only needed for calibration / noise-floor
+work. The load-bearing rules for future prompt/analyzer work (surgical-fixer
+safety, post-processor, "never head/tail slice") remain inline above.

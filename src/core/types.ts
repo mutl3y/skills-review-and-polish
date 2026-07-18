@@ -48,6 +48,17 @@ export interface CancellationToken {
 
 export interface LlmProvider {
   complete(request: LlmRequest): Promise<LlmResponse>;
+  /**
+   * The provider's input context length in tokens, used by the analyzer
+   * to scale the document budget so large-context models don't silently
+   * truncate real production skills to head/tail excerpts.
+   *
+   * When the provider does not know its own context (cold cache, test
+   * mocks, malformed config), return `undefined`. The analyzer will log
+   * a warning and use a conservative 200K-char fallback (~50K tokens),
+   * which is safe for every model in our supported set.
+   */
+  getContextLength(): number | undefined;
 }
 
 export interface LlmRequest {
@@ -57,6 +68,23 @@ export interface LlmRequest {
   token?: CancellationToken;
   /** Model ID to use for this request (overrides tier-based selection). */
   modelId?: string;
+  /**
+   * When true, the provider must omit `response_format` for this request even
+   * if it was constructed in schema mode. The analyzer sets this after the
+   * first non-stop finish reason on a wave so the remainder of that wave runs
+   * without structured output (schema-mode response-health hardening, plan
+   * item 3a). The provider treats this as a one-shot override, not a permanent
+   * mode change.
+   */
+  disableStructuredOutput?: boolean;
+  /**
+   * Output-budget multiplier for this request. The analyzer sets this per
+   * wave so waves whose output can far exceed their prompt size (e.g. the
+   * ambiguities wave, which can emit 100+ findings on a hard fixture) request
+   * extra `max_tokens` headroom and avoid `finish_reason: length`
+   * truncations. Default 1.0. Applied in both adaptive and fixed-cap modes.
+   */
+  maxTokensMultiplier?: number;
 }
 
 export interface LlmResponse {
@@ -64,6 +92,8 @@ export interface LlmResponse {
   error?: string;
   /** True when the error is a rate limit (429 / quota exhaustion). */
   isRateLimit?: boolean;
+  /** Provider finish reason when available (e.g. stop, length, content_filter). */
+  finishReason?: string;
 }
 
 /** Single configuration object the core reads, regardless of host. */
@@ -113,7 +143,6 @@ export interface EngineConfig {
   filterFindings?: boolean;
   /** Optional per-code severity overrides (ESLint-style). 'off' drops the finding. */
   severityOverrides?: Record<string, Severity | 'off'>;
-  seed?: number;
   /** Guard configuration - can be overridden via settings. */
   fixGuardUpperBoundMultiplier?: number;
   fixGuardLowerBoundMultiplier?: number;
@@ -162,6 +191,7 @@ export const COGNITIVE_DOWNGRADE_CODES = [
   'cognitive-load',
   'cognitive-nested-conditions',
   'cognitive-sequencing',
+  'cognitive-logical-inversion',
   'cognitive-delegated-decision',
   'cognitive-deep-decision-tree',
 ] as const;

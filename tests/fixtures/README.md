@@ -10,6 +10,12 @@ engine. Each `SKILL.md` contains a label table documenting every injected issue.
 > `prod_skills/` were intentionally NOT copied (redundant depth / too large).
 
 ## How to use
+
+- **Release calibration uses clean fixtures first**:
+  `npm run test:calibration` runs `scripts/e50-clean-architecture.mjs` against
+  `tests/fixtures/clean` + `tests/fixtures/expected` when `OPENROUTER_API_KEY`
+  is available. The analyzer must not see label scaffolding during release
+  calibration.
 - **Detection rate** = `detected / expected`. The source engine's target was **≥60% overall** (legacy, single-category guidance — see "Model-aware detection rate" below for the current multi-category workflow).
 - **Scoring uses Jaccard / IoU**, which also penalizes false positives:
   `TP = min(detected, expected)`, `FP = max(0, detected-expected)`,
@@ -18,6 +24,18 @@ engine. Each `SKILL.md` contains a label table documenting every injected issue.
   needing new categories are excluded — see each SKILL.md's label table).
 - **Remember the ±6 noise floor**: run N≥3 scans and compare medians, never a
   single scan (see `docs/plan/LEARNINGS.md`).
+
+## Release thresholds
+
+Current beta baseline:
+
+- Labeled fixtures: about 47% recall
+- Clean fixtures: about 42% recall
+- `test:calibration` default minimum recall: 42%
+- Default maximum over-report ratio: 3x raw detections versus expected
+
+Formal release should not use the beta threshold. It needs stable per-category
+recall thresholds plus a manual production-sample precision gate.
 
 ## Model-aware detection rate (E12 baseline)
 

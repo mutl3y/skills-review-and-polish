@@ -32,21 +32,3 @@ A model with no rule for empty Documents could:
 - abort the verification pass.
 
 The Document gives no instruction about which behavior is correct.
-
-# Injected issue table
-
-**Test metadata:** E12-N3 Gemini median across 3 runs:
-
-| Category | Expected count | Detectable? |
-| --- | ---: | --- |
-| Ambiguities | 2 | YES |
-| Coverage gaps | 1 | YES |
-| Hygiene | 4 | YES |
-| **Total** | **7** | — |
-
-**Expected analyzer category:** `ambiguity` + `coverage`
-
-| # | Section | Category | Expected code | Notes |
-|---|---------|----------|---------------|-------|
-| 1 | The "Published" ambiguity | ambiguity | `ambiguity-llm` | "Published" is undefined |
-| 2 | The empty-Document ambiguity | coverage | `coverage-gap` | No rule for empty Documents |

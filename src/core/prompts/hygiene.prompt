@@ -17,6 +17,14 @@ Detect ONLY these five specific patterns:
 
 (e) DEAD INSTRUCTION — an instruction that references a feature, resource, template, authentication scheme, or tool that no longer exists, has been deprecated, or is explicitly noted as unavailable. Only flag when evidence of removal or deprecation is present in the prompt itself.
    Example: An instruction to use a deprecated authentication scheme when a note in the prompt states it was removed in a prior version.
+   More examples that SHOULD be flagged:
+   - "Use the Legacy Review Template" when another section says "Legacy Review Template was removed; use Risk Review Template."
+   - "Authenticate with API key v1" when release notes in the prompt say "API key v1 was deprecated and disabled."
+   - "Call `old_scan()`" when a migration note says "`old_scan()` was renamed to `scan_document()`."
+   - "Use Helm 2/Tiller" when a current-tooling table says "Helm 3 only" or "Helm 2 is retired."
+   - "Use Kubernetes apiVersion extensions/v1beta1" when the same prompt says all instructions must target Kubernetes 1.29/current supported versions only.
+   Current-version evidence counts: if the prompt states that all instructions must target the listed current/supported versions only, then instructions requiring older incompatible APIs, commands, flags, templates, or versions are dead instructions.
+   Do NOT flag a resource merely because it sounds old. The prompt must contain evidence that it is removed, renamed, deprecated, disabled, unavailable, retired, or outside an explicit "current/supported versions only" scope.
 
 (f) UNORDERED SEQUENTIAL PROCESS — the prompt describes a multi-step process that must be performed in a specific order, but presents the steps as a flat comma-separated list, a run-on sentence, or prose with no explicit step numbering or sequencing words ("first", "then", "next", "step N"). The model cannot infer the required order or decide whether steps may be parallelised.
    Example: "To complete the process: gather all data, interview engineers, review graphs, identify factors, write action items, get sign-off, publish the document."
@@ -38,13 +46,17 @@ Detect ONLY these five specific patterns:
 
 Quality bar: Only report issues you are confident about. Each issue must clearly match one of the eight patterns above.
 
+Output budget: report at most 25 hygiene issues. If more than 25 match, return the 25 highest-impact issues that most directly affect whether a model can follow the prompt. Prefer distinct root causes over many near-duplicates from the same table, checklist, or section.
+
+Compactness rule: keep every string field under 240 characters. `text_to_fix` must be the smallest exact source span needed to fix the issue; never include a whole section, long table, or multi-paragraph block.
+
 Respond ONLY with JSON in this exact format (use [] for an empty array):
 {
   "hygiene_issues": [
     {
       "type": "redundant-instruction"|"non-actionable-preamble"|"vague-directive"|"missing-agent"|"dead-instruction"|"unordered-process"|"over-specification"|"circular-definition",
       "relevant_text": "exact short phrase from the prompt (≤ 15 words) that best locates this issue",
-      "text_to_fix": "verbatim copy of the complete sentence, list item, or block from the document that should be rewritten (may be multiline; must be character-for-character identical to the source)",
+      "text_to_fix": "verbatim copy of the smallest sentence, list item, or phrase from the document that should be rewritten (≤ 240 characters; must be character-for-character identical to the source)",
       "description": "One sentence explaining the specific problem.",
       "suggestion": "One sentence describing what to do instead.",
       "severity": "warning"|"info"

@@ -175,7 +175,7 @@ describe('meaningPreservationReject', () => {
 
 describe('SurgicalFixer', () => {
   it('rejects non-surgical codes before calling the provider', async () => {
-    const provider: LlmProvider = { complete: async () => ({ text: 'ignored' }) };
+    const provider: LlmProvider = { complete: async () => ({ text: 'ignored' }), getContextLength: () => undefined };
     const fixer = new SurgicalFixer(provider);
 
     const result = await fixer.fixIssue('No issue here', '/tmp/test.md', makeDiagnostic('coverage-gap'));
@@ -186,7 +186,7 @@ describe('SurgicalFixer', () => {
 
   it('rejects oversized anchors before model calls', async () => {
     const complete = vi.fn();
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const longText = 'Use ' + 'this carefully '.repeat(80);
     const result = await fixer.fixIssue(longText, '/tmp/test.md', makeDiagnostic('ambiguity-llm', longText));
@@ -198,7 +198,7 @@ describe('SurgicalFixer', () => {
 
   it('blocks anchors that overlap frontmatter metadata', async () => {
     const complete = vi.fn();
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
     const text = '---\nname: Example\ndescription: Demo\n---\nUse this carefully.';
 
     const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('ambiguity-llm', 'name: Example'));
@@ -210,7 +210,7 @@ describe('SurgicalFixer', () => {
 
   it('rejects identical model output as a non-fix', async () => {
     const complete = vi.fn().mockResolvedValue({ text: 'Use the tool carefully.' });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixIssue(
       'Use the tool carefully.',
@@ -225,6 +225,7 @@ describe('SurgicalFixer', () => {
   it('rejects model abstentions and meaning-guard failures', async () => {
     const abstain = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: '[[ABSTAIN]] because it is unsafe.' }),
+      getContextLength: () => undefined,
     });
 
     const abstainResult = await abstain.fixIssue(
@@ -238,6 +239,7 @@ describe('SurgicalFixer', () => {
 
     const guarded = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: 'Use the tool carefully.' }),
+      getContextLength: () => undefined,
     });
 
     const guardedResult = await guarded.fixIssue(
@@ -255,6 +257,7 @@ describe('SurgicalFixer', () => {
       complete: vi.fn()
         .mockResolvedValueOnce({ text: 'Use the tool carefully and always document every step before proceeding.' })
         .mockResolvedValueOnce({ text: 'Use it.' }),
+      getContextLength: () => undefined,
     });
 
     const longResult = await fixer.fixIssue('Use the tool carefully.', '/tmp/test.md', makeDiagnostic('ambiguity-llm', 'Use the tool carefully.'));
@@ -269,7 +272,8 @@ describe('SurgicalFixer', () => {
   it('rejects provider/LLM failures before applying a fix', async () => {
     const fixer = new SurgicalFixer({
       complete: vi.fn().mockRejectedValue(new Error('network down')),
-    });
+        getContextLength: () => undefined,
+      });
 
     const result = await fixer.fixIssue(
       'Use the tool carefully.',
@@ -287,6 +291,7 @@ describe('SurgicalFixer', () => {
         .fn()
         .mockResolvedValueOnce({ text: 'Use the tool carefully' })
         .mockResolvedValueOnce({ text: 'NO' }),
+      getContextLength: () => undefined,
     };
     const fixer = new SurgicalFixer(provider);
 
@@ -307,6 +312,7 @@ describe('SurgicalFixer', () => {
         .fn()
         .mockResolvedValueOnce({ text: 'Use the tool carefully today.' })
         .mockResolvedValueOnce({ text: 'DRIFT: invented detail' }),
+      getContextLength: () => undefined,
     };
     const fixer = new SurgicalFixer(provider);
 
@@ -322,7 +328,7 @@ describe('SurgicalFixer', () => {
   });
 
   it('skips fixDocument entries when the anchor cannot be resolved', async () => {
-    const fixer = new SurgicalFixer({ complete: vi.fn().mockResolvedValue({ text: 'Use the tool.' }) });
+    const fixer = new SurgicalFixer({ complete: vi.fn().mockResolvedValue({ text: 'Use the tool.' }), getContextLength: () => undefined });
 
     const result = await fixer.fixDocument(
       'Intro\n\nKeep it brief.',
@@ -337,7 +343,7 @@ describe('SurgicalFixer', () => {
 
   it('applies accepted deletions in fixDocument and skips rejected ones', async () => {
     const complete = vi.fn().mockResolvedValue({ text: '' });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixDocument(
       'Please be concise.\nKeep it brief.',
@@ -355,7 +361,7 @@ describe('SurgicalFixer', () => {
     const complete = vi.fn()
       .mockResolvedValueOnce({ text: '' })
       .mockResolvedValueOnce({ text: 'Use the tool.' });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixDocument(
       'Please be concise.\nUse the tool carefully.\nKeep it brief.',
@@ -377,7 +383,7 @@ describe('SurgicalFixer', () => {
     const complete = vi.fn().mockResolvedValue({
       text: '1. Use the tool carefully.\n2. Keep it brief.',
     });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixDocument(
       'Use the tool carefully.\nKeep it brief.',
@@ -392,7 +398,7 @@ describe('SurgicalFixer', () => {
 
   it('falls back to paragraph expansion when the anchor text is whitespace-normalized', async () => {
     const complete = vi.fn().mockResolvedValue({ text: 'Use the tool.' });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const text = 'Intro\n\nUse   the tool carefully.\n\nNext line';
 
@@ -408,7 +414,7 @@ describe('SurgicalFixer', () => {
 
   it('rejects empty anchor text without crashing', async () => {
     const complete = vi.fn();
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixIssue(
       'Use the tool carefully.',
@@ -423,7 +429,7 @@ describe('SurgicalFixer', () => {
 
   it('rejects whitespace-only anchor text without crashing', async () => {
     const complete = vi.fn();
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixIssue(
       'Use the tool carefully.',
@@ -438,7 +444,7 @@ describe('SurgicalFixer', () => {
 
   it('skips empty anchor in fixDocument without corrupting content', async () => {
     const complete = vi.fn();
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const text = 'Use the tool carefully.';
     const result = await fixer.fixDocument(
@@ -563,6 +569,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     const text = 'Consider using the tool carefully.';
     const fixer = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: 'Consider using the tool.' }),
+      getContextLength: () => undefined,
     });
 
     const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('ambiguity-llm', text), {
@@ -582,6 +589,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
 
     const fixer = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: fixAtBoundary }),
+      getContextLength: () => undefined,
     });
     const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text));
 
@@ -598,6 +606,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
 
     const fixer = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: fixJustBelow }),
+      getContextLength: () => undefined,
     });
     const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text));
 
@@ -614,6 +623,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
 
     const fixer = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: fixAtFloor }),
+      getContextLength: () => undefined,
     });
     const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text));
 
@@ -628,6 +638,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
 
     const fixer = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: fixBelowFloor }),
+      getContextLength: () => undefined,
     });
     const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text));
 
@@ -640,6 +651,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     const fix = 'You should consider all options and may request help promptly';
     const fixer = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: fix }),
+      getContextLength: () => undefined,
     });
 
     const result = await fixer.fixIssue(text, '/tmp/test.md', makeDiagnostic('contradiction', text), {
@@ -662,6 +674,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     const text = 'Line one.\nLine two.\nLine three.';
     const fixer = new SurgicalFixer({
       complete: vi.fn().mockResolvedValue({ text: '[[ABSTAIN]]' }),
+      getContextLength: () => undefined,
     });
 
     const result = await fixer.fixDocument(text, '/tmp/test.md', [
@@ -679,7 +692,8 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     const text = 'No diagnostics here.';
     const fixer = new SurgicalFixer({
       complete: vi.fn(),
-    });
+        getContextLength: () => undefined,
+      });
 
     const result = await fixer.fixDocument(text, '/tmp/test.md', []);
 
@@ -694,7 +708,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     const complete = vi.fn()
       .mockResolvedValueOnce({ text: 'Use the API.' })
       .mockResolvedValueOnce({ text: 'be specific.' });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixDocument(text, '/tmp/test.md', [
       makeDiagnostic('ambiguity-llm', 'Use the API carefully'),
@@ -718,7 +732,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     const complete = vi.fn()
       .mockResolvedValueOnce({ text: 'Use the API.' })
       .mockResolvedValueOnce({ text: 'BE SKIPPED' });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     // 'Use the API' is contained within 'Use the API when calling it carefully.'
     const result = await fixer.fixDocument(text, '/tmp/test.md', [
@@ -741,7 +755,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     const complete = vi.fn()
       .mockResolvedValueOnce({ text: 'When responding, be helpful and kind.' })
       .mockResolvedValueOnce({ text: 'be extremely helpful' });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixDocument(text, '/tmp/test.md', [
       makeDiagnostic('ambiguity-llm', 'When responding always be helpful and kind.'),
@@ -759,7 +773,7 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     // silent data corruption.
     const text = 'Be concise.\nSome other content.\nBe concise.';
     const complete = vi.fn().mockResolvedValue({ text: 'Be specific.' });
-    const fixer = new SurgicalFixer({ complete });
+    const fixer = new SurgicalFixer({ complete, getContextLength: () => undefined });
 
     const result = await fixer.fixDocument(text, '/tmp/test.md', [
       makeDiagnostic('ambiguity-llm', 'Be concise.'),

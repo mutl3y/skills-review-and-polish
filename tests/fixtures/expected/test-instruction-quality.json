@@ -2,11 +2,11 @@
   "fixture": "test-instruction-quality",
   "description": "Expected findings for the cleaned test-instruction-quality skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
   "expected": {
-    "ambiguity-llm": 8,
-    "hygiene": 7,
-    "coverage-gap": 2,
-    "contradiction": 1,
-    "cognitive": 2
+    "ambiguity-llm": 9,
+    "hygiene": 9,
+    "coverage-gap": 6,
+    "contradiction": 3,
+    "cognitive": 5
   },
   "detectable": {
     "Ambiguities": "YES",
@@ -15,5 +15,5 @@
     "Contradictions": "YES",
     "Cognitive": "YES"
   },
-  "notes": "Original counts from test metadata: {\"Ambiguities\":8,\"Hygiene\":7,\"Coverage gaps\":2,\"Contradictions\":1,\"Cognitive\":4}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Medians: ambiguity-llm=9, hygiene=9, coverage-gap=6, contradition=3 (runs 5,3,3), cognitive=5 (all stable)."
 }

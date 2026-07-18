@@ -4,7 +4,7 @@ Analyze the provided prompt for cognitive load issues ONLY. Do NOT report contra
 ## COGNITIVE LOAD
 Find overly complex instruction patterns that are hard for a model to follow reliably.
 - Do NOT flag prompts that already use explicit numbered steps or decision trees — those are mitigations, not problems.
-- Criteria (b), (c), and (d) below are ALWAYS flagged when present — do not apply a confidence filter.
+- Criteria (a), (b), (c), and (d) below are ALWAYS flagged when present — do not apply a confidence filter.
 - Do NOT flag an issue simply because the same problem is also a contradiction — if two instructions directly oppose each other, that is a contradiction (handled separately). Only flag here if the STRUCTURAL FORM of an instruction (its logic, sequencing, or priority framing) is itself hard to parse, independent of whether it conflicts with something else. Specifically: two instructions that require opposite behaviors (e.g. "be concise" vs "be comprehensive", narrow scope vs broad scope) are contradictions — do NOT report them as priority-conflict here.
 - Do NOT flag constraint-overload based on instruction count alone. Only flag when there are COMPETING priority systems (two or more explicitly named/labeled frameworks) with no stated precedence — the sheer number of instructions is not a cognitive load problem.
 - Report each problematic pattern ONCE. Do not report the same logical complexity as both nested-conditions and priority-conflict.
@@ -30,15 +30,21 @@ The five types overlap. Use this table to pick the single best type. A passage c
 | priority-conflict | Two or more named/labeled priority frameworks compete | The relevant_text explicitly names or labels two or more priority systems (e.g. "Conflict-Resolution Order, Severity Matrix") with no stated precedence | The relevant_text states a single priority system, or states a precedence between the systems (no conflict) |
 | constraint-overload | Many constraints are listed without an interaction rule | The relevant_text lists 5+ constraints that the model must satisfy SIMULTANEOUSLY and provides no rule for what to do when they conflict | The relevant_text states a precedence or interaction rule (e.g. "Constraints always apply; R1 determines when modification is required" — that IS a precedence rule, so not constraint-overload) |
 | delegated-decision | The model is asked to weigh factors with NO criteria | The relevant_text says "use your judgment", "as appropriate", or "consider these factors and decide" without listing a decision rule | The relevant_text provides a decision rule, even if the rule is complex (use deep-decision-tree) |
+| sequencing | A prerequisite or validation step appears after the instruction that depends on it | The relevant_text contains both the dependent action and the later prerequisite, such as "Generate the output. First confirm the source exists." | The text is merely an ordered numbered process, or the ordering problem is only that a dead/deprecated instruction appears before a deprecation note |
+| logical-inversion | Double negatives or chained logical inversions make the rule hard to parse | The relevant_text contains patterns like "do not X unless it is not Y", "not required unless not deprecated", or "only if it is not the case that..." | The text has only one ordinary negation, such as "do not publish secrets" |
 
-If after applying the table you cannot pick a single type with confidence, do NOT report the issue. Prefer false negatives over misclassification.
+If after applying the table you cannot pick a single type with confidence, do NOT report the issue. Prefer false negatives over misclassification, except for explicit 3+ nested conditionals and double-negative/logical-inversion clauses, which must be reported when present.
+
+Output budget: report at most 15 cognitive-load issues. If more than 15 match, return the clearest structural issues that most directly affect execution reliability.
+
+Compactness rule: keep every string field under 240 characters. `relevant_text` should be the shortest exact span that contains the structural problem.
 
 Respond ONLY with JSON in this exact format (use [] for no findings):
 {
   "cognitive_load": {
     "issues": [
       {
-        "type": "nested-conditions"|"priority-conflict"|"deep-decision-tree"|"constraint-overload"|"delegated-decision",
+        "type": "nested-conditions"|"priority-conflict"|"deep-decision-tree"|"constraint-overload"|"delegated-decision"|"sequencing"|"logical-inversion",
         "description": "What makes this hard for a model to follow and what mistakes it would likely make",
         "relevant_text": "exact text from the prompt causing the issue",
         "severity": "warning"|"info",

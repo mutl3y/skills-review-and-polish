@@ -7,5 +7,5 @@
   "detectable": {
     "Dead": "YES"
   },
-  "notes": "Original counts from test metadata: {\"Dead\":12}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Median hygiene-dead-instruction=12 (12,12,12) — unchanged from original metadata."
 }

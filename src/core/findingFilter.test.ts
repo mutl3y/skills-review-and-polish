@@ -590,6 +590,41 @@ The verifier emits the report.
       expect(out.map((f) => f.code)).toEqual(['ambiguity-llm']);
     });
 
+    it('produces the same filtered output regardless of arrival order', () => {
+      const findingsA: AnalysisResult[] = [
+        makeResult({
+          code: 'hygiene-redundant-instruction',
+          analyzer: 'hygiene-check',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+        makeResult({
+          code: 'ambiguity-llm',
+          analyzer: 'ambiguity-detection',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+        makeResult({
+          code: 'contradiction',
+          analyzer: 'contradiction-detection',
+          range: { start: { line: 5, character: 0 }, end: { line: 5, character: 20 } },
+        }),
+      ];
+      const findingsB: AnalysisResult[] = [
+        findingsA[2],
+        findingsA[0],
+        findingsA[1],
+      ];
+
+      const outA = filterFindings(findingsA, baseConfig, '');
+      const outB = filterFindings(findingsB, baseConfig, '');
+
+      expect(outA.map((f) => `${f.analyzer}:${f.code}`)).toEqual([
+        'contradiction-detection:contradiction',
+      ]);
+      expect(outB.map((f) => `${f.analyzer}:${f.code}`)).toEqual([
+        'contradiction-detection:contradiction',
+      ]);
+    });
+
     it('does not suppress a finding from an unknown / non-ranked code', () => {
       // persona-inconsistency is not in SPECIFICITY_ORDER; it must never
       // be the "other" that suppresses anything, nor be suppressed itself.
@@ -618,6 +653,33 @@ The verifier emits the report.
         message: 'Verify: `npx swa --version`',
       });
       expect(shouldSuppress(r, baseConfig, '')).toBe(true);
+    });
+
+    it('does not hide a nearby true contradiction when suppressing an imperative ambiguity', () => {
+      const findings: AnalysisResult[] = [
+        makeResult({
+          code: 'ambiguity-llm',
+          relevantText: 'Verify: `npx swa --version`',
+          message: 'Verify: `npx swa --version`',
+          range: { start: { line: 3, character: 0 }, end: { line: 3, character: 26 } },
+        }),
+        makeResult({
+          code: 'contradiction',
+          analyzer: 'contradiction-detection',
+          message: 'Contradiction: "Always publish reports" conflicts with "Never publish reports".',
+          relevantText: undefined,
+          range: { start: { line: 4, character: 0 }, end: { line: 4, character: 22 } },
+        }),
+      ];
+
+      const doc = [
+        'Verify: `npx swa --version`',
+        'Always publish reports',
+        'Never publish reports',
+      ].join('\n');
+      const out = filterFindings(findings, baseConfig, doc);
+
+      expect(out.map((finding) => finding.code)).toEqual(['contradiction']);
     });
 
     it('suppresses ambiguity on "Run: <cmd>" pattern', () => {
@@ -675,6 +737,152 @@ The verifier emits the report.
         message: 'VERIFY: package version',
       });
       expect(shouldSuppress(r, baseConfig, '')).toBe(true);
+    });
+  });
+
+  describe('Rule 13: markdownStructureAmbiguityRule', () => {
+    it('suppresses ambiguity inside fenced output examples', () => {
+      const doc = [
+        '## Output',
+        '```markdown',
+        '- [ ] Breaking changes to public API',
+        '```',
+      ].join('\n');
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'Breaking changes',
+        range: { start: { line: 2, character: 6 }, end: { line: 2, character: 22 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('suppresses ambiguity on Markdown headings', () => {
+      const doc = '## When to Use\n\n- Run this during review.';
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'When to Use',
+        range: { start: { line: 0, character: 3 }, end: { line: 0, character: 14 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('suppresses ambiguity in Markdown tables', () => {
+      const doc = [
+        '| Component | Purpose |',
+        '|-----------|---------|',
+        '| Retry Protocol | Tool failure handling - retry once, then document |',
+      ].join('\n');
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'Tool failure handling',
+        range: { start: { line: 2, character: 19 }, end: { line: 2, character: 40 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('keeps ambiguity in normal instructional prose', () => {
+      const doc = 'Notify the appropriate team promptly when risk is significant.';
+      const r = makeResult({
+        code: 'ambiguity-llm',
+        relevantText: 'appropriate team',
+        range: { start: { line: 0, character: 11 }, end: { line: 0, character: 27 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(false);
+    });
+  });
+
+  describe('Rule 14: markdownStructureHygieneRule', () => {
+    it('suppresses vague-directive hygiene findings in YAML frontmatter', () => {
+      const doc = [
+        '---',
+        'name: sql-optimization',
+        'description: Universal SQL performance optimization assistant',
+        '---',
+        '',
+        '# SQL Optimization',
+      ].join('\n');
+      const r = makeResult({
+        code: 'hygiene-vague-directive',
+        relevantText: 'Universal SQL performance optimization assistant',
+        range: { start: { line: 2, character: 13 }, end: { line: 2, character: 60 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('suppresses missing-agent hygiene findings in reference tables', () => {
+      const doc = [
+        '| Component | Purpose |',
+        '|-----------|---------|',
+        '| Retry Protocol | Tool failure handling - retry once, then document |',
+      ].join('\n');
+      const r = makeResult({
+        code: 'hygiene-missing-agent',
+        relevantText: 'Tool failure handling - retry once, then document',
+        range: { start: { line: 2, character: 19 }, end: { line: 2, character: 68 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('keeps missing-agent hygiene findings in normal prose', () => {
+      const doc = 'The report will be reviewed before publishing.';
+      const r = makeResult({
+        code: 'hygiene-missing-agent',
+        relevantText: 'The report will be reviewed before publishing.',
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 45 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(false);
+    });
+
+    it('suppresses dead-instruction findings on linked reference table rows', () => {
+      const doc = [
+        '| Component | Reference File | Purpose |',
+        '|-----------|----------------|---------|',
+        '| Retry Protocol | [retry-protocol.md](references/retry-protocol.md) | Tool failure handling - retry once, then document |',
+      ].join('\n');
+      const r = makeResult({
+        code: 'hygiene-dead-instruction',
+        relevantText: 'Retry Protocol | [retry-protocol.md](references/retry-protocol.md) | Tool failure handling - retry once, then document',
+        range: { start: { line: 2, character: 2 }, end: { line: 2, character: 116 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('suppresses circular-definition findings on linked reference table rows', () => {
+      const doc = [
+        '| Component | Reference File | Purpose |',
+        '|-----------|----------------|---------|',
+        '| Self-Reflection Quality Gate | [self-reflection-quality-gate.md](references/self-reflection-quality-gate.md) | 1-10 scoring rubric |',
+      ].join('\n');
+      const r = makeResult({
+        code: 'hygiene-circular-definition',
+        relevantText: 'Self-Reflection Quality Gate | [self-reflection-quality-gate.md](references/self-reflection-quality-gate.md) | 1-10 scoring rubric',
+        range: { start: { line: 2, character: 2 }, end: { line: 2, character: 132 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
+    });
+
+    it('suppresses over-specification findings on linked reference table rows', () => {
+      const doc = [
+        '| Component | Reference File | Purpose |',
+        '|-----------|----------------|---------|',
+        '| Self-Reflection Quality Gate | [self-reflection-quality-gate.md](references/self-reflection-quality-gate.md) | 1-10 scoring rubric with >=8 threshold |',
+      ].join('\n');
+      const r = makeResult({
+        code: 'hygiene-over-specification',
+        relevantText: 'Self-Reflection Quality Gate | [self-reflection-quality-gate.md](references/self-reflection-quality-gate.md) | 1-10 scoring rubric with >=8 threshold',
+        range: { start: { line: 2, character: 2 }, end: { line: 2, character: 150 } },
+      });
+
+      expect(shouldSuppress(r, baseConfig, doc)).toBe(true);
     });
   });
 });

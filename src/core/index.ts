@@ -36,6 +36,8 @@ export interface AnalyzeInput {
   acceptedFindingsPath?: string;
   /** Optional cancellation token — allows the caller to abort in-flight analysis. */
   token?: CancellationToken;
+  /** Internal: used by scoring samples so repeated scans do not create loop findings. */
+  skipLoopDetection?: boolean;
 }
 
 export class Engine {
@@ -88,13 +90,15 @@ export class Engine {
       // Lower recall than multiWave but only 1 API call.
       const log = createLogger('engine');
       log.info('analysisMode=single: running combined single-pass wave');
-      return this.analyzer.analyzeSinglePassWave(
+      return this.analyzer.analyzeSinglePass(
         {
           text: input.text,
           filePath: input.filePath,
           acceptedFindingsPath: input.acceptedFindingsPath,
           token: input.token,
+          skipLoopDetection: input.skipLoopDetection,
         },
+        effectiveConfig,
       );
     } else if (effectiveConfig.analysisMode === 'focused') {
       // 'focused' mode: 2 focused calls for the highest-signal waves.
@@ -110,6 +114,7 @@ export class Engine {
         filePath: input.filePath,
         acceptedFindingsPath: input.acceptedFindingsPath,
         token: input.token,
+        skipLoopDetection: input.skipLoopDetection,
       },
       customDiagnostics,
       waves,
@@ -123,11 +128,19 @@ export class Engine {
    * scan variance is ±6 (see docs/plan/LEARNINGS.md).
    */
   async score(input: AnalyzeInput): Promise<ScoreResult & { penalty: number }> {
-    const results = await this.analyze(input);
     const lineCount = input.text.split('\n').length;
     const skillType = parseSkillType(input.text);
-    const result = scoreSkill(results, lineCount, skillType);
-    return { ...result, penalty: result.issuePenalty + result.lengthPenalty };
+    const samples = Math.max(1, Math.min(5, Math.floor(this.config.scoreSamples || 1)));
+    const scoredSamples: Array<ScoreResult & { penalty: number }> = [];
+
+    for (let i = 0; i < samples; i++) {
+      const results = await this.analyze({ ...input, skipLoopDetection: true });
+      const result = scoreSkill(results, lineCount, skillType);
+      scoredSamples.push({ ...result, penalty: result.issuePenalty + result.lengthPenalty });
+    }
+
+    scoredSamples.sort((a, b) => a.penalty - b.penalty);
+    return scoredSamples[Math.floor(scoredSamples.length / 2)];
   }
 
   /**

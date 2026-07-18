@@ -45,6 +45,13 @@ export interface ExtensionConfig extends EngineConfig {
   deepModel: string;
   fixModel: string;
   pickerSortBy: 'price' | 'multiplier' | 'name';
+  externalStructuredOutput: boolean | 'schema';
+  externalMaxResponseTokens: number;
+  externalAdaptiveMaxResponseTokens: number;
+  externalAdaptiveResponseTokens: boolean;
+  externalMinAdaptiveResponseTokens: number;
+  externalAdaptiveCharsPerToken: number;
+  externalRequestTimeoutMs: number;
   runOn: 'manual' | 'onSave' | 'onType';
   include: string[];
   exclude: string[];
@@ -57,6 +64,8 @@ export interface ExtensionConfig extends EngineConfig {
   fixGuardUpperBoundMultiplier: number;
   fixGuardLowerBoundMultiplier: number;
   fixGuardMaxAnchorChars: number;
+  /** Max diagnostics rendered in the editor; overflow is summarized with a "show all" hint (plan item 5). */
+  maxDiagnostics: number;
 }
 
 export function readConfig(): ExtensionConfig {
@@ -71,7 +80,14 @@ export function readConfig(): ExtensionConfig {
     deepModel: c.get('deepModel', ''),
     fixModel: c.get('fixModel', ''),
     pickerSortBy: c.get('pickerSortBy', 'price'),
-    analysisMode: c.get('analysisMode', 'single'),
+    externalStructuredOutput: readStructuredOutput(c.get('external.structuredOutput', 'schema')),
+    externalMaxResponseTokens: c.get('external.maxResponseTokens', 16_384),
+    externalAdaptiveMaxResponseTokens: c.get('external.adaptiveMaxResponseTokens', 65_536),
+    externalAdaptiveResponseTokens: c.get('external.adaptiveResponseTokens', false),
+    externalMinAdaptiveResponseTokens: c.get('external.minAdaptiveResponseTokens', 4_096),
+    externalAdaptiveCharsPerToken: c.get('external.adaptiveCharsPerToken', 8),
+    externalRequestTimeoutMs: c.get('external.requestTimeoutMs', 120_000),
+    analysisMode: c.get('analysisMode', DEFAULT_ENGINE_CONFIG.analysisMode),
     enabledWaves: waves.length ? waves : [...ALL_WAVES],
     scoreSamples: c.get('scoreSamples', 3),
     runOn: c.get('runOn', 'manual'),
@@ -86,12 +102,13 @@ export function readConfig(): ExtensionConfig {
     fixReferenceGrounding: c.get('fix.referenceGrounding', true),
     showScoreCodeLens: c.get('showScoreCodeLens', true),
     inlineRewrites: c.get('experimental.inlineRewrites', false),
-    telemetryEnable: c.get('telemetry.enable', true),
+    telemetryEnable: c.get('telemetry.enable', false),
     logLevel: c.get('logLevel', 'info') as 'info' | 'debug' | 'trace',
     fixGuardUpperBoundMultiplier: c.get('fix.guard.upperBoundMultiplier', 1.5),
     fixGuardLowerBoundMultiplier: c.get('fix.guard.lowerBoundMultiplier', 0.5),
     fixGuardMaxAnchorChars: c.get('fix.guard.maxAnchorChars', 350),
     filterFindings: c.get('filterFindings', true),
+    maxDiagnostics: c.get('maxDiagnostics', 20),
   };
   return cachedConfig;
 }
@@ -103,6 +120,26 @@ export const DEFAULT_INCLUDE = [
   '**/*.instructions.md',
   '**/AGENTS.md',
 ];
+
+/**
+ * Read the `external.structuredOutput` setting into the 3-state value the
+ * provider expects.
+ *   - 'schema' (default): strict JSON schema response_format
+ *   - true: legacy json_object response_format
+ *   - false: no response_format
+ *
+ * Strings other than 'schema' collapse to either boolean true (legacy
+ * opt-in) or false (off). Unknown values fall back to 'schema' to avoid
+ * silently regressing users who typo'd.
+ */
+export function readStructuredOutput(raw: unknown): boolean | 'schema' {
+  if (raw === 'schema') return 'schema';
+  if (raw === true || raw === 'true' || raw === '1' || raw === 'on') return true;
+  if (raw === false) return false;
+  if (raw === 'false' || raw === '0' || raw === 'off') return false;
+  // Unknown values fall back to 'schema' — see comment above.
+  return 'schema';
+}
 
 /** Cheap path-based check for whether a document is an AI customization. */
 export function isCustomizationPath(fsPath: string, include: string[]): boolean {

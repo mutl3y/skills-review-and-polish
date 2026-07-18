@@ -3,10 +3,10 @@
   "description": "Expected findings for the cleaned test-coverage-gaps-hard skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
   "expected": {
     "hygiene": 3,
-    "coverage-gap": 10
+    "coverage-gap": 7
   },
   "detectable": {
     "Hygiene": "YES"
   },
-  "notes": "Original counts from test metadata: {\"Hygiene\":7}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Medians: hygiene=3 (3,3,3), coverage-gap=7 (7,7,7)."
 }

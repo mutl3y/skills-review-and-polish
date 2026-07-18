@@ -1,0 +1,4870 @@
+{
+  "fetchedAt": "2026-07-18T17:44:42.367Z",
+  "count": 1216,
+  "entries": [
+    [
+      "~anthropic claude fable latest",
+      1000000
+    ],
+    [
+      "~anthropic claude haiku latest",
+      200000
+    ],
+    [
+      "~anthropic claude opus latest",
+      1000000
+    ],
+    [
+      "~anthropic claude sonnet latest",
+      1000000
+    ],
+    [
+      "~anthropic/claude-fable-latest",
+      1000000
+    ],
+    [
+      "~anthropic/claude-haiku-latest",
+      200000
+    ],
+    [
+      "~anthropic/claude-opus-latest",
+      1000000
+    ],
+    [
+      "~anthropic/claude-sonnet-latest",
+      1000000
+    ],
+    [
+      "~google gemini flash latest",
+      1048576
+    ],
+    [
+      "~google gemini pro latest",
+      1048576
+    ],
+    [
+      "~google/gemini-flash-latest",
+      1048576
+    ],
+    [
+      "~google/gemini-pro-latest",
+      1048576
+    ],
+    [
+      "~moonshotai kimi latest",
+      1048576
+    ],
+    [
+      "~moonshotai/kimi-latest",
+      1048576
+    ],
+    [
+      "~openai gpt latest",
+      1050000
+    ],
+    [
+      "~openai gpt mini latest",
+      400000
+    ],
+    [
+      "~openai/gpt-latest",
+      1050000
+    ],
+    [
+      "~openai/gpt-mini-latest",
+      400000
+    ],
+    [
+      "~x ai grok latest",
+      500000
+    ],
+    [
+      "~x-ai/grok-latest",
+      500000
+    ],
+    [
+      "AI21: Jamba Large 1.7",
+      256000
+    ],
+    [
+      "ai21/jamba-large-1.7",
+      256000
+    ],
+    [
+      "aion labs aion 2 0",
+      131072
+    ],
+    [
+      "aion labs aion 3 0",
+      131072
+    ],
+    [
+      "aion labs aion 3 0 mini",
+      131072
+    ],
+    [
+      "aion labs aion rp llama 3 1 8b",
+      32768
+    ],
+    [
+      "aion-labs/aion-2.0",
+      131072
+    ],
+    [
+      "aion-labs/aion-3.0",
+      131072
+    ],
+    [
+      "aion-labs/aion-3.0-mini",
+      131072
+    ],
+    [
+      "aion-labs/aion-rp-llama-3.1-8b",
+      32768
+    ],
+    [
+      "aionlabs: aion 2 0",
+      131072
+    ],
+    [
+      "aionlabs: aion 3 0",
+      131072
+    ],
+    [
+      "aionlabs: aion 3 0 mini",
+      131072
+    ],
+    [
+      "aionlabs: aion rp 1 0 (8b)",
+      32768
+    ],
+    [
+      "AionLabs: Aion-2.0",
+      131072
+    ],
+    [
+      "AionLabs: Aion-3.0",
+      131072
+    ],
+    [
+      "AionLabs: Aion-3.0-Mini",
+      131072
+    ],
+    [
+      "AionLabs: Aion-RP 1.0 (8B)",
+      32768
+    ],
+    [
+      "allenai olmo 3 32b think",
+      65536
+    ],
+    [
+      "allenai: olmo 3 32b think",
+      65536
+    ],
+    [
+      "AllenAI: Olmo 3 32B Think",
+      65536
+    ],
+    [
+      "allenai/olmo-3-32b-think",
+      65536
+    ],
+    [
+      "Amazon: Nova 2 Lite",
+      1000000
+    ],
+    [
+      "Amazon: Nova Lite 1.0",
+      300000
+    ],
+    [
+      "Amazon: Nova Micro 1.0",
+      128000
+    ],
+    [
+      "Amazon: Nova Premier 1.0",
+      1000000
+    ],
+    [
+      "Amazon: Nova Pro 1.0",
+      300000
+    ],
+    [
+      "amazon/nova-2-lite-v1",
+      1000000
+    ],
+    [
+      "amazon/nova-lite-v1",
+      300000
+    ],
+    [
+      "amazon/nova-micro-v1",
+      128000
+    ],
+    [
+      "amazon/nova-premier-v1",
+      1000000
+    ],
+    [
+      "amazon/nova-pro-v1",
+      300000
+    ],
+    [
+      "anthracite org magnum v4 72b",
+      32768
+    ],
+    [
+      "anthracite-org/magnum-v4-72b",
+      32768
+    ],
+    [
+      "anthropic claude haiku latest",
+      200000
+    ],
+    [
+      "Anthropic Claude Haiku Latest",
+      200000
+    ],
+    [
+      "anthropic claude sonnet latest",
+      1000000
+    ],
+    [
+      "Anthropic Claude Sonnet Latest",
+      1000000
+    ],
+    [
+      "Anthropic: Claude 3 Haiku",
+      200000
+    ],
+    [
+      "Anthropic: Claude Fable 5",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Fable Latest",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Haiku 4.5",
+      200000
+    ],
+    [
+      "Anthropic: Claude Opus 4",
+      200000
+    ],
+    [
+      "Anthropic: Claude Opus 4.1",
+      200000
+    ],
+    [
+      "Anthropic: Claude Opus 4.5",
+      200000
+    ],
+    [
+      "Anthropic: Claude Opus 4.6",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Opus 4.7",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Opus 4.7 (Fast)",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Opus 4.8",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Opus 4.8 (Fast)",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Opus Latest",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Sonnet 4",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Sonnet 4.5",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Sonnet 4.6",
+      1000000
+    ],
+    [
+      "Anthropic: Claude Sonnet 5",
+      1000000
+    ],
+    [
+      "anthropic/claude-3-haiku",
+      200000
+    ],
+    [
+      "anthropic/claude-fable-5",
+      1000000
+    ],
+    [
+      "anthropic/claude-haiku-4.5",
+      200000
+    ],
+    [
+      "anthropic/claude-opus-4",
+      200000
+    ],
+    [
+      "anthropic/claude-opus-4.1",
+      200000
+    ],
+    [
+      "anthropic/claude-opus-4.5",
+      200000
+    ],
+    [
+      "anthropic/claude-opus-4.6",
+      1000000
+    ],
+    [
+      "anthropic/claude-opus-4.7",
+      1000000
+    ],
+    [
+      "anthropic/claude-opus-4.7-fast",
+      1000000
+    ],
+    [
+      "anthropic/claude-opus-4.8",
+      1000000
+    ],
+    [
+      "anthropic/claude-opus-4.8-fast",
+      1000000
+    ],
+    [
+      "anthropic/claude-sonnet-4",
+      1000000
+    ],
+    [
+      "anthropic/claude-sonnet-4.5",
+      1000000
+    ],
+    [
+      "anthropic/claude-sonnet-4.6",
+      1000000
+    ],
+    [
+      "anthropic/claude-sonnet-5",
+      1000000
+    ],
+    [
+      "arcee ai trinity large thinking",
+      262144
+    ],
+    [
+      "arcee ai virtuoso large",
+      131072
+    ],
+    [
+      "arcee ai: trinity large thinking",
+      262144
+    ],
+    [
+      "Arcee AI: Trinity Large Thinking",
+      262144
+    ],
+    [
+      "arcee ai: virtuoso large",
+      131072
+    ],
+    [
+      "Arcee AI: Virtuoso Large",
+      131072
+    ],
+    [
+      "arcee-ai/trinity-large-thinking",
+      262144
+    ],
+    [
+      "arcee-ai/virtuoso-large",
+      131072
+    ],
+    [
+      "auto router",
+      2000000
+    ],
+    [
+      "Auto Router",
+      2000000
+    ],
+    [
+      "auto router (beta)",
+      2000000
+    ],
+    [
+      "Auto Router (Beta)",
+      2000000
+    ],
+    [
+      "baidu ernie 4 5 vl 424b a47b",
+      131072
+    ],
+    [
+      "baidu: ernie 4 5 vl 424b a47b",
+      131072
+    ],
+    [
+      "Baidu: ERNIE 4.5 VL 424B A47B ",
+      131072
+    ],
+    [
+      "baidu/ernie-4.5-vl-424b-a47b",
+      131072
+    ],
+    [
+      "body builder (beta)",
+      128000
+    ],
+    [
+      "Body Builder (beta)",
+      128000
+    ],
+    [
+      "bytedance seed seed 1 6",
+      262144
+    ],
+    [
+      "bytedance seed seed 1 6 flash",
+      262144
+    ],
+    [
+      "bytedance seed seed 2 0 lite",
+      262144
+    ],
+    [
+      "bytedance seed seed 2 0 mini",
+      262144
+    ],
+    [
+      "bytedance seed: seed 1 6",
+      262144
+    ],
+    [
+      "bytedance seed: seed 1 6 flash",
+      262144
+    ],
+    [
+      "ByteDance Seed: Seed 1.6",
+      262144
+    ],
+    [
+      "ByteDance Seed: Seed 1.6 Flash",
+      262144
+    ],
+    [
+      "bytedance seed: seed 2 0 lite",
+      262144
+    ],
+    [
+      "bytedance seed: seed 2 0 mini",
+      262144
+    ],
+    [
+      "ByteDance Seed: Seed-2.0-Lite",
+      262144
+    ],
+    [
+      "ByteDance Seed: Seed-2.0-Mini",
+      262144
+    ],
+    [
+      "bytedance-seed/seed-1.6",
+      262144
+    ],
+    [
+      "bytedance-seed/seed-1.6-flash",
+      262144
+    ],
+    [
+      "bytedance-seed/seed-2.0-lite",
+      262144
+    ],
+    [
+      "bytedance-seed/seed-2.0-mini",
+      262144
+    ],
+    [
+      "ByteDance: UI-TARS 7B ",
+      128000
+    ],
+    [
+      "bytedance/ui-tars-1.5-7b",
+      128000
+    ],
+    [
+      "claude 3 haiku",
+      200000
+    ],
+    [
+      "claude fable 5",
+      1000000
+    ],
+    [
+      "claude fable latest",
+      1000000
+    ],
+    [
+      "claude haiku 4 5",
+      200000
+    ],
+    [
+      "claude opus 4",
+      200000
+    ],
+    [
+      "claude opus 4 1",
+      200000
+    ],
+    [
+      "claude opus 4 5",
+      200000
+    ],
+    [
+      "claude opus 4 6",
+      1000000
+    ],
+    [
+      "claude opus 4 7",
+      1000000
+    ],
+    [
+      "claude opus 4 7 (fast)",
+      1000000
+    ],
+    [
+      "claude opus 4 7 fast",
+      1000000
+    ],
+    [
+      "claude opus 4 8",
+      1000000
+    ],
+    [
+      "claude opus 4 8 (fast)",
+      1000000
+    ],
+    [
+      "claude opus 4 8 fast",
+      1000000
+    ],
+    [
+      "claude opus latest",
+      1000000
+    ],
+    [
+      "claude sonnet 4",
+      1000000
+    ],
+    [
+      "claude sonnet 4 5",
+      1000000
+    ],
+    [
+      "claude sonnet 4 6",
+      1000000
+    ],
+    [
+      "claude sonnet 5",
+      1000000
+    ],
+    [
+      "codestral 2508",
+      256000
+    ],
+    [
+      "cognitivecomputations dolphin mistral 24b venice edition",
+      128000
+    ],
+    [
+      "cognitivecomputations dolphin mistral 24b venice edition:free",
+      32768
+    ],
+    [
+      "cognitivecomputations/dolphin-mistral-24b-venice-edition",
+      128000
+    ],
+    [
+      "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+      32768
+    ],
+    [
+      "Cohere: Command A",
+      256000
+    ],
+    [
+      "Cohere: Command R (08-2024)",
+      128000
+    ],
+    [
+      "Cohere: Command R+ (08-2024)",
+      128000
+    ],
+    [
+      "Cohere: Command R7B (12-2024)",
+      128000
+    ],
+    [
+      "Cohere: North Mini Code (free)",
+      256000
+    ],
+    [
+      "cohere/command-a",
+      256000
+    ],
+    [
+      "cohere/command-r-08-2024",
+      128000
+    ],
+    [
+      "cohere/command-r-plus-08-2024",
+      128000
+    ],
+    [
+      "cohere/command-r7b-12-2024",
+      128000
+    ],
+    [
+      "cohere/north-mini-code:free",
+      256000
+    ],
+    [
+      "command a",
+      256000
+    ],
+    [
+      "command r (08 2024)",
+      128000
+    ],
+    [
+      "command r 08 2024",
+      128000
+    ],
+    [
+      "command r plus 08 2024",
+      128000
+    ],
+    [
+      "command r+ (08 2024)",
+      128000
+    ],
+    [
+      "command r7b (12 2024)",
+      128000
+    ],
+    [
+      "command r7b 12 2024",
+      128000
+    ],
+    [
+      "cydonia 24b v4 1",
+      131072
+    ],
+    [
+      "deep cogito: cogito v2 1 671b",
+      128000
+    ],
+    [
+      "Deep Cogito: Cogito v2.1 671B",
+      128000
+    ],
+    [
+      "deepcogito cogito v2 1 671b",
+      128000
+    ],
+    [
+      "deepcogito/cogito-v2.1-671b",
+      128000
+    ],
+    [
+      "deepseek chat",
+      131072
+    ],
+    [
+      "deepseek chat v3 0324",
+      163840
+    ],
+    [
+      "deepseek chat v3 1",
+      163840
+    ],
+    [
+      "deepseek r1",
+      163840
+    ],
+    [
+      "deepseek r1 0528",
+      163840
+    ],
+    [
+      "deepseek r1 distill llama 70b",
+      128000
+    ],
+    [
+      "deepseek v3",
+      131072
+    ],
+    [
+      "deepseek v3 0324",
+      163840
+    ],
+    [
+      "deepseek v3 1",
+      163840
+    ],
+    [
+      "deepseek v3 1 terminus",
+      131072
+    ],
+    [
+      "deepseek v3 2",
+      163840
+    ],
+    [
+      "deepseek v3 2 exp",
+      163840
+    ],
+    [
+      "deepseek v4 flash",
+      1048576
+    ],
+    [
+      "deepseek v4 pro",
+      1048576
+    ],
+    [
+      "DeepSeek: DeepSeek V3",
+      131072
+    ],
+    [
+      "DeepSeek: DeepSeek V3 0324",
+      163840
+    ],
+    [
+      "DeepSeek: DeepSeek V3.1",
+      163840
+    ],
+    [
+      "DeepSeek: DeepSeek V3.1 Terminus",
+      131072
+    ],
+    [
+      "DeepSeek: DeepSeek V3.2",
+      163840
+    ],
+    [
+      "DeepSeek: DeepSeek V3.2 Exp",
+      163840
+    ],
+    [
+      "DeepSeek: DeepSeek V4 Flash",
+      1048576
+    ],
+    [
+      "DeepSeek: DeepSeek V4 Pro",
+      1048576
+    ],
+    [
+      "DeepSeek: R1",
+      163840
+    ],
+    [
+      "DeepSeek: R1 0528",
+      163840
+    ],
+    [
+      "DeepSeek: R1 Distill Llama 70B",
+      128000
+    ],
+    [
+      "deepseek/deepseek-chat",
+      131072
+    ],
+    [
+      "deepseek/deepseek-chat-v3-0324",
+      163840
+    ],
+    [
+      "deepseek/deepseek-chat-v3.1",
+      163840
+    ],
+    [
+      "deepseek/deepseek-r1",
+      163840
+    ],
+    [
+      "deepseek/deepseek-r1-0528",
+      163840
+    ],
+    [
+      "deepseek/deepseek-r1-distill-llama-70b",
+      128000
+    ],
+    [
+      "deepseek/deepseek-v3.1-terminus",
+      131072
+    ],
+    [
+      "deepseek/deepseek-v3.2",
+      163840
+    ],
+    [
+      "deepseek/deepseek-v3.2-exp",
+      163840
+    ],
+    [
+      "deepseek/deepseek-v4-flash",
+      1048576
+    ],
+    [
+      "deepseek/deepseek-v4-pro",
+      1048576
+    ],
+    [
+      "devstral 2 2512",
+      262144
+    ],
+    [
+      "free models router",
+      200000
+    ],
+    [
+      "Free Models Router",
+      200000
+    ],
+    [
+      "fugu ultra",
+      1000000
+    ],
+    [
+      "gemini 2 5 flash",
+      1048576
+    ],
+    [
+      "gemini 2 5 flash image",
+      32768
+    ],
+    [
+      "gemini 2 5 flash lite",
+      1048576
+    ],
+    [
+      "gemini 2 5 pro",
+      1048576
+    ],
+    [
+      "gemini 2 5 pro preview",
+      1048576
+    ],
+    [
+      "gemini 2 5 pro preview 05 06",
+      1048576
+    ],
+    [
+      "gemini 2 5 pro preview 06 05",
+      1048576
+    ],
+    [
+      "gemini 3 1 flash image",
+      131072
+    ],
+    [
+      "gemini 3 1 flash image preview",
+      131072
+    ],
+    [
+      "gemini 3 1 flash lite",
+      1048576
+    ],
+    [
+      "gemini 3 1 flash lite image",
+      65536
+    ],
+    [
+      "gemini 3 1 flash lite preview",
+      1048576
+    ],
+    [
+      "gemini 3 1 pro preview",
+      1048576
+    ],
+    [
+      "gemini 3 1 pro preview custom tools",
+      1048756
+    ],
+    [
+      "gemini 3 1 pro preview customtools",
+      1048756
+    ],
+    [
+      "gemini 3 5 flash",
+      1048576
+    ],
+    [
+      "gemini 3 flash preview",
+      1048576
+    ],
+    [
+      "gemini 3 pro image",
+      65536
+    ],
+    [
+      "gemini 3 pro image preview",
+      65536
+    ],
+    [
+      "gemma 2 27b",
+      8192
+    ],
+    [
+      "gemma 2 27b it",
+      8192
+    ],
+    [
+      "gemma 3 12b",
+      131072
+    ],
+    [
+      "gemma 3 12b it",
+      131072
+    ],
+    [
+      "gemma 3 27b",
+      131072
+    ],
+    [
+      "gemma 3 27b it",
+      131072
+    ],
+    [
+      "gemma 3 4b",
+      131072
+    ],
+    [
+      "gemma 3 4b it",
+      131072
+    ],
+    [
+      "gemma 3n 4b",
+      32768
+    ],
+    [
+      "gemma 3n e4b it",
+      32768
+    ],
+    [
+      "gemma 4 26b a4b",
+      262144
+    ],
+    [
+      "gemma 4 26b a4b (free)",
+      262144
+    ],
+    [
+      "gemma 4 26b a4b it",
+      262144
+    ],
+    [
+      "gemma 4 26b a4b it:free",
+      262144
+    ],
+    [
+      "gemma 4 31b",
+      262144
+    ],
+    [
+      "gemma 4 31b (free)",
+      262144
+    ],
+    [
+      "gemma 4 31b it",
+      262144
+    ],
+    [
+      "gemma 4 31b it:free",
+      262144
+    ],
+    [
+      "google gemini flash latest",
+      1048576
+    ],
+    [
+      "Google Gemini Flash Latest",
+      1048576
+    ],
+    [
+      "google gemini pro latest",
+      1048576
+    ],
+    [
+      "Google Gemini Pro Latest",
+      1048576
+    ],
+    [
+      "Google: Gemini 2.5 Flash",
+      1048576
+    ],
+    [
+      "Google: Gemini 2.5 Flash Lite",
+      1048576
+    ],
+    [
+      "Google: Gemini 2.5 Pro",
+      1048576
+    ],
+    [
+      "Google: Gemini 2.5 Pro Preview 05-06",
+      1048576
+    ],
+    [
+      "Google: Gemini 2.5 Pro Preview 06-05",
+      1048576
+    ],
+    [
+      "Google: Gemini 3 Flash Preview",
+      1048576
+    ],
+    [
+      "Google: Gemini 3.1 Flash Lite",
+      1048576
+    ],
+    [
+      "Google: Gemini 3.1 Flash Lite Preview",
+      1048576
+    ],
+    [
+      "Google: Gemini 3.1 Pro Preview",
+      1048576
+    ],
+    [
+      "Google: Gemini 3.1 Pro Preview Custom Tools",
+      1048756
+    ],
+    [
+      "Google: Gemini 3.5 Flash",
+      1048576
+    ],
+    [
+      "Google: Gemma 2 27B",
+      8192
+    ],
+    [
+      "Google: Gemma 3 12B",
+      131072
+    ],
+    [
+      "Google: Gemma 3 27B",
+      131072
+    ],
+    [
+      "Google: Gemma 3 4B",
+      131072
+    ],
+    [
+      "Google: Gemma 3n 4B",
+      32768
+    ],
+    [
+      "Google: Gemma 4 26B A4B ",
+      262144
+    ],
+    [
+      "Google: Gemma 4 26B A4B  (free)",
+      262144
+    ],
+    [
+      "Google: Gemma 4 31B",
+      262144
+    ],
+    [
+      "Google: Gemma 4 31B (free)",
+      262144
+    ],
+    [
+      "Google: Lyria 3 Clip Preview",
+      1048576
+    ],
+    [
+      "Google: Lyria 3 Pro Preview",
+      1048576
+    ],
+    [
+      "Google: Nano Banana (Gemini 2.5 Flash Image)",
+      32768
+    ],
+    [
+      "Google: Nano Banana 2 (Gemini 3.1 Flash Image Preview)",
+      131072
+    ],
+    [
+      "Google: Nano Banana 2 (Gemini 3.1 Flash Image)",
+      131072
+    ],
+    [
+      "Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)",
+      65536
+    ],
+    [
+      "Google: Nano Banana Pro (Gemini 3 Pro Image Preview)",
+      65536
+    ],
+    [
+      "Google: Nano Banana Pro (Gemini 3 Pro Image)",
+      65536
+    ],
+    [
+      "google/gemini-2.5-flash",
+      1048576
+    ],
+    [
+      "google/gemini-2.5-flash-image",
+      32768
+    ],
+    [
+      "google/gemini-2.5-flash-lite",
+      1048576
+    ],
+    [
+      "google/gemini-2.5-pro",
+      1048576
+    ],
+    [
+      "google/gemini-2.5-pro-preview",
+      1048576
+    ],
+    [
+      "google/gemini-2.5-pro-preview-05-06",
+      1048576
+    ],
+    [
+      "google/gemini-3-flash-preview",
+      1048576
+    ],
+    [
+      "google/gemini-3-pro-image",
+      65536
+    ],
+    [
+      "google/gemini-3-pro-image-preview",
+      65536
+    ],
+    [
+      "google/gemini-3.1-flash-image",
+      131072
+    ],
+    [
+      "google/gemini-3.1-flash-image-preview",
+      131072
+    ],
+    [
+      "google/gemini-3.1-flash-lite",
+      1048576
+    ],
+    [
+      "google/gemini-3.1-flash-lite-image",
+      65536
+    ],
+    [
+      "google/gemini-3.1-flash-lite-preview",
+      1048576
+    ],
+    [
+      "google/gemini-3.1-pro-preview",
+      1048576
+    ],
+    [
+      "google/gemini-3.1-pro-preview-customtools",
+      1048756
+    ],
+    [
+      "google/gemini-3.5-flash",
+      1048576
+    ],
+    [
+      "google/gemma-2-27b-it",
+      8192
+    ],
+    [
+      "google/gemma-3-12b-it",
+      131072
+    ],
+    [
+      "google/gemma-3-27b-it",
+      131072
+    ],
+    [
+      "google/gemma-3-4b-it",
+      131072
+    ],
+    [
+      "google/gemma-3n-e4b-it",
+      32768
+    ],
+    [
+      "google/gemma-4-26b-a4b-it",
+      262144
+    ],
+    [
+      "google/gemma-4-26b-a4b-it:free",
+      262144
+    ],
+    [
+      "google/gemma-4-31b-it",
+      262144
+    ],
+    [
+      "google/gemma-4-31b-it:free",
+      262144
+    ],
+    [
+      "google/lyria-3-clip-preview",
+      1048576
+    ],
+    [
+      "google/lyria-3-pro-preview",
+      1048576
+    ],
+    [
+      "gpt 3 5 turbo",
+      16385
+    ],
+    [
+      "gpt 3 5 turbo (older v0613)",
+      4095
+    ],
+    [
+      "gpt 3 5 turbo 0613",
+      4095
+    ],
+    [
+      "gpt 3 5 turbo 16k",
+      16385
+    ],
+    [
+      "gpt 3 5 turbo instruct",
+      4095
+    ],
+    [
+      "gpt 4",
+      8191
+    ],
+    [
+      "gpt 4 1",
+      1047576
+    ],
+    [
+      "gpt 4 1 mini",
+      1047576
+    ],
+    [
+      "gpt 4 1 nano",
+      1047576
+    ],
+    [
+      "gpt 4 turbo",
+      128000
+    ],
+    [
+      "gpt 4 turbo preview",
+      128000
+    ],
+    [
+      "gpt 4o",
+      128000
+    ],
+    [
+      "gpt 4o (2024 05 13)",
+      128000
+    ],
+    [
+      "gpt 4o (2024 08 06)",
+      128000
+    ],
+    [
+      "gpt 4o (2024 11 20)",
+      128000
+    ],
+    [
+      "gpt 4o 2024 05 13",
+      128000
+    ],
+    [
+      "gpt 4o 2024 08 06",
+      128000
+    ],
+    [
+      "gpt 4o 2024 11 20",
+      128000
+    ],
+    [
+      "gpt 4o mini",
+      128000
+    ],
+    [
+      "gpt 4o mini (2024 07 18)",
+      128000
+    ],
+    [
+      "gpt 4o mini 2024 07 18",
+      128000
+    ],
+    [
+      "gpt 4o mini search preview",
+      128000
+    ],
+    [
+      "gpt 4o search preview",
+      128000
+    ],
+    [
+      "gpt 5",
+      400000
+    ],
+    [
+      "gpt 5 1",
+      400000
+    ],
+    [
+      "gpt 5 1 chat",
+      128000
+    ],
+    [
+      "gpt 5 1 codex",
+      400000
+    ],
+    [
+      "gpt 5 1 codex max",
+      400000
+    ],
+    [
+      "gpt 5 1 codex mini",
+      400000
+    ],
+    [
+      "gpt 5 2",
+      400000
+    ],
+    [
+      "gpt 5 2 chat",
+      128000
+    ],
+    [
+      "gpt 5 2 codex",
+      400000
+    ],
+    [
+      "gpt 5 2 pro",
+      400000
+    ],
+    [
+      "gpt 5 3 chat",
+      128000
+    ],
+    [
+      "gpt 5 3 codex",
+      400000
+    ],
+    [
+      "gpt 5 4",
+      1050000
+    ],
+    [
+      "gpt 5 4 image 2",
+      272000
+    ],
+    [
+      "gpt 5 4 mini",
+      400000
+    ],
+    [
+      "gpt 5 4 nano",
+      400000
+    ],
+    [
+      "gpt 5 4 pro",
+      1050000
+    ],
+    [
+      "gpt 5 5",
+      1050000
+    ],
+    [
+      "gpt 5 5 pro",
+      1050000
+    ],
+    [
+      "gpt 5 6 luna",
+      1050000
+    ],
+    [
+      "gpt 5 6 luna pro",
+      1050000
+    ],
+    [
+      "gpt 5 6 sol",
+      1050000
+    ],
+    [
+      "gpt 5 6 sol pro",
+      1050000
+    ],
+    [
+      "gpt 5 6 terra",
+      1050000
+    ],
+    [
+      "gpt 5 6 terra pro",
+      1050000
+    ],
+    [
+      "gpt 5 chat",
+      128000
+    ],
+    [
+      "gpt 5 codex",
+      400000
+    ],
+    [
+      "gpt 5 image",
+      400000
+    ],
+    [
+      "gpt 5 image mini",
+      400000
+    ],
+    [
+      "gpt 5 mini",
+      400000
+    ],
+    [
+      "gpt 5 nano",
+      400000
+    ],
+    [
+      "gpt 5 pro",
+      400000
+    ],
+    [
+      "gpt audio",
+      128000
+    ],
+    [
+      "gpt audio mini",
+      128000
+    ],
+    [
+      "gpt chat latest",
+      400000
+    ],
+    [
+      "gpt oss 120b",
+      131072
+    ],
+    [
+      "gpt oss 20b",
+      131072
+    ],
+    [
+      "gpt oss 20b (free)",
+      131072
+    ],
+    [
+      "gpt oss 20b:free",
+      131072
+    ],
+    [
+      "gpt oss safeguard 20b",
+      131072
+    ],
+    [
+      "granite 4 0 micro",
+      131000
+    ],
+    [
+      "granite 4 1 8b",
+      131072
+    ],
+    [
+      "grok 4 20",
+      2000000
+    ],
+    [
+      "grok 4 20 multi agent",
+      2000000
+    ],
+    [
+      "grok 4 3",
+      1000000
+    ],
+    [
+      "grok 4 5",
+      500000
+    ],
+    [
+      "grok build 0 1",
+      256000
+    ],
+    [
+      "grok latest",
+      500000
+    ],
+    [
+      "gryphe mythomax l2 13b",
+      4096
+    ],
+    [
+      "gryphe/mythomax-l2-13b",
+      4096
+    ],
+    [
+      "hunyuan a13b instruct",
+      131072
+    ],
+    [
+      "hy3",
+      262144
+    ],
+    [
+      "hy3 (free)",
+      262144
+    ],
+    [
+      "hy3 preview",
+      262144
+    ],
+    [
+      "hy3:free",
+      262144
+    ],
+    [
+      "ibm granite granite 4 0 h micro",
+      131000
+    ],
+    [
+      "ibm granite granite 4 1 8b",
+      131072
+    ],
+    [
+      "ibm-granite/granite-4.0-h-micro",
+      131000
+    ],
+    [
+      "ibm-granite/granite-4.1-8b",
+      131072
+    ],
+    [
+      "IBM: Granite 4.0 Micro",
+      131000
+    ],
+    [
+      "IBM: Granite 4.1 8B",
+      131072
+    ],
+    [
+      "Inception: Mercury 2",
+      128000
+    ],
+    [
+      "inception/mercury-2",
+      128000
+    ],
+    [
+      "inclusionai ling 2 6 1t",
+      262144
+    ],
+    [
+      "inclusionai ling 2 6 flash",
+      262144
+    ],
+    [
+      "inclusionai ring 2 6 1t",
+      262144
+    ],
+    [
+      "inclusionai: ling 2 6 1t",
+      262144
+    ],
+    [
+      "inclusionai: ling 2 6 flash",
+      262144
+    ],
+    [
+      "inclusionAI: Ling-2.6-1T",
+      262144
+    ],
+    [
+      "inclusionAI: Ling-2.6-flash",
+      262144
+    ],
+    [
+      "inclusionai: ring 2 6 1t",
+      262144
+    ],
+    [
+      "inclusionAI: Ring-2.6-1T",
+      262144
+    ],
+    [
+      "inclusionai/ling-2.6-1t",
+      262144
+    ],
+    [
+      "inclusionai/ling-2.6-flash",
+      262144
+    ],
+    [
+      "inclusionai/ring-2.6-1t",
+      262144
+    ],
+    [
+      "inflection inflection 3 pi",
+      8000
+    ],
+    [
+      "inflection inflection 3 productivity",
+      8000
+    ],
+    [
+      "inflection: inflection 3 pi",
+      8000
+    ],
+    [
+      "Inflection: Inflection 3 Pi",
+      8000
+    ],
+    [
+      "inflection: inflection 3 productivity",
+      8000
+    ],
+    [
+      "Inflection: Inflection 3 Productivity",
+      8000
+    ],
+    [
+      "inflection/inflection-3-pi",
+      8000
+    ],
+    [
+      "inflection/inflection-3-productivity",
+      8000
+    ],
+    [
+      "jamba large 1 7",
+      256000
+    ],
+    [
+      "kat coder air v2 5",
+      256000
+    ],
+    [
+      "kat coder pro v2",
+      256000
+    ],
+    [
+      "kat coder pro v2 5",
+      256000
+    ],
+    [
+      "Kwaipilot: KAT-Coder-Air V2.5",
+      256000
+    ],
+    [
+      "Kwaipilot: KAT-Coder-Pro V2",
+      256000
+    ],
+    [
+      "Kwaipilot: KAT-Coder-Pro V2.5",
+      256000
+    ],
+    [
+      "kwaipilot/kat-coder-air-v2.5",
+      256000
+    ],
+    [
+      "kwaipilot/kat-coder-pro-v2",
+      256000
+    ],
+    [
+      "kwaipilot/kat-coder-pro-v2.5",
+      256000
+    ],
+    [
+      "laguna m 1",
+      262144
+    ],
+    [
+      "laguna m 1 (free)",
+      262144
+    ],
+    [
+      "laguna m 1:free",
+      262144
+    ],
+    [
+      "laguna xs 2 1",
+      262144
+    ],
+    [
+      "laguna xs 2 1 (free)",
+      262144
+    ],
+    [
+      "laguna xs 2 1:free",
+      262144
+    ],
+    [
+      "llama 3 1 70b instruct",
+      131072
+    ],
+    [
+      "llama 3 1 8b instruct",
+      131072
+    ],
+    [
+      "llama 3 2 1b instruct",
+      131072
+    ],
+    [
+      "llama 3 2 3b instruct",
+      131072
+    ],
+    [
+      "llama 3 2 3b instruct (free)",
+      131072
+    ],
+    [
+      "llama 3 3 70b instruct",
+      131072
+    ],
+    [
+      "llama 3 3 70b instruct (free)",
+      131072
+    ],
+    [
+      "llama 4 maverick",
+      1048576
+    ],
+    [
+      "llama 4 scout",
+      10000000
+    ],
+    [
+      "llama guard 4 12b",
+      163840
+    ],
+    [
+      "lyria 3 clip preview",
+      1048576
+    ],
+    [
+      "lyria 3 pro preview",
+      1048576
+    ],
+    [
+      "magnum v4 72b",
+      32768
+    ],
+    [
+      "Magnum v4 72B",
+      32768
+    ],
+    [
+      "mancer weaver",
+      8000
+    ],
+    [
+      "mancer: weaver (alpha)",
+      8000
+    ],
+    [
+      "Mancer: Weaver (alpha)",
+      8000
+    ],
+    [
+      "mancer/weaver",
+      8000
+    ],
+    [
+      "mercury 2",
+      128000
+    ],
+    [
+      "meta llama llama 3 1 70b instruct",
+      131072
+    ],
+    [
+      "meta llama llama 3 1 8b instruct",
+      131072
+    ],
+    [
+      "meta llama llama 3 2 1b instruct",
+      131072
+    ],
+    [
+      "meta llama llama 3 2 3b instruct",
+      131072
+    ],
+    [
+      "meta llama llama 3 2 3b instruct:free",
+      131072
+    ],
+    [
+      "meta llama llama 3 3 70b instruct",
+      131072
+    ],
+    [
+      "meta llama llama 3 3 70b instruct:free",
+      131072
+    ],
+    [
+      "meta llama llama 4 maverick",
+      1048576
+    ],
+    [
+      "meta llama llama 4 scout",
+      10000000
+    ],
+    [
+      "meta llama llama guard 4 12b",
+      163840
+    ],
+    [
+      "meta-llama/llama-3.1-70b-instruct",
+      131072
+    ],
+    [
+      "meta-llama/llama-3.1-8b-instruct",
+      131072
+    ],
+    [
+      "meta-llama/llama-3.2-1b-instruct",
+      131072
+    ],
+    [
+      "meta-llama/llama-3.2-3b-instruct",
+      131072
+    ],
+    [
+      "meta-llama/llama-3.2-3b-instruct:free",
+      131072
+    ],
+    [
+      "meta-llama/llama-3.3-70b-instruct",
+      131072
+    ],
+    [
+      "meta-llama/llama-3.3-70b-instruct:free",
+      131072
+    ],
+    [
+      "meta-llama/llama-4-maverick",
+      1048576
+    ],
+    [
+      "meta-llama/llama-4-scout",
+      10000000
+    ],
+    [
+      "meta-llama/llama-guard-4-12b",
+      163840
+    ],
+    [
+      "Meta: Llama 3.1 70B Instruct",
+      131072
+    ],
+    [
+      "Meta: Llama 3.1 8B Instruct",
+      131072
+    ],
+    [
+      "Meta: Llama 3.2 1B Instruct",
+      131072
+    ],
+    [
+      "Meta: Llama 3.2 3B Instruct",
+      131072
+    ],
+    [
+      "Meta: Llama 3.2 3B Instruct (free)",
+      131072
+    ],
+    [
+      "Meta: Llama 3.3 70B Instruct",
+      131072
+    ],
+    [
+      "Meta: Llama 3.3 70B Instruct (free)",
+      131072
+    ],
+    [
+      "Meta: Llama 4 Maverick",
+      1048576
+    ],
+    [
+      "Meta: Llama 4 Scout",
+      10000000
+    ],
+    [
+      "Meta: Llama Guard 4 12B",
+      163840
+    ],
+    [
+      "Meta: Muse Spark 1.1",
+      1048576
+    ],
+    [
+      "meta/muse-spark-1.1",
+      1048576
+    ],
+    [
+      "Microsoft: Phi 4",
+      16384
+    ],
+    [
+      "microsoft/phi-4",
+      16384
+    ],
+    [
+      "microsoft/wizardlm-2-8x22b",
+      65536
+    ],
+    [
+      "minimax 01",
+      1000192
+    ],
+    [
+      "minimax m1",
+      1000000
+    ],
+    [
+      "minimax m2",
+      204800
+    ],
+    [
+      "minimax m2 1",
+      204800
+    ],
+    [
+      "minimax m2 5",
+      204800
+    ],
+    [
+      "minimax m2 7",
+      204800
+    ],
+    [
+      "minimax m2 her",
+      65536
+    ],
+    [
+      "minimax m3",
+      1048576
+    ],
+    [
+      "MiniMax: MiniMax M1",
+      1000000
+    ],
+    [
+      "MiniMax: MiniMax M2",
+      204800
+    ],
+    [
+      "MiniMax: MiniMax M2-her",
+      65536
+    ],
+    [
+      "MiniMax: MiniMax M2.1",
+      204800
+    ],
+    [
+      "MiniMax: MiniMax M2.5",
+      204800
+    ],
+    [
+      "MiniMax: MiniMax M2.7",
+      204800
+    ],
+    [
+      "MiniMax: MiniMax M3",
+      1048576
+    ],
+    [
+      "MiniMax: MiniMax-01",
+      1000192
+    ],
+    [
+      "minimax/minimax-01",
+      1000192
+    ],
+    [
+      "minimax/minimax-m1",
+      1000000
+    ],
+    [
+      "minimax/minimax-m2",
+      204800
+    ],
+    [
+      "minimax/minimax-m2-her",
+      65536
+    ],
+    [
+      "minimax/minimax-m2.1",
+      204800
+    ],
+    [
+      "minimax/minimax-m2.5",
+      204800
+    ],
+    [
+      "minimax/minimax-m2.7",
+      204800
+    ],
+    [
+      "minimax/minimax-m3",
+      1048576
+    ],
+    [
+      "ministral 3 14b 2512",
+      262144
+    ],
+    [
+      "ministral 3 3b 2512",
+      131072
+    ],
+    [
+      "ministral 3 8b 2512",
+      262144
+    ],
+    [
+      "mistral large",
+      128000
+    ],
+    [
+      "Mistral Large",
+      128000
+    ],
+    [
+      "mistral large 2407",
+      131072
+    ],
+    [
+      "Mistral Large 2407",
+      131072
+    ],
+    [
+      "mistral large 3 2512",
+      262144
+    ],
+    [
+      "mistral medium 3",
+      131072
+    ],
+    [
+      "mistral medium 3 1",
+      131072
+    ],
+    [
+      "mistral medium 3 5",
+      262144
+    ],
+    [
+      "mistral nemo",
+      131072
+    ],
+    [
+      "mistral small 3",
+      32768
+    ],
+    [
+      "mistral small 3 1 24b",
+      128000
+    ],
+    [
+      "mistral small 3 2 24b",
+      131072
+    ],
+    [
+      "mistral small 4",
+      262144
+    ],
+    [
+      "Mistral: Codestral 2508",
+      256000
+    ],
+    [
+      "Mistral: Devstral 2 2512",
+      262144
+    ],
+    [
+      "Mistral: Ministral 3 14B 2512",
+      262144
+    ],
+    [
+      "Mistral: Ministral 3 3B 2512",
+      131072
+    ],
+    [
+      "Mistral: Ministral 3 8B 2512",
+      262144
+    ],
+    [
+      "Mistral: Mistral Large 3 2512",
+      262144
+    ],
+    [
+      "Mistral: Mistral Medium 3",
+      131072
+    ],
+    [
+      "Mistral: Mistral Medium 3.1",
+      131072
+    ],
+    [
+      "Mistral: Mistral Medium 3.5",
+      262144
+    ],
+    [
+      "Mistral: Mistral Nemo",
+      131072
+    ],
+    [
+      "Mistral: Mistral Small 3",
+      32768
+    ],
+    [
+      "Mistral: Mistral Small 3.1 24B",
+      128000
+    ],
+    [
+      "Mistral: Mistral Small 3.2 24B",
+      131072
+    ],
+    [
+      "Mistral: Mistral Small 4",
+      262144
+    ],
+    [
+      "Mistral: Mixtral 8x22B Instruct",
+      65536
+    ],
+    [
+      "Mistral: Saba",
+      32768
+    ],
+    [
+      "Mistral: Voxtral Small 24B 2507",
+      32000
+    ],
+    [
+      "mistralai codestral 2508",
+      256000
+    ],
+    [
+      "mistralai devstral 2512",
+      262144
+    ],
+    [
+      "mistralai ministral 14b 2512",
+      262144
+    ],
+    [
+      "mistralai ministral 3b 2512",
+      131072
+    ],
+    [
+      "mistralai ministral 8b 2512",
+      262144
+    ],
+    [
+      "mistralai mistral large",
+      128000
+    ],
+    [
+      "mistralai mistral large 2407",
+      131072
+    ],
+    [
+      "mistralai mistral large 2512",
+      262144
+    ],
+    [
+      "mistralai mistral medium 3",
+      131072
+    ],
+    [
+      "mistralai mistral medium 3 1",
+      131072
+    ],
+    [
+      "mistralai mistral medium 3 5",
+      262144
+    ],
+    [
+      "mistralai mistral nemo",
+      131072
+    ],
+    [
+      "mistralai mistral saba",
+      32768
+    ],
+    [
+      "mistralai mistral small 24b instruct 2501",
+      32768
+    ],
+    [
+      "mistralai mistral small 2603",
+      262144
+    ],
+    [
+      "mistralai mistral small 3 1 24b instruct",
+      128000
+    ],
+    [
+      "mistralai mistral small 3 2 24b instruct",
+      131072
+    ],
+    [
+      "mistralai mixtral 8x22b instruct",
+      65536
+    ],
+    [
+      "mistralai voxtral small 24b 2507",
+      32000
+    ],
+    [
+      "mistralai/codestral-2508",
+      256000
+    ],
+    [
+      "mistralai/devstral-2512",
+      262144
+    ],
+    [
+      "mistralai/ministral-14b-2512",
+      262144
+    ],
+    [
+      "mistralai/ministral-3b-2512",
+      131072
+    ],
+    [
+      "mistralai/ministral-8b-2512",
+      262144
+    ],
+    [
+      "mistralai/mistral-large",
+      128000
+    ],
+    [
+      "mistralai/mistral-large-2407",
+      131072
+    ],
+    [
+      "mistralai/mistral-large-2512",
+      262144
+    ],
+    [
+      "mistralai/mistral-medium-3",
+      131072
+    ],
+    [
+      "mistralai/mistral-medium-3-5",
+      262144
+    ],
+    [
+      "mistralai/mistral-medium-3.1",
+      131072
+    ],
+    [
+      "mistralai/mistral-nemo",
+      131072
+    ],
+    [
+      "mistralai/mistral-saba",
+      32768
+    ],
+    [
+      "mistralai/mistral-small-24b-instruct-2501",
+      32768
+    ],
+    [
+      "mistralai/mistral-small-2603",
+      262144
+    ],
+    [
+      "mistralai/mistral-small-3.1-24b-instruct",
+      128000
+    ],
+    [
+      "mistralai/mistral-small-3.2-24b-instruct",
+      131072
+    ],
+    [
+      "mistralai/mixtral-8x22b-instruct",
+      65536
+    ],
+    [
+      "mistralai/voxtral-small-24b-2507",
+      32000
+    ],
+    [
+      "mixtral 8x22b instruct",
+      65536
+    ],
+    [
+      "moonshotai kimi k2",
+      131072
+    ],
+    [
+      "moonshotai kimi k2 0905",
+      262144
+    ],
+    [
+      "moonshotai kimi k2 5",
+      262144
+    ],
+    [
+      "moonshotai kimi k2 6",
+      262144
+    ],
+    [
+      "moonshotai kimi k2 7 code",
+      262144
+    ],
+    [
+      "moonshotai kimi k2 thinking",
+      262144
+    ],
+    [
+      "moonshotai kimi k3",
+      1048576
+    ],
+    [
+      "moonshotai kimi latest",
+      1048576
+    ],
+    [
+      "MoonshotAI Kimi Latest",
+      1048576
+    ],
+    [
+      "moonshotai: kimi k2 0711",
+      131072
+    ],
+    [
+      "MoonshotAI: Kimi K2 0711",
+      131072
+    ],
+    [
+      "moonshotai: kimi k2 0905",
+      262144
+    ],
+    [
+      "MoonshotAI: Kimi K2 0905",
+      262144
+    ],
+    [
+      "moonshotai: kimi k2 5",
+      262144
+    ],
+    [
+      "moonshotai: kimi k2 6",
+      262144
+    ],
+    [
+      "moonshotai: kimi k2 7 code",
+      262144
+    ],
+    [
+      "moonshotai: kimi k2 thinking",
+      262144
+    ],
+    [
+      "MoonshotAI: Kimi K2 Thinking",
+      262144
+    ],
+    [
+      "MoonshotAI: Kimi K2.5",
+      262144
+    ],
+    [
+      "MoonshotAI: Kimi K2.6",
+      262144
+    ],
+    [
+      "MoonshotAI: Kimi K2.7 Code",
+      262144
+    ],
+    [
+      "moonshotai: kimi k3",
+      1048576
+    ],
+    [
+      "MoonshotAI: Kimi K3",
+      1048576
+    ],
+    [
+      "moonshotai/kimi-k2",
+      131072
+    ],
+    [
+      "moonshotai/kimi-k2-0905",
+      262144
+    ],
+    [
+      "moonshotai/kimi-k2-thinking",
+      262144
+    ],
+    [
+      "moonshotai/kimi-k2.5",
+      262144
+    ],
+    [
+      "moonshotai/kimi-k2.6",
+      262144
+    ],
+    [
+      "moonshotai/kimi-k2.7-code",
+      262144
+    ],
+    [
+      "moonshotai/kimi-k3",
+      1048576
+    ],
+    [
+      "morph morph v3 fast",
+      81920
+    ],
+    [
+      "morph morph v3 large",
+      262144
+    ],
+    [
+      "morph: morph v3 fast",
+      81920
+    ],
+    [
+      "Morph: Morph V3 Fast",
+      81920
+    ],
+    [
+      "morph: morph v3 large",
+      262144
+    ],
+    [
+      "Morph: Morph V3 Large",
+      262144
+    ],
+    [
+      "morph/morph-v3-fast",
+      81920
+    ],
+    [
+      "morph/morph-v3-large",
+      262144
+    ],
+    [
+      "muse spark 1 1",
+      1048576
+    ],
+    [
+      "mythomax 13b",
+      4096
+    ],
+    [
+      "MythoMax 13B",
+      4096
+    ],
+    [
+      "nano banana (gemini 2 5 flash image)",
+      32768
+    ],
+    [
+      "nano banana 2 (gemini 3 1 flash image preview)",
+      131072
+    ],
+    [
+      "nano banana 2 (gemini 3 1 flash image)",
+      131072
+    ],
+    [
+      "nano banana 2 lite (gemini 3 1 flash lite image)",
+      65536
+    ],
+    [
+      "nano banana pro (gemini 3 pro image preview)",
+      65536
+    ],
+    [
+      "nano banana pro (gemini 3 pro image)",
+      65536
+    ],
+    [
+      "nemotron 3 5 content safety (free)",
+      128000
+    ],
+    [
+      "nemotron 3 5 content safety:free",
+      128000
+    ],
+    [
+      "nemotron 3 nano 30b a3b",
+      262144
+    ],
+    [
+      "nemotron 3 nano 30b a3b (free)",
+      256000
+    ],
+    [
+      "nemotron 3 nano 30b a3b:free",
+      256000
+    ],
+    [
+      "nemotron 3 nano omni (free)",
+      256000
+    ],
+    [
+      "nemotron 3 nano omni 30b a3b reasoning:free",
+      256000
+    ],
+    [
+      "nemotron 3 super",
+      1000000
+    ],
+    [
+      "nemotron 3 super (free)",
+      1000000
+    ],
+    [
+      "nemotron 3 super 120b a12b",
+      1000000
+    ],
+    [
+      "nemotron 3 super 120b a12b:free",
+      1000000
+    ],
+    [
+      "nemotron 3 ultra",
+      1000000
+    ],
+    [
+      "nemotron 3 ultra (free)",
+      1000000
+    ],
+    [
+      "nemotron 3 ultra 550b a55b",
+      1000000
+    ],
+    [
+      "nemotron 3 ultra 550b a55b:free",
+      1000000
+    ],
+    [
+      "nemotron nano 12b 2 vl (free)",
+      128000
+    ],
+    [
+      "nemotron nano 12b v2 vl:free",
+      128000
+    ],
+    [
+      "nemotron nano 9b v2 (free)",
+      128000
+    ],
+    [
+      "nemotron nano 9b v2:free",
+      128000
+    ],
+    [
+      "nex agi nex n2 mini",
+      262144
+    ],
+    [
+      "nex agi nex n2 pro",
+      262144
+    ],
+    [
+      "nex agi: nex n2 mini",
+      262144
+    ],
+    [
+      "nex agi: nex n2 pro",
+      262144
+    ],
+    [
+      "Nex AGI: Nex-N2-Mini",
+      262144
+    ],
+    [
+      "Nex AGI: Nex-N2-Pro",
+      262144
+    ],
+    [
+      "nex-agi/nex-n2-mini",
+      262144
+    ],
+    [
+      "nex-agi/nex-n2-pro",
+      262144
+    ],
+    [
+      "north mini code (free)",
+      256000
+    ],
+    [
+      "north mini code:free",
+      256000
+    ],
+    [
+      "nous: hermes 3 405b instruct",
+      131072
+    ],
+    [
+      "Nous: Hermes 3 405B Instruct",
+      131072
+    ],
+    [
+      "nous: hermes 3 405b instruct (free)",
+      131072
+    ],
+    [
+      "Nous: Hermes 3 405B Instruct (free)",
+      131072
+    ],
+    [
+      "nous: hermes 3 70b instruct",
+      131072
+    ],
+    [
+      "Nous: Hermes 3 70B Instruct",
+      131072
+    ],
+    [
+      "nous: hermes 4 405b",
+      131072
+    ],
+    [
+      "Nous: Hermes 4 405B",
+      131072
+    ],
+    [
+      "nous: hermes 4 70b",
+      131072
+    ],
+    [
+      "Nous: Hermes 4 70B",
+      131072
+    ],
+    [
+      "nousresearch hermes 3 llama 3 1 405b",
+      131072
+    ],
+    [
+      "nousresearch hermes 3 llama 3 1 405b:free",
+      131072
+    ],
+    [
+      "nousresearch hermes 3 llama 3 1 70b",
+      131072
+    ],
+    [
+      "nousresearch hermes 4 405b",
+      131072
+    ],
+    [
+      "nousresearch hermes 4 70b",
+      131072
+    ],
+    [
+      "nousresearch/hermes-3-llama-3.1-405b",
+      131072
+    ],
+    [
+      "nousresearch/hermes-3-llama-3.1-405b:free",
+      131072
+    ],
+    [
+      "nousresearch/hermes-3-llama-3.1-70b",
+      131072
+    ],
+    [
+      "nousresearch/hermes-4-405b",
+      131072
+    ],
+    [
+      "nousresearch/hermes-4-70b",
+      131072
+    ],
+    [
+      "nova 2 lite",
+      1000000
+    ],
+    [
+      "nova 2 lite v1",
+      1000000
+    ],
+    [
+      "nova lite 1 0",
+      300000
+    ],
+    [
+      "nova lite v1",
+      300000
+    ],
+    [
+      "nova micro 1 0",
+      128000
+    ],
+    [
+      "nova micro v1",
+      128000
+    ],
+    [
+      "nova premier 1 0",
+      1000000
+    ],
+    [
+      "nova premier v1",
+      1000000
+    ],
+    [
+      "nova pro 1 0",
+      300000
+    ],
+    [
+      "nova pro v1",
+      300000
+    ],
+    [
+      "NVIDIA: Nemotron 3 Nano 30B A3B",
+      262144
+    ],
+    [
+      "NVIDIA: Nemotron 3 Nano 30B A3B (free)",
+      256000
+    ],
+    [
+      "NVIDIA: Nemotron 3 Nano Omni (free)",
+      256000
+    ],
+    [
+      "NVIDIA: Nemotron 3 Super",
+      1000000
+    ],
+    [
+      "NVIDIA: Nemotron 3 Super (free)",
+      1000000
+    ],
+    [
+      "NVIDIA: Nemotron 3 Ultra",
+      1000000
+    ],
+    [
+      "NVIDIA: Nemotron 3 Ultra (free)",
+      1000000
+    ],
+    [
+      "NVIDIA: Nemotron 3.5 Content Safety (free)",
+      128000
+    ],
+    [
+      "NVIDIA: Nemotron Nano 12B 2 VL (free)",
+      128000
+    ],
+    [
+      "NVIDIA: Nemotron Nano 9B V2 (free)",
+      128000
+    ],
+    [
+      "nvidia/nemotron-3-nano-30b-a3b",
+      262144
+    ],
+    [
+      "nvidia/nemotron-3-nano-30b-a3b:free",
+      256000
+    ],
+    [
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      256000
+    ],
+    [
+      "nvidia/nemotron-3-super-120b-a12b",
+      1000000
+    ],
+    [
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      1000000
+    ],
+    [
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      1000000
+    ],
+    [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      1000000
+    ],
+    [
+      "nvidia/nemotron-3.5-content-safety:free",
+      128000
+    ],
+    [
+      "nvidia/nemotron-nano-12b-v2-vl:free",
+      128000
+    ],
+    [
+      "nvidia/nemotron-nano-9b-v2:free",
+      128000
+    ],
+    [
+      "o1",
+      200000
+    ],
+    [
+      "o1 pro",
+      200000
+    ],
+    [
+      "o3",
+      200000
+    ],
+    [
+      "o3 deep research",
+      200000
+    ],
+    [
+      "o3 mini",
+      200000
+    ],
+    [
+      "o3 mini high",
+      200000
+    ],
+    [
+      "o3 pro",
+      200000
+    ],
+    [
+      "o4 mini",
+      200000
+    ],
+    [
+      "o4 mini deep research",
+      200000
+    ],
+    [
+      "o4 mini high",
+      200000
+    ],
+    [
+      "openai gpt latest",
+      1050000
+    ],
+    [
+      "OpenAI GPT Latest",
+      1050000
+    ],
+    [
+      "openai gpt mini latest",
+      400000
+    ],
+    [
+      "OpenAI GPT Mini Latest",
+      400000
+    ],
+    [
+      "OpenAI: GPT Audio",
+      128000
+    ],
+    [
+      "OpenAI: GPT Audio Mini",
+      128000
+    ],
+    [
+      "OpenAI: GPT Chat Latest",
+      400000
+    ],
+    [
+      "OpenAI: GPT-3.5 Turbo",
+      16385
+    ],
+    [
+      "OpenAI: GPT-3.5 Turbo (older v0613)",
+      4095
+    ],
+    [
+      "OpenAI: GPT-3.5 Turbo 16k",
+      16385
+    ],
+    [
+      "OpenAI: GPT-3.5 Turbo Instruct",
+      4095
+    ],
+    [
+      "OpenAI: GPT-4",
+      8191
+    ],
+    [
+      "OpenAI: GPT-4 Turbo",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4 Turbo Preview",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4.1",
+      1047576
+    ],
+    [
+      "OpenAI: GPT-4.1 Mini",
+      1047576
+    ],
+    [
+      "OpenAI: GPT-4.1 Nano",
+      1047576
+    ],
+    [
+      "OpenAI: GPT-4o",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4o (2024-05-13)",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4o (2024-08-06)",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4o (2024-11-20)",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4o Search Preview",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4o-mini",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4o-mini (2024-07-18)",
+      128000
+    ],
+    [
+      "OpenAI: GPT-4o-mini Search Preview",
+      128000
+    ],
+    [
+      "OpenAI: GPT-5",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5 Chat",
+      128000
+    ],
+    [
+      "OpenAI: GPT-5 Codex",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5 Image",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5 Image Mini",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5 Mini",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5 Nano",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5 Pro",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.1",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.1 Chat",
+      128000
+    ],
+    [
+      "OpenAI: GPT-5.1-Codex",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.1-Codex-Max",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.1-Codex-Mini",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.2",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.2 Chat",
+      128000
+    ],
+    [
+      "OpenAI: GPT-5.2 Pro",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.2-Codex",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.3 Chat",
+      128000
+    ],
+    [
+      "OpenAI: GPT-5.3-Codex",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.4",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.4 Image 2",
+      272000
+    ],
+    [
+      "OpenAI: GPT-5.4 Mini",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.4 Nano",
+      400000
+    ],
+    [
+      "OpenAI: GPT-5.4 Pro",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.5",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.5 Pro",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.6 Luna",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.6 Luna Pro",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.6 Sol",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.6 Sol Pro",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.6 Terra",
+      1050000
+    ],
+    [
+      "OpenAI: GPT-5.6 Terra Pro",
+      1050000
+    ],
+    [
+      "OpenAI: gpt-oss-120b",
+      131072
+    ],
+    [
+      "OpenAI: gpt-oss-20b",
+      131072
+    ],
+    [
+      "OpenAI: gpt-oss-20b (free)",
+      131072
+    ],
+    [
+      "OpenAI: gpt-oss-safeguard-20b",
+      131072
+    ],
+    [
+      "OpenAI: o1",
+      200000
+    ],
+    [
+      "OpenAI: o1-pro",
+      200000
+    ],
+    [
+      "OpenAI: o3",
+      200000
+    ],
+    [
+      "OpenAI: o3 Deep Research",
+      200000
+    ],
+    [
+      "OpenAI: o3 Mini",
+      200000
+    ],
+    [
+      "OpenAI: o3 Mini High",
+      200000
+    ],
+    [
+      "OpenAI: o3 Pro",
+      200000
+    ],
+    [
+      "OpenAI: o4 Mini",
+      200000
+    ],
+    [
+      "OpenAI: o4 Mini Deep Research",
+      200000
+    ],
+    [
+      "OpenAI: o4 Mini High",
+      200000
+    ],
+    [
+      "openai/gpt-3.5-turbo",
+      16385
+    ],
+    [
+      "openai/gpt-3.5-turbo-0613",
+      4095
+    ],
+    [
+      "openai/gpt-3.5-turbo-16k",
+      16385
+    ],
+    [
+      "openai/gpt-3.5-turbo-instruct",
+      4095
+    ],
+    [
+      "openai/gpt-4",
+      8191
+    ],
+    [
+      "openai/gpt-4-turbo",
+      128000
+    ],
+    [
+      "openai/gpt-4-turbo-preview",
+      128000
+    ],
+    [
+      "openai/gpt-4.1",
+      1047576
+    ],
+    [
+      "openai/gpt-4.1-mini",
+      1047576
+    ],
+    [
+      "openai/gpt-4.1-nano",
+      1047576
+    ],
+    [
+      "openai/gpt-4o",
+      128000
+    ],
+    [
+      "openai/gpt-4o-2024-05-13",
+      128000
+    ],
+    [
+      "openai/gpt-4o-2024-08-06",
+      128000
+    ],
+    [
+      "openai/gpt-4o-2024-11-20",
+      128000
+    ],
+    [
+      "openai/gpt-4o-mini",
+      128000
+    ],
+    [
+      "openai/gpt-4o-mini-2024-07-18",
+      128000
+    ],
+    [
+      "openai/gpt-4o-mini-search-preview",
+      128000
+    ],
+    [
+      "openai/gpt-4o-search-preview",
+      128000
+    ],
+    [
+      "openai/gpt-5",
+      400000
+    ],
+    [
+      "openai/gpt-5-chat",
+      128000
+    ],
+    [
+      "openai/gpt-5-codex",
+      400000
+    ],
+    [
+      "openai/gpt-5-image",
+      400000
+    ],
+    [
+      "openai/gpt-5-image-mini",
+      400000
+    ],
+    [
+      "openai/gpt-5-mini",
+      400000
+    ],
+    [
+      "openai/gpt-5-nano",
+      400000
+    ],
+    [
+      "openai/gpt-5-pro",
+      400000
+    ],
+    [
+      "openai/gpt-5.1",
+      400000
+    ],
+    [
+      "openai/gpt-5.1-chat",
+      128000
+    ],
+    [
+      "openai/gpt-5.1-codex",
+      400000
+    ],
+    [
+      "openai/gpt-5.1-codex-max",
+      400000
+    ],
+    [
+      "openai/gpt-5.1-codex-mini",
+      400000
+    ],
+    [
+      "openai/gpt-5.2",
+      400000
+    ],
+    [
+      "openai/gpt-5.2-chat",
+      128000
+    ],
+    [
+      "openai/gpt-5.2-codex",
+      400000
+    ],
+    [
+      "openai/gpt-5.2-pro",
+      400000
+    ],
+    [
+      "openai/gpt-5.3-chat",
+      128000
+    ],
+    [
+      "openai/gpt-5.3-codex",
+      400000
+    ],
+    [
+      "openai/gpt-5.4",
+      1050000
+    ],
+    [
+      "openai/gpt-5.4-image-2",
+      272000
+    ],
+    [
+      "openai/gpt-5.4-mini",
+      400000
+    ],
+    [
+      "openai/gpt-5.4-nano",
+      400000
+    ],
+    [
+      "openai/gpt-5.4-pro",
+      1050000
+    ],
+    [
+      "openai/gpt-5.5",
+      1050000
+    ],
+    [
+      "openai/gpt-5.5-pro",
+      1050000
+    ],
+    [
+      "openai/gpt-5.6-luna",
+      1050000
+    ],
+    [
+      "openai/gpt-5.6-luna-pro",
+      1050000
+    ],
+    [
+      "openai/gpt-5.6-sol",
+      1050000
+    ],
+    [
+      "openai/gpt-5.6-sol-pro",
+      1050000
+    ],
+    [
+      "openai/gpt-5.6-terra",
+      1050000
+    ],
+    [
+      "openai/gpt-5.6-terra-pro",
+      1050000
+    ],
+    [
+      "openai/gpt-audio",
+      128000
+    ],
+    [
+      "openai/gpt-audio-mini",
+      128000
+    ],
+    [
+      "openai/gpt-chat-latest",
+      400000
+    ],
+    [
+      "openai/gpt-oss-120b",
+      131072
+    ],
+    [
+      "openai/gpt-oss-20b",
+      131072
+    ],
+    [
+      "openai/gpt-oss-20b:free",
+      131072
+    ],
+    [
+      "openai/gpt-oss-safeguard-20b",
+      131072
+    ],
+    [
+      "openai/o1",
+      200000
+    ],
+    [
+      "openai/o1-pro",
+      200000
+    ],
+    [
+      "openai/o3",
+      200000
+    ],
+    [
+      "openai/o3-deep-research",
+      200000
+    ],
+    [
+      "openai/o3-mini",
+      200000
+    ],
+    [
+      "openai/o3-mini-high",
+      200000
+    ],
+    [
+      "openai/o3-pro",
+      200000
+    ],
+    [
+      "openai/o4-mini",
+      200000
+    ],
+    [
+      "openai/o4-mini-deep-research",
+      200000
+    ],
+    [
+      "openai/o4-mini-high",
+      200000
+    ],
+    [
+      "openrouter auto",
+      2000000
+    ],
+    [
+      "openrouter auto beta",
+      2000000
+    ],
+    [
+      "openrouter bodybuilder",
+      128000
+    ],
+    [
+      "openrouter free",
+      200000
+    ],
+    [
+      "openrouter fusion",
+      1000000
+    ],
+    [
+      "openrouter pareto code",
+      2000000
+    ],
+    [
+      "openrouter: fusion",
+      1000000
+    ],
+    [
+      "OpenRouter: Fusion",
+      1000000
+    ],
+    [
+      "openrouter/auto",
+      2000000
+    ],
+    [
+      "openrouter/auto-beta",
+      2000000
+    ],
+    [
+      "openrouter/bodybuilder",
+      128000
+    ],
+    [
+      "openrouter/free",
+      200000
+    ],
+    [
+      "openrouter/fusion",
+      1000000
+    ],
+    [
+      "openrouter/pareto-code",
+      2000000
+    ],
+    [
+      "pareto code router",
+      2000000
+    ],
+    [
+      "Pareto Code Router",
+      2000000
+    ],
+    [
+      "perceptron perceptron mk1",
+      32768
+    ],
+    [
+      "perceptron: perceptron mk1",
+      32768
+    ],
+    [
+      "Perceptron: Perceptron Mk1",
+      32768
+    ],
+    [
+      "perceptron/perceptron-mk1",
+      32768
+    ],
+    [
+      "perplexity sonar",
+      127072
+    ],
+    [
+      "perplexity sonar deep research",
+      128000
+    ],
+    [
+      "perplexity sonar pro",
+      200000
+    ],
+    [
+      "perplexity sonar pro search",
+      200000
+    ],
+    [
+      "perplexity sonar reasoning pro",
+      128000
+    ],
+    [
+      "perplexity: sonar",
+      127072
+    ],
+    [
+      "Perplexity: Sonar",
+      127072
+    ],
+    [
+      "perplexity: sonar deep research",
+      128000
+    ],
+    [
+      "Perplexity: Sonar Deep Research",
+      128000
+    ],
+    [
+      "perplexity: sonar pro",
+      200000
+    ],
+    [
+      "Perplexity: Sonar Pro",
+      200000
+    ],
+    [
+      "perplexity: sonar pro search",
+      200000
+    ],
+    [
+      "Perplexity: Sonar Pro Search",
+      200000
+    ],
+    [
+      "perplexity: sonar reasoning pro",
+      128000
+    ],
+    [
+      "Perplexity: Sonar Reasoning Pro",
+      128000
+    ],
+    [
+      "perplexity/sonar",
+      127072
+    ],
+    [
+      "perplexity/sonar-deep-research",
+      128000
+    ],
+    [
+      "perplexity/sonar-pro",
+      200000
+    ],
+    [
+      "perplexity/sonar-pro-search",
+      200000
+    ],
+    [
+      "perplexity/sonar-reasoning-pro",
+      128000
+    ],
+    [
+      "phi 4",
+      16384
+    ],
+    [
+      "Poolside: Laguna M.1",
+      262144
+    ],
+    [
+      "Poolside: Laguna M.1 (free)",
+      262144
+    ],
+    [
+      "Poolside: Laguna XS 2.1",
+      262144
+    ],
+    [
+      "Poolside: Laguna XS 2.1 (free)",
+      262144
+    ],
+    [
+      "poolside/laguna-m.1",
+      262144
+    ],
+    [
+      "poolside/laguna-m.1:free",
+      262144
+    ],
+    [
+      "poolside/laguna-xs-2.1",
+      262144
+    ],
+    [
+      "poolside/laguna-xs-2.1:free",
+      262144
+    ],
+    [
+      "qwen 2 5 72b instruct",
+      131072
+    ],
+    [
+      "qwen 2 5 7b instruct",
+      131072
+    ],
+    [
+      "qwen 2 5 coder 32b instruct",
+      128000
+    ],
+    [
+      "qwen plus",
+      1000000
+    ],
+    [
+      "qwen plus 0728",
+      1000000
+    ],
+    [
+      "qwen plus 0728 (thinking)",
+      1000000
+    ],
+    [
+      "qwen plus 2025 07 28",
+      1000000
+    ],
+    [
+      "qwen plus 2025 07 28:thinking",
+      1000000
+    ],
+    [
+      "Qwen: Qwen Plus 0728",
+      1000000
+    ],
+    [
+      "Qwen: Qwen Plus 0728 (thinking)",
+      1000000
+    ],
+    [
+      "Qwen: Qwen-Plus",
+      1000000
+    ],
+    [
+      "Qwen: Qwen2.5 7B Instruct",
+      131072
+    ],
+    [
+      "Qwen: Qwen2.5 VL 72B Instruct",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 14B",
+      131702
+    ],
+    [
+      "Qwen: Qwen3 235B A22B",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 235B A22B Instruct 2507",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 235B A22B Thinking 2507",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 30B A3B",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 30B A3B Instruct 2507",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 30B A3B Thinking 2507",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 32B",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 8B",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 Coder 30B A3B Instruct",
+      160000
+    ],
+    [
+      "Qwen: Qwen3 Coder 480B A35B",
+      1048576
+    ],
+    [
+      "Qwen: Qwen3 Coder 480B A35B (free)",
+      1048576
+    ],
+    [
+      "Qwen: Qwen3 Coder Flash",
+      1000000
+    ],
+    [
+      "Qwen: Qwen3 Coder Next",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 Coder Plus",
+      1000000
+    ],
+    [
+      "Qwen: Qwen3 Max",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 Max Thinking",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 Next 80B A3B Instruct",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 Next 80B A3B Instruct (free)",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 Next 80B A3B Thinking",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 VL 235B A22B Instruct",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 VL 235B A22B Thinking",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 VL 30B A3B Instruct",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 VL 30B A3B Thinking",
+      131072
+    ],
+    [
+      "Qwen: Qwen3 VL 32B Instruct",
+      262144
+    ],
+    [
+      "Qwen: Qwen3 VL 8B Instruct",
+      256000
+    ],
+    [
+      "Qwen: Qwen3 VL 8B Thinking",
+      256000
+    ],
+    [
+      "Qwen: Qwen3.5 397B A17B",
+      262144
+    ],
+    [
+      "Qwen: Qwen3.5 Plus 2026-02-15",
+      1000000
+    ],
+    [
+      "Qwen: Qwen3.5 Plus 2026-04-20",
+      1000000
+    ],
+    [
+      "Qwen: Qwen3.5-122B-A10B",
+      262144
+    ],
+    [
+      "Qwen: Qwen3.5-27B",
+      262144
+    ],
+    [
+      "Qwen: Qwen3.5-35B-A3B",
+      262144
+    ],
+    [
+      "Qwen: Qwen3.5-9B",
+      262144
+    ],
+    [
+      "Qwen: Qwen3.5-Flash",
+      1000000
+    ],
+    [
+      "Qwen: Qwen3.6 27B",
+      262144
+    ],
+    [
+      "Qwen: Qwen3.6 35B A3B",
+      262144
+    ],
+    [
+      "Qwen: Qwen3.6 Flash",
+      1000000
+    ],
+    [
+      "Qwen: Qwen3.6 Max Preview",
+      262144
+    ],
+    [
+      "Qwen: Qwen3.6 Plus",
+      1000000
+    ],
+    [
+      "Qwen: Qwen3.7 Max",
+      1000000
+    ],
+    [
+      "Qwen: Qwen3.7 Plus",
+      1000000
+    ],
+    [
+      "qwen/qwen-2.5-72b-instruct",
+      131072
+    ],
+    [
+      "qwen/qwen-2.5-7b-instruct",
+      131072
+    ],
+    [
+      "qwen/qwen-2.5-coder-32b-instruct",
+      128000
+    ],
+    [
+      "qwen/qwen-plus",
+      1000000
+    ],
+    [
+      "qwen/qwen-plus-2025-07-28",
+      1000000
+    ],
+    [
+      "qwen/qwen-plus-2025-07-28:thinking",
+      1000000
+    ],
+    [
+      "qwen/qwen2.5-vl-72b-instruct",
+      131072
+    ],
+    [
+      "qwen/qwen3-14b",
+      131702
+    ],
+    [
+      "qwen/qwen3-235b-a22b",
+      131072
+    ],
+    [
+      "qwen/qwen3-235b-a22b-2507",
+      262144
+    ],
+    [
+      "qwen/qwen3-235b-a22b-thinking-2507",
+      262144
+    ],
+    [
+      "qwen/qwen3-30b-a3b",
+      131072
+    ],
+    [
+      "qwen/qwen3-30b-a3b-instruct-2507",
+      262144
+    ],
+    [
+      "qwen/qwen3-30b-a3b-thinking-2507",
+      131072
+    ],
+    [
+      "qwen/qwen3-32b",
+      131072
+    ],
+    [
+      "qwen/qwen3-8b",
+      131072
+    ],
+    [
+      "qwen/qwen3-coder",
+      1048576
+    ],
+    [
+      "qwen/qwen3-coder-30b-a3b-instruct",
+      160000
+    ],
+    [
+      "qwen/qwen3-coder-flash",
+      1000000
+    ],
+    [
+      "qwen/qwen3-coder-next",
+      262144
+    ],
+    [
+      "qwen/qwen3-coder-plus",
+      1000000
+    ],
+    [
+      "qwen/qwen3-coder:free",
+      1048576
+    ],
+    [
+      "qwen/qwen3-max",
+      262144
+    ],
+    [
+      "qwen/qwen3-max-thinking",
+      262144
+    ],
+    [
+      "qwen/qwen3-next-80b-a3b-instruct",
+      262144
+    ],
+    [
+      "qwen/qwen3-next-80b-a3b-instruct:free",
+      262144
+    ],
+    [
+      "qwen/qwen3-next-80b-a3b-thinking",
+      262144
+    ],
+    [
+      "qwen/qwen3-vl-235b-a22b-instruct",
+      131072
+    ],
+    [
+      "qwen/qwen3-vl-235b-a22b-thinking",
+      131072
+    ],
+    [
+      "qwen/qwen3-vl-30b-a3b-instruct",
+      262144
+    ],
+    [
+      "qwen/qwen3-vl-30b-a3b-thinking",
+      131072
+    ],
+    [
+      "qwen/qwen3-vl-32b-instruct",
+      262144
+    ],
+    [
+      "qwen/qwen3-vl-8b-instruct",
+      256000
+    ],
+    [
+      "qwen/qwen3-vl-8b-thinking",
+      256000
+    ],
+    [
+      "qwen/qwen3.5-122b-a10b",
+      262144
+    ],
+    [
+      "qwen/qwen3.5-27b",
+      262144
+    ],
+    [
+      "qwen/qwen3.5-35b-a3b",
+      262144
+    ],
+    [
+      "qwen/qwen3.5-397b-a17b",
+      262144
+    ],
+    [
+      "qwen/qwen3.5-9b",
+      262144
+    ],
+    [
+      "qwen/qwen3.5-flash-02-23",
+      1000000
+    ],
+    [
+      "qwen/qwen3.5-plus-02-15",
+      1000000
+    ],
+    [
+      "qwen/qwen3.5-plus-20260420",
+      1000000
+    ],
+    [
+      "qwen/qwen3.6-27b",
+      262144
+    ],
+    [
+      "qwen/qwen3.6-35b-a3b",
+      262144
+    ],
+    [
+      "qwen/qwen3.6-flash",
+      1000000
+    ],
+    [
+      "qwen/qwen3.6-max-preview",
+      262144
+    ],
+    [
+      "qwen/qwen3.6-plus",
+      1000000
+    ],
+    [
+      "qwen/qwen3.7-max",
+      1000000
+    ],
+    [
+      "qwen/qwen3.7-plus",
+      1000000
+    ],
+    [
+      "qwen2 5 72b instruct",
+      131072
+    ],
+    [
+      "qwen2 5 7b instruct",
+      131072
+    ],
+    [
+      "qwen2 5 coder 32b instruct",
+      128000
+    ],
+    [
+      "qwen2 5 vl 72b instruct",
+      131072
+    ],
+    [
+      "Qwen2.5 72B Instruct",
+      131072
+    ],
+    [
+      "Qwen2.5 Coder 32B Instruct",
+      128000
+    ],
+    [
+      "qwen3 14b",
+      131702
+    ],
+    [
+      "qwen3 235b a22b",
+      131072
+    ],
+    [
+      "qwen3 235b a22b 2507",
+      262144
+    ],
+    [
+      "qwen3 235b a22b instruct 2507",
+      262144
+    ],
+    [
+      "qwen3 235b a22b thinking 2507",
+      262144
+    ],
+    [
+      "qwen3 30b a3b",
+      131072
+    ],
+    [
+      "qwen3 30b a3b instruct 2507",
+      262144
+    ],
+    [
+      "qwen3 30b a3b thinking 2507",
+      131072
+    ],
+    [
+      "qwen3 32b",
+      131072
+    ],
+    [
+      "qwen3 5 122b a10b",
+      262144
+    ],
+    [
+      "qwen3 5 27b",
+      262144
+    ],
+    [
+      "qwen3 5 35b a3b",
+      262144
+    ],
+    [
+      "qwen3 5 397b a17b",
+      262144
+    ],
+    [
+      "qwen3 5 9b",
+      262144
+    ],
+    [
+      "qwen3 5 flash",
+      1000000
+    ],
+    [
+      "qwen3 5 flash 02 23",
+      1000000
+    ],
+    [
+      "qwen3 5 plus 02 15",
+      1000000
+    ],
+    [
+      "qwen3 5 plus 2026 02 15",
+      1000000
+    ],
+    [
+      "qwen3 5 plus 2026 04 20",
+      1000000
+    ],
+    [
+      "qwen3 5 plus 20260420",
+      1000000
+    ],
+    [
+      "qwen3 6 27b",
+      262144
+    ],
+    [
+      "qwen3 6 35b a3b",
+      262144
+    ],
+    [
+      "qwen3 6 flash",
+      1000000
+    ],
+    [
+      "qwen3 6 max preview",
+      262144
+    ],
+    [
+      "qwen3 6 plus",
+      1000000
+    ],
+    [
+      "qwen3 7 max",
+      1000000
+    ],
+    [
+      "qwen3 7 plus",
+      1000000
+    ],
+    [
+      "qwen3 8b",
+      131072
+    ],
+    [
+      "qwen3 coder",
+      1048576
+    ],
+    [
+      "qwen3 coder 30b a3b instruct",
+      160000
+    ],
+    [
+      "qwen3 coder 480b a35b",
+      1048576
+    ],
+    [
+      "qwen3 coder 480b a35b (free)",
+      1048576
+    ],
+    [
+      "qwen3 coder flash",
+      1000000
+    ],
+    [
+      "qwen3 coder next",
+      262144
+    ],
+    [
+      "qwen3 coder plus",
+      1000000
+    ],
+    [
+      "qwen3 coder:free",
+      1048576
+    ],
+    [
+      "qwen3 max",
+      262144
+    ],
+    [
+      "qwen3 max thinking",
+      262144
+    ],
+    [
+      "qwen3 next 80b a3b instruct",
+      262144
+    ],
+    [
+      "qwen3 next 80b a3b instruct (free)",
+      262144
+    ],
+    [
+      "qwen3 next 80b a3b instruct:free",
+      262144
+    ],
+    [
+      "qwen3 next 80b a3b thinking",
+      262144
+    ],
+    [
+      "qwen3 vl 235b a22b instruct",
+      131072
+    ],
+    [
+      "qwen3 vl 235b a22b thinking",
+      131072
+    ],
+    [
+      "qwen3 vl 30b a3b instruct",
+      262144
+    ],
+    [
+      "qwen3 vl 30b a3b thinking",
+      131072
+    ],
+    [
+      "qwen3 vl 32b instruct",
+      262144
+    ],
+    [
+      "qwen3 vl 8b instruct",
+      256000
+    ],
+    [
+      "qwen3 vl 8b thinking",
+      256000
+    ],
+    [
+      "r1",
+      163840
+    ],
+    [
+      "r1 0528",
+      163840
+    ],
+    [
+      "r1 distill llama 70b",
+      128000
+    ],
+    [
+      "reka edge",
+      16384
+    ],
+    [
+      "Reka Edge",
+      16384
+    ],
+    [
+      "reka flash 3",
+      65536
+    ],
+    [
+      "Reka Flash 3",
+      65536
+    ],
+    [
+      "rekaai/reka-edge",
+      16384
+    ],
+    [
+      "rekaai/reka-flash-3",
+      65536
+    ],
+    [
+      "relace relace apply 3",
+      256000
+    ],
+    [
+      "relace relace search",
+      256000
+    ],
+    [
+      "relace: relace apply 3",
+      256000
+    ],
+    [
+      "Relace: Relace Apply 3",
+      256000
+    ],
+    [
+      "relace: relace search",
+      256000
+    ],
+    [
+      "Relace: Relace Search",
+      256000
+    ],
+    [
+      "relace/relace-apply-3",
+      256000
+    ],
+    [
+      "relace/relace-search",
+      256000
+    ],
+    [
+      "remm slerp 13b",
+      6144
+    ],
+    [
+      "ReMM SLERP 13B",
+      6144
+    ],
+    [
+      "rocinante 12b",
+      65536
+    ],
+    [
+      "saba",
+      32768
+    ],
+    [
+      "Sakana: Fugu Ultra",
+      1000000
+    ],
+    [
+      "sakana/fugu-ultra",
+      1000000
+    ],
+    [
+      "sao10k l3 1 euryale 70b",
+      131072
+    ],
+    [
+      "sao10k l3 3 euryale 70b",
+      131072
+    ],
+    [
+      "sao10k l3 lunaris 8b",
+      8192
+    ],
+    [
+      "sao10k: llama 3 1 euryale 70b v2 2",
+      131072
+    ],
+    [
+      "sao10k: llama 3 3 euryale 70b",
+      131072
+    ],
+    [
+      "sao10k: llama 3 8b lunaris",
+      8192
+    ],
+    [
+      "Sao10K: Llama 3 8B Lunaris",
+      8192
+    ],
+    [
+      "Sao10K: Llama 3.1 Euryale 70B v2.2",
+      131072
+    ],
+    [
+      "Sao10K: Llama 3.3 Euryale 70B",
+      131072
+    ],
+    [
+      "sao10k/l3-lunaris-8b",
+      8192
+    ],
+    [
+      "sao10k/l3.1-euryale-70b",
+      131072
+    ],
+    [
+      "sao10k/l3.3-euryale-70b",
+      131072
+    ],
+    [
+      "skyfall 36b v2",
+      32768
+    ],
+    [
+      "solar pro 3",
+      128000
+    ],
+    [
+      "step 3 5 flash",
+      262144
+    ],
+    [
+      "step 3 7 flash",
+      256000
+    ],
+    [
+      "StepFun: Step 3.5 Flash",
+      262144
+    ],
+    [
+      "StepFun: Step 3.7 Flash",
+      256000
+    ],
+    [
+      "stepfun/step-3.5-flash",
+      262144
+    ],
+    [
+      "stepfun/step-3.7-flash",
+      256000
+    ],
+    [
+      "Tencent: Hunyuan A13B Instruct",
+      131072
+    ],
+    [
+      "Tencent: Hy3",
+      262144
+    ],
+    [
+      "Tencent: Hy3 (free)",
+      262144
+    ],
+    [
+      "Tencent: Hy3 preview",
+      262144
+    ],
+    [
+      "tencent/hunyuan-a13b-instruct",
+      131072
+    ],
+    [
+      "tencent/hy3",
+      262144
+    ],
+    [
+      "tencent/hy3-preview",
+      262144
+    ],
+    [
+      "tencent/hy3:free",
+      262144
+    ],
+    [
+      "TheDrummer: Cydonia 24B V4.1",
+      131072
+    ],
+    [
+      "TheDrummer: Rocinante 12B",
+      65536
+    ],
+    [
+      "TheDrummer: Skyfall 36B V2",
+      32768
+    ],
+    [
+      "TheDrummer: UnslopNemo 12B",
+      32768
+    ],
+    [
+      "thedrummer/cydonia-24b-v4.1",
+      131072
+    ],
+    [
+      "thedrummer/rocinante-12b",
+      65536
+    ],
+    [
+      "thedrummer/skyfall-36b-v2",
+      32768
+    ],
+    [
+      "thedrummer/unslopnemo-12b",
+      32768
+    ],
+    [
+      "thinking machines: inkling",
+      1048576
+    ],
+    [
+      "Thinking Machines: Inkling",
+      1048576
+    ],
+    [
+      "thinkingmachines inkling",
+      1048576
+    ],
+    [
+      "thinkingmachines/inkling",
+      1048576
+    ],
+    [
+      "ui tars 1 5 7b",
+      128000
+    ],
+    [
+      "ui tars 7b",
+      128000
+    ],
+    [
+      "undi95 remm slerp l2 13b",
+      6144
+    ],
+    [
+      "undi95/remm-slerp-l2-13b",
+      6144
+    ],
+    [
+      "unslopnemo 12b",
+      32768
+    ],
+    [
+      "Upstage: Solar Pro 3",
+      128000
+    ],
+    [
+      "upstage/solar-pro-3",
+      128000
+    ],
+    [
+      "venice: uncensored",
+      128000
+    ],
+    [
+      "Venice: Uncensored",
+      128000
+    ],
+    [
+      "venice: uncensored (free)",
+      32768
+    ],
+    [
+      "Venice: Uncensored (free)",
+      32768
+    ],
+    [
+      "voxtral small 24b 2507",
+      32000
+    ],
+    [
+      "wizardlm 2 8x22b",
+      65536
+    ],
+    [
+      "WizardLM-2 8x22B",
+      65536
+    ],
+    [
+      "writer palmyra x5",
+      1040000
+    ],
+    [
+      "writer: palmyra x5",
+      1040000
+    ],
+    [
+      "Writer: Palmyra X5",
+      1040000
+    ],
+    [
+      "writer/palmyra-x5",
+      1040000
+    ],
+    [
+      "x ai grok 4 20",
+      2000000
+    ],
+    [
+      "x ai grok 4 20 multi agent",
+      2000000
+    ],
+    [
+      "x ai grok 4 3",
+      1000000
+    ],
+    [
+      "x ai grok 4 5",
+      500000
+    ],
+    [
+      "x ai grok build 0 1",
+      256000
+    ],
+    [
+      "x-ai/grok-4.20",
+      2000000
+    ],
+    [
+      "x-ai/grok-4.20-multi-agent",
+      2000000
+    ],
+    [
+      "x-ai/grok-4.3",
+      1000000
+    ],
+    [
+      "x-ai/grok-4.5",
+      500000
+    ],
+    [
+      "x-ai/grok-build-0.1",
+      256000
+    ],
+    [
+      "xAI: Grok 4.20",
+      2000000
+    ],
+    [
+      "xAI: Grok 4.20 Multi-Agent",
+      2000000
+    ],
+    [
+      "xAI: Grok 4.3",
+      1000000
+    ],
+    [
+      "xAI: Grok 4.5",
+      500000
+    ],
+    [
+      "xAI: Grok Build 0.1",
+      256000
+    ],
+    [
+      "xAI: Grok Latest",
+      500000
+    ],
+    [
+      "xiaomi mimo v2 5",
+      1048576
+    ],
+    [
+      "xiaomi mimo v2 5 pro",
+      1048576
+    ],
+    [
+      "xiaomi: mimo v2 5",
+      1048576
+    ],
+    [
+      "xiaomi: mimo v2 5 pro",
+      1048576
+    ],
+    [
+      "Xiaomi: MiMo-V2.5",
+      1048576
+    ],
+    [
+      "Xiaomi: MiMo-V2.5-Pro",
+      1048576
+    ],
+    [
+      "xiaomi/mimo-v2.5",
+      1048576
+    ],
+    [
+      "xiaomi/mimo-v2.5-pro",
+      1048576
+    ],
+    [
+      "z ai glm 4 5",
+      131072
+    ],
+    [
+      "z ai glm 4 5 air",
+      131072
+    ],
+    [
+      "z ai glm 4 5v",
+      65536
+    ],
+    [
+      "z ai glm 4 6",
+      202752
+    ],
+    [
+      "z ai glm 4 6v",
+      131072
+    ],
+    [
+      "z ai glm 4 7",
+      202752
+    ],
+    [
+      "z ai glm 4 7 flash",
+      200000
+    ],
+    [
+      "z ai glm 5",
+      202752
+    ],
+    [
+      "z ai glm 5 1",
+      202752
+    ],
+    [
+      "z ai glm 5 2",
+      1048576
+    ],
+    [
+      "z ai glm 5 turbo",
+      202752
+    ],
+    [
+      "z ai glm 5v turbo",
+      202752
+    ],
+    [
+      "z ai: glm 4 5",
+      131072
+    ],
+    [
+      "z ai: glm 4 5 air",
+      131072
+    ],
+    [
+      "z ai: glm 4 5v",
+      65536
+    ],
+    [
+      "z ai: glm 4 6",
+      202752
+    ],
+    [
+      "z ai: glm 4 6v",
+      131072
+    ],
+    [
+      "z ai: glm 4 7",
+      202752
+    ],
+    [
+      "z ai: glm 4 7 flash",
+      200000
+    ],
+    [
+      "z ai: glm 5",
+      202752
+    ],
+    [
+      "z ai: glm 5 1",
+      202752
+    ],
+    [
+      "z ai: glm 5 2",
+      1048576
+    ],
+    [
+      "z ai: glm 5 turbo",
+      202752
+    ],
+    [
+      "z ai: glm 5v turbo",
+      202752
+    ],
+    [
+      "z-ai/glm-4.5",
+      131072
+    ],
+    [
+      "z-ai/glm-4.5-air",
+      131072
+    ],
+    [
+      "z-ai/glm-4.5v",
+      65536
+    ],
+    [
+      "z-ai/glm-4.6",
+      202752
+    ],
+    [
+      "z-ai/glm-4.6v",
+      131072
+    ],
+    [
+      "z-ai/glm-4.7",
+      202752
+    ],
+    [
+      "z-ai/glm-4.7-flash",
+      200000
+    ],
+    [
+      "z-ai/glm-5",
+      202752
+    ],
+    [
+      "z-ai/glm-5-turbo",
+      202752
+    ],
+    [
+      "z-ai/glm-5.1",
+      202752
+    ],
+    [
+      "z-ai/glm-5.2",
+      1048576
+    ],
+    [
+      "z-ai/glm-5v-turbo",
+      202752
+    ],
+    [
+      "Z.ai: GLM 4.5",
+      131072
+    ],
+    [
+      "Z.ai: GLM 4.5 Air",
+      131072
+    ],
+    [
+      "Z.ai: GLM 4.5V",
+      65536
+    ],
+    [
+      "Z.ai: GLM 4.6",
+      202752
+    ],
+    [
+      "Z.ai: GLM 4.6V",
+      131072
+    ],
+    [
+      "Z.ai: GLM 4.7",
+      202752
+    ],
+    [
+      "Z.ai: GLM 4.7 Flash",
+      200000
+    ],
+    [
+      "Z.ai: GLM 5",
+      202752
+    ],
+    [
+      "Z.ai: GLM 5 Turbo",
+      202752
+    ],
+    [
+      "Z.ai: GLM 5.1",
+      202752
+    ],
+    [
+      "Z.ai: GLM 5.2",
+      1048576
+    ],
+    [
+      "Z.ai: GLM 5V Turbo",
+      202752
+    ]
+  ]
+}

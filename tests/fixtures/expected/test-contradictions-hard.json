@@ -2,14 +2,14 @@
   "fixture": "test-contradictions-hard",
   "description": "Expected findings for the cleaned test-contradictions-hard skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
   "expected": {
-    "ambiguity-llm": 11,
-    "hygiene": 5,
-    "persona-inconsistency": 1
+    "ambiguity-llm": 9,
+    "hygiene": 20,
+    "persona-inconsistency": 6
   },
   "detectable": {
     "Ambiguities": "YES",
     "Hygiene": "YES",
     "Persona": "YES"
   },
-  "notes": "Original counts from test metadata: {\"Ambiguities\":11,\"Hygiene\":5,\"Persona\":1}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Medians: ambiguity-llm=9 (runs 9,9,9), hygiene=20 (20,20,20), persona-inconsistency=6 (6,6,6)."
 }

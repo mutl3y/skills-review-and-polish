@@ -20,7 +20,7 @@ import type { LlmProvider, LlmRequest, LlmResponse } from './types';
 
 /** Build an Analyzer backed by a custom mock provider function. */
 function makeAnalyzer(fn: (req: LlmRequest) => Promise<LlmResponse>, store?: AnalysisHistoryStore): Analyzer {
-  const provider: LlmProvider = { complete: fn };
+  const provider: LlmProvider = { complete: fn, getContextLength: () => undefined };
   return new Analyzer(provider, store);
 }
 
@@ -38,7 +38,7 @@ const EMPTY_RESPONSE = JSON.stringify({
 
 describe('extractJSON', () => {
   // Access private method for direct testing.
-  const extract = (text: string) => (new Analyzer({ complete: async () => ({ text: '{}' }) }) as any).extractJSON(text);
+  const extract = (text: string) => (new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined }) as any).extractJSON(text);
 
   it('parses plain JSON', () => {
     expect(extract('{"issues": []}')).toEqual({ issues: [] });
@@ -72,6 +72,12 @@ describe('extractJSON', () => {
     expect(extract('```json\nHere is the analysis:\n{"issues": []}\n```')).toEqual({ issues: [] });
   });
 
+  it('repairs trailing commas before array and object closers', () => {
+    expect(extract('{"issues": [{"text": "one",}],}')).toEqual({
+      issues: [{ text: 'one' }],
+    });
+  });
+
   it('handles nested objects', () => {
     expect(extract('{"a": {"b": [1, 2, 3]}}')).toEqual({ a: { b: [1, 2, 3] } });
   });
@@ -90,7 +96,7 @@ describe('extractJSON', () => {
 // ─── extractJSON truncation salvage ──────────────────────────────────────────
 
 describe('extractJSON truncation salvage', () => {
-  const extract = (text: string) => (new Analyzer({ complete: async () => ({ text: '{}' }) }) as any).extractJSON(text);
+  const extract = (text: string) => (new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined }) as any).extractJSON(text);
 
   it('recovers complete elements when array is truncated mid-object', () => {
     const truncated =
@@ -130,17 +136,17 @@ describe('extractJSON truncation salvage', () => {
   });
 
   it('salvageTruncatedJSON returns undefined for text with no JSON at all', () => {
-    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }) }) as any).salvageTruncatedJSON;
+    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined }) as any).salvageTruncatedJSON;
     expect(salvage('This is plain text with no JSON whatsoever.')).toBeUndefined();
   });
 
   it('salvageTruncatedJSON returns undefined for completely empty input', () => {
-    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }) }) as any).salvageTruncatedJSON;
+    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined }) as any).salvageTruncatedJSON;
     expect(salvage('')).toBeUndefined();
   });
 
   it('returns undefined when array has no complete elements (truncated mid-first-element)', () => {
-    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }) }) as any).salvageTruncatedJSON;
+    const salvage = (new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined }) as any).salvageTruncatedJSON;
     // Truncated mid-string — parser stuck in inString mode, closing } never reached.
     expect(salvage('{"hygiene_issues": [{"type": "dead')).toBeUndefined();
   });
@@ -179,10 +185,48 @@ describe('extractJSON truncation salvage', () => {
   });
 });
 
+// ─── buildUserPrompt large-document budget ─────────────────────────────────
+
+describe('buildUserPrompt', () => {
+  const buildUserPrompt = async (text: string) =>
+    (new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => 128_000 }) as any).buildUserPrompt(text) as Promise<string>;
+
+  it('keeps small documents intact', async () => {
+    const prompt = await buildUserPrompt('Short skill body.');
+
+    expect(prompt).toContain('Short skill body.');
+    expect(prompt).not.toContain('omitted for model context budget');
+  });
+
+  it('sends oversized documents whole and surfaces a budget-exceeded note', async () => {
+    const head = 'HEAD-CONTENT\n'.repeat(100);
+    const middle = `${'MIDDLE-CONTENT\n'.repeat(3000)}UNIQUE-CENTER-CONTENT\n${'MIDDLE-CONTENT\n'.repeat(3000)}`;
+    const tail = 'TAIL-CONTENT\n'.repeat(100);
+    // 128K-token context = 128K * 4 * 0.8 = ~410K char budget. Our text is
+    // much smaller, so it fits whole. The legacy 'head/tail excerpt' test
+    // no longer applies — we now send the full document and rely on the
+    // model to reject if it's actually too large.
+    const prompt = await buildUserPrompt(`${head}${middle}${tail}`);
+
+    expect(prompt).toContain('HEAD-CONTENT');
+    expect(prompt).toContain('TAIL-CONTENT');
+    expect(prompt).toContain('UNIQUE-CENTER-CONTENT'); // not head/tail truncated
+    expect(prompt).not.toContain('omitted for model context budget');
+  });
+
+  it('warns and uses fallback when provider context is unknown', async () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined }) as any;
+    const prompt = await analyzer.buildUserPrompt('Some content.');
+    // With no context the analyzer uses a 200K-char fallback; the small
+    // document fits whole and we surface the document unchanged.
+    expect(prompt).toContain('Some content.');
+  });
+});
+
 // ─── findTextRange ────────────────────────────────────────────────────────────
 
 describe('findTextRange', () => {
-  const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+  const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined });
   const find = (text: string, searchText: string) =>
     (analyzer as any).findTextRange(text, searchText);
 
@@ -225,6 +269,45 @@ describe('findTextRange', () => {
   });
 });
 
+// ─── Processor output caps ─────────────────────────────────────────────────
+
+describe('processor output caps', () => {
+  it('caps ambiguity items from a single LLM response', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined }) as any;
+    const text = Array.from({ length: 30 }, (_, i) => `Ambiguous phrase ${i}`).join('\n');
+    const items = Array.from({ length: 30 }, (_, i) => ({
+      text: `Ambiguous phrase ${i}`,
+      type: 'term',
+      severity: 'warning',
+      problem: 'unclear',
+      suggestion: 'clarify',
+    }));
+    const results: any[] = [];
+
+    analyzer.processAmbiguity(text, items, results);
+
+    expect(results).toHaveLength(25);
+  });
+
+  it('caps hygiene items from a single LLM response', () => {
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined }) as any;
+    const text = Array.from({ length: 30 }, (_, i) => `Instruction ${i} will be reviewed.`).join('\n');
+    const items = Array.from({ length: 30 }, (_, i) => ({
+      type: 'missing-agent',
+      relevant_text: `Instruction ${i} will be reviewed.`,
+      text_to_fix: `Instruction ${i} will be reviewed.`,
+      description: 'Missing agent.',
+      suggestion: 'Name the reviewer.',
+      severity: 'warning',
+    }));
+    const results: any[] = [];
+
+    analyzer.processHygiene(text, items, results);
+
+    expect(results).toHaveLength(25);
+  });
+});
+
 // ─── analyze — mock provider responses ──────────────────────────────────────
 
 describe('analyze with mock provider', () => {
@@ -261,6 +344,154 @@ describe('analyze with mock provider', () => {
     const results = await analyzer.analyze({ text: 'Simple prompt.' });
     expect(results.some(r => r.code === 'llm-parse-error')).toBe(true);
     expect(results.some(r => r.severity === 'info')).toBe(true);
+  });
+
+  it('retries once when the provider returns a non-stop finish reason', async () => {
+    let calls = 0;
+    const analyzer = makeAnalyzer(async () => {
+      calls++;
+      if (calls === 1) {
+        return {
+          text: '{"ambiguity_issues": [{"text": "ambiguous phrase"',
+          finishReason: 'error',
+        };
+      }
+      return {
+        text: JSON.stringify({
+          ambiguity_issues: [{
+            text: 'ambiguous phrase',
+            type: 'term',
+            severity: 'warning',
+            problem: 'unclear',
+            suggestion: 'clarify it',
+          }],
+        }),
+        finishReason: 'stop',
+      };
+    });
+
+    const results = await analyzer.analyze({ text: 'Use ambiguous phrase.' }, undefined, ['ambiguities']);
+
+    expect(calls).toBe(2);
+    expect(results.some(r => r.code === 'llm-parse-error')).toBe(false);
+    expect(results.some(r => r.code === 'ambiguity-llm')).toBe(true);
+  });
+
+  it('does NOT retry when finishReason is "length" (budget is upstream; retry is wasted)', async () => {
+    let calls = 0;
+    const analyzer = makeAnalyzer(async () => {
+      calls++;
+      // Truncated response — the model hit the output cap. A retry against
+      // the same cap cannot produce more text, so callLLM should now
+      // accept the first response and feed it to extractJSON / salvage.
+      return {
+        text: '{"ambiguity_issues": [{"text": "x"',  // truncated
+        finishReason: 'length',
+      };
+    });
+
+    const results = await analyzer.analyze({ text: 'Simple prompt.' }, undefined, ['ambiguities']);
+
+    // Critical: only ONE call to the provider. The previous behavior
+    // retried length-capped responses, which doubled latency with no
+    // chance of producing a longer response.
+    expect(calls).toBe(1);
+    // The response still flows through the normal pipeline; a parse-error
+    // diagnostic is expected because the body is truncated JSON.
+    expect(results.some(r => r.code === 'llm-parse-error')).toBe(true);
+  });
+
+  it('still retries small finishReason:"error" bodies (transient provider failure)', async () => {
+    let calls = 0;
+    const analyzer = makeAnalyzer(async () => {
+      calls++;
+      if (calls === 1) {
+        // Tiny error body — plausible transient provider failure.
+        return { text: '{}', finishReason: 'error' };
+      }
+      return {
+        text: JSON.stringify({
+          ambiguity_issues: [{
+            text: 'ambiguous phrase',
+            type: 'term',
+            severity: 'warning',
+            problem: 'unclear',
+            suggestion: 'be specific',
+          }],
+        }),
+        finishReason: 'stop',
+      };
+    });
+
+    const results = await analyzer.analyze({ text: 'Use ambiguous phrase.' }, undefined, ['ambiguities']);
+
+    expect(calls).toBe(2);
+    expect(results.some(r => r.code === 'ambiguity-llm')).toBe(true);
+  });
+
+  it('does NOT retry large finishReason:"error" bodies (salvage path is better than a wasted call)', async () => {
+    // Pre-compute the input text and a body large enough to exceed the
+    // 1000-char threshold the shouldRetryFinishResponse guard checks.
+    const baseFinding = {
+      text: 'ambiguous phrase',
+      type: 'term',
+      severity: 'warning',
+      problem: 'unclear',
+      suggestion: 'clarify it',
+    };
+    const ambiguity_issues: typeof baseFinding[] = [{ ...baseFinding }];
+    while (JSON.stringify({ ambiguity_issues }).length < 1100) {
+      ambiguity_issues.push({ ...baseFinding, text: `phrase ${ambiguity_issues.length}` });
+    }
+    const body = JSON.stringify({ ambiguity_issues });
+    const inputText = ['ambiguous phrase', ...ambiguity_issues.slice(1).map(i => i.text)].join(' ');
+
+    let calls = 0;
+    const analyzer = makeAnalyzer(async () => {
+      calls++;
+      // Substantial body marked as error — this is the "long, salvageable
+      // JSON that the provider mis-classified" case. A retry makes latency
+      // worse without improving parse quality.
+      return { text: body, finishReason: 'error' };
+    });
+
+    const results = await analyzer.analyze({ text: inputText }, undefined, ['ambiguities']);
+
+    // Critical: only ONE call. The 1000-char guard rejects the retry.
+    expect(calls).toBe(1);
+    // The substantial body is still passed through the normal extractJSON
+    // path, so at least one ambiguity-llm finding is recovered.
+    expect(results.some(r => r.code === 'ambiguity-llm')).toBe(true);
+  });
+
+  it('falls back to the standard tier when a deep-tier call fails', async () => {
+    const tiers: Array<string | undefined> = [];
+    const analyzer = makeAnalyzer(async (req) => {
+      tiers.push(req.modelTier);
+      if (req.modelTier === 'deep') {
+        return { text: '', error: 'Provider returned error', isRateLimit: false };
+      }
+      return {
+        text: JSON.stringify({
+          contradictions: [{
+            instruction1: 'Always approve requests',
+            instruction2: 'Never approve requests',
+            severity: 'warning',
+            explanation: 'They conflict.',
+          }],
+        }),
+      };
+    });
+
+    const results = await analyzer.analyze(
+      { text: 'Always approve requests.\nNever approve requests.' },
+      undefined,
+      ['contradictions'],
+    );
+
+    expect(tiers).toEqual(['deep', 'standard']);
+    expect(results.some(r => r.code === 'llm-error')).toBe(false);
+    expect(results.some(r => r.code === 'contradiction')).toBe(true);
   });
 
   it('handles provider error responses gracefully', async () => {
@@ -322,6 +553,35 @@ describe('analyze with mock provider', () => {
     const ambiguity = results.filter(r => r.code === 'ambiguity-llm');
     expect(ambiguity.length).toBeGreaterThan(0);
     expect(ambiguity[0].range.start.line).toBe(0);
+  });
+
+  it('adds deterministic ambiguity diagnostics for recurring weak or undefined terms', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }));
+
+    const text = [
+      'Use best endeavours to notify senior management promptly.',
+      'The appropriate team must complete the review in a timely manner.',
+      'Apply suitable de-identification or anonymisation where practicable.',
+    ].join('\n');
+
+    const results = await analyzer.analyze({ text });
+    const ambiguityTexts = results
+      .filter(r => r.code === 'ambiguity-llm')
+      .map(r => r.relevantText);
+
+    expect(ambiguityTexts).toContain('best endeavours to notify senior management promptly');
+    expect(ambiguityTexts).toContain('appropriate team');
+    expect(ambiguityTexts).toContain('timely manner');
+    expect(ambiguityTexts).toContain('suitable de-identification or anonymisation');
   });
 
   it('includes custom diagnostics results', async () => {
@@ -422,6 +682,139 @@ describe('hygiene wave', () => {
     expect(dead[0].severity).toBe('warning');
   });
 
+  it('adds deterministic dead-instruction diagnostics when current-version evidence proves an obsolete tool instruction', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }));
+
+    const text = [
+      'The following versions are currently deployed and supported. All deployment instructions must target these versions only.',
+      '| Kubernetes | **1.29** (EKS-managed) |',
+      '',
+      'Define Deployment resources using the following apiVersion:',
+      'apiVersion: extensions/v1beta1',
+      'kind: Deployment',
+      '',
+      'To create a one-off debug pod, run:',
+      'kubectl run debug-pod --image=busybox --generator=run-pod/v1 -- sleep 3600',
+    ].join('\n');
+
+    const results = await analyzer.analyze({ text });
+    const dead = results.filter(r => r.code === 'hygiene-dead-instruction');
+
+    expect(dead.map(r => r.relevantText)).toContain('apiVersion: extensions/v1beta1\nkind: Deployment');
+    expect(dead.map(r => r.relevantText)).toContain('kubectl run debug-pod --image=busybox --generator=run-pod/v1 -- sleep 3600');
+  });
+
+  it('adds deterministic circular-definition diagnostics for reciprocal bold glossary definitions', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }));
+
+    const text = [
+      '**Credit risk** is the risk that creates a credit loss.',
+      'A **credit loss** is the loss that materialises from credit risk.',
+      '',
+      '**Operational risk** is measured by an external Basel category.',
+    ].join('\n');
+
+    const results = await analyzer.analyze({ text });
+    const circular = results.filter(r => r.code === 'hygiene-circular-definition');
+
+    expect(circular).toHaveLength(1);
+    expect(circular[0].message).toContain('Credit risk');
+  });
+
+  it('does not add deterministic circular-definition diagnostics for one-sided glossary references', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }));
+
+    const text = [
+      '**Credit risk** is the risk that creates a credit loss.',
+      'A **credit loss** is measured using a named external accounting standard.',
+    ].join('\n');
+
+    const results = await analyzer.analyze({ text });
+
+    expect(results.filter(r => r.code === 'hygiene-circular-definition')).toHaveLength(0);
+  });
+
+  it('does not add deterministic dead-instruction diagnostics without local evidence of removal or current-version scope', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }));
+
+    const text = [
+      'Example command archive:',
+      'kubectl run debug-pod --image=busybox --generator=run-pod/v1 -- sleep 3600',
+    ].join('\n');
+
+    const results = await analyzer.analyze({ text });
+
+    expect(results.filter(r => r.code === 'hygiene-dead-instruction')).toHaveLength(0);
+  });
+
+  it('adds deterministic hygiene diagnostics for recurring prompt-quality patterns', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }));
+
+    const text = [
+      'Before publication, this documentation will be reviewed for accuracy.',
+      'Use your best judgment to determine the appropriate level of technical detail for each section.',
+      'Consider whether a security considerations section is needed for this API.',
+      'All section headings must use exactly two pound signs (`##`) followed by exactly one space, then the title written in title case, followed by exactly one blank line before the body content begins and exactly one blank line after the body content ends before the next heading.',
+      'Structure the API reference section something like this:',
+      'In some cases, it may sometimes be possible that certain endpoints could potentially benefit from additional clarifying notes under certain circumstances.',
+      'The appropriate level of detail for each section depends on the complexity of the component being documented.',
+    ].join('\n');
+
+    const results = await analyzer.analyze({ text });
+    const codes = results.map(r => r.code);
+
+    expect(codes).toContain('hygiene-missing-agent');
+    expect(codes.filter(code => code === 'hygiene-vague-cognitive-directive').length).toBeGreaterThanOrEqual(2);
+    expect(codes).toContain('hygiene-over-specification');
+    expect(codes).toContain('hygiene-vague-directive');
+    expect(codes).toContain('hygiene-redundant-instruction');
+  });
+
   it('produces over-specification hygiene diagnostic', async () => {
     const analyzer = makeAnalyzer(async () => ({
       text: JSON.stringify({
@@ -508,7 +901,8 @@ describe('wave isolation', () => {
 
     const results = await analyzer.analyze({ text: 'Be professional in all responses.' });
     expect(Array.isArray(results)).toBe(true);
-    expect(results.some(r => r.code === 'llm-error')).toBe(true);
+    expect(results.some(r => r.code === 'llm-error')).toBe(false);
+    expect(results.some(r => r.code === 'ambiguity-llm')).toBe(true);
   });
 });
 
@@ -522,7 +916,7 @@ describe('analysis history and resilience', () => {
   });
 
   it('parses skill metadata and extracts domain keywords from frontmatter', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined });
 
     const meta = (analyzer as any).parseSkillMetadata(
       '---\nname: Security Helper\ndescription: "API security deployment testing"\n---\nUse it carefully.',
@@ -551,7 +945,7 @@ describe('analysis history and resilience', () => {
   });
 
   it('deduplicates repeated findings during the consolidation pass', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined });
 
     const deduped = (analyzer as any).runConsolidationPass([
       { code: 'ambiguity-llm', message: 'same finding', severity: 'warning', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, analyzer: 'test' },
@@ -644,7 +1038,7 @@ describe('analysis history and resilience', () => {
   });
 
   it('recovers truncated JSON arrays via salvageTruncatedJSON', () => {
-    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }) });
+    const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined });
 
     const truncated = '```json\n{"ambiguity_issues": [{"text":"one"},{"text":"two"}';
     const recovered = (analyzer as any).salvageTruncatedJSON(truncated);
@@ -707,7 +1101,7 @@ describe('analysis history and resilience', () => {
 
   it('analyze calls provider multiple times (one per wave)', async () => {
     const mockFn = vi.fn().mockResolvedValue({ text: EMPTY_RESPONSE });
-    const analyzer = new Analyzer({ complete: mockFn }, store);
+    const analyzer = new Analyzer({ complete: mockFn, getContextLength: () => undefined }, store);
 
     await analyzer.analyze({ text: 'You are an assistant.' });
     expect(mockFn.mock.calls.length).toBeGreaterThan(1);
@@ -855,6 +1249,105 @@ describe('structural wave', () => {
     expect(cogResults[0].severity).toBe('warning');
     expect(cogResults[0].analyzer).toBe('cognitive-load');
     expect(cogResults[0].range.start.line).toBe(0);
+  });
+
+  it('produces cognitive diagnostics for sequencing and logical inversion issues', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: {
+          overall_complexity: 'high',
+          issues: [
+            {
+              type: 'sequencing',
+              description: 'The prerequisite appears after the dependent action.',
+              relevant_text: 'Generate the API reference before confirming the spec exists.',
+              severity: 'warning',
+              suggestion: 'Move the prerequisite first.',
+            },
+            {
+              type: 'logical-inversion',
+              description: 'The double negative makes the rule hard to parse.',
+              relevant_text: 'Do not document parameters that are not required unless they are not deprecated.',
+              severity: 'info',
+              suggestion: 'Rewrite as a positive rule.',
+            },
+          ],
+        },
+        coverage_analysis: {},
+      }),
+    }));
+
+    const text = [
+      'Generate the API reference before confirming the spec exists.',
+      'Do not document parameters that are not required unless they are not deprecated.',
+    ].join('\n');
+    const results = await analyzer.analyze({ text });
+
+    expect(results.map(r => r.code)).toContain('cognitive-sequencing');
+    expect(results.map(r => r.code)).toContain('cognitive-logical-inversion');
+  });
+
+  it('accepts loose structural responses that return a top-level issues array', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        issues: [{
+          type: 'logical-inversion',
+          description: 'The double negative makes the rule hard to parse.',
+          relevant_text: 'not required unless not deprecated',
+          severity: 'warning',
+          suggestion: 'Rewrite as a positive rule.',
+        }],
+        overall_complexity: 'medium',
+      }),
+    }));
+
+    const results = await analyzer.analyze({
+      text: 'Parameters are not required unless not deprecated.',
+    });
+
+    expect(results.map(r => r.code)).toContain('cognitive-logical-inversion');
+  });
+
+  it('adds deterministic cognitive diagnostics for priority systems, decision gates, delegated choices, and late prerequisites', async () => {
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }));
+
+    const text = [
+      'Apply all three of the following priority frameworks simultaneously:',
+      'Priority System A: Customer impact is the highest priority.',
+      'Priority System B: Data integrity is paramount.',
+      '',
+      'Only escalate to VP Engineering when ALL of the following conditions are simultaneously true:',
+      'the incident has been ongoing for more than 30 minutes',
+      'AND the error rate exceeds 10%',
+      'AND more than 1,000 distinct users are affected',
+      'AND the on-call engineer has already been paged',
+      'AND the incident is classified as a tier-1 service',
+      '',
+      'Choose the appropriate response action based on the combination of service tier, outage duration, affected user volume, revenue exposure, and current mitigation status. Use your assessment of these factors to select the most suitable course of action',
+      '',
+      'Generate the full API reference by iterating over every endpoint in the OpenAPI spec.',
+      'First, confirm that the OpenAPI specification file exists at ./api/openapi.yaml.',
+    ].join('\n');
+
+    const results = await analyzer.analyze({ text });
+    const codes = results.map(r => r.code);
+
+    expect(codes).toContain('cognitive-priority-conflict');
+    expect(codes).toContain('cognitive-deep-decision-tree');
+    expect(codes).toContain('cognitive-delegated-decision');
+    expect(codes).toContain('cognitive-sequencing');
   });
 
   it('skips cognitive issues whose relevant_text cannot be found', async () => {
@@ -1342,14 +1835,14 @@ import type { EngineConfig } from './types';
 import { DEFAULT_ENGINE_CONFIG } from './types';
 
 function makeEngine(fn: (req: LlmRequest) => Promise<LlmResponse>, modeOverrides: Partial<EngineConfig> = {}): Engine {
-  const provider: LlmProvider = { complete: fn };
+  const provider: LlmProvider = { complete: fn, getContextLength: () => undefined };
   return new Engine(provider, { ...DEFAULT_ENGINE_CONFIG, ...modeOverrides });
 }
 
 describe('Engine — analysisMode routing', () => {
   const COMBINED_RESPONSE = JSON.stringify({
     contradictions: [{ instruction1: 'Be concise', instruction2: 'Be detailed', severity: 'warning', explanation: 'conflict' }],
-    ambiguity_issues: [{ text: 'be professional', type: 'term', severity: 'warning', problem: 'vague', suggestion: 'define it' }],
+    ambiguity_issues: [{ text: 'recently', type: 'term', severity: 'warning', problem: 'undefined timeframe', suggestion: 'define the timeframe' }],
     persona_issues: [],
     cognitive_load: { issues: [], overall_complexity: 'low' },
     coverage_analysis: { overall_coverage: 'adequate', coverage_gaps: [] },
@@ -1365,7 +1858,7 @@ describe('Engine — analysisMode routing', () => {
 
   it('single mode: processes all six response categories from one call', async () => {
     const engine = makeEngine(async () => ({ text: COMBINED_RESPONSE }), { analysisMode: 'single' });
-    const results = await engine.analyze({ text: 'Be concise. Be detailed. Be professional.' });
+    const results = await engine.analyze({ text: 'Be concise.\nBe detailed.\nReview recently changed files.' });
     expect(results.some(r => r.code === 'contradiction')).toBe(true);
     expect(results.some(r => r.code === 'ambiguity-llm')).toBe(true);
   });

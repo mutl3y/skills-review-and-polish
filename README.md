@@ -4,9 +4,18 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## ✅ Status: v0.1.35 (ready for marketplace)
+## Status: v0.1.39 beta / release-candidate hardening
 
-- **v0.1.37** — Multi-model scan: `google/gemini-2.5-flash-lite` (standard tier) + `deepseek/deepseek-chat-v3` (deepModel). E56 corpus scan found 8811 findings on 327 skills (vs 1664 in E30) — a 429% improvement at half the cost ($0.24 vs $0.50). Particularly strong gains on circular definitions (1→15), contradictions (11→35), and dead instructions (0→29).
+This project is useful for authoring-time review, but it should be treated as
+beta-quality until calibration gates are stronger. Current calibration evidence
+(clean-fixture, schema-mode, 5×3): **87.3% recall**, **63–73% precision**,
+**deterministic output** (10× noise-floor probe: range 3 penalty / 1 finding,
+9 of 10 runs identical). Recall is strong; the remaining gate to formal release
+is **precision hardening** (target ≥85% accepted findings), not recall or
+determinism. Treat production-skill counts as coverage evidence, not validated
+precision/recall.
+
+- **v0.1.38** — Multi-model scan support: `google/gemini-2.5-flash-lite` (standard tier, ⭐ in picker) + `deepseek/deepseek-chat-v3` (`deepModel`, also ⭐). E56 corpus scan found 8811 candidate findings on 327 skills (vs 1664 in E30). Treat this as coverage evidence, not validated precision/recall. See `scripts/e56-corpus-rescan-multimodel.mjs` for the experiment and the [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models) table for the full per-model scorecard.
 - Core analyzer with 6-wave analysis ✅
 - Surgical fixer with safety guards ✅
 - VS Code integration (diagnostics, code actions, hovers) ✅
@@ -61,6 +70,8 @@ Open VS Code Settings and search "Skills Review":
 - `enable` — Turn on/off
 - `provider` — Which LLM to use (Copilot by default, or OpenRouter/GitHub Models)
 - `model` — Model id (use the **Select Analysis Model** command). For OpenRouter, the recommended configuration is `google/gemini-2.5-flash-lite` for `model` + `deepseek/deepseek-chat-v3` for `deepModel` (see [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models))
+- `external.structuredOutput` — Optional OpenAI-compatible JSON mode for external providers. Keep off unless you have validated the selected model path.
+- `external.requestTimeoutMs` — Per-request timeout for external provider calls
 - `analysisMode` — `multiWave` (recommended), `focused` (contradictions + ambiguities), or `single` combined pass
 - `logLevel` — `info` (default), `debug` for detailed tracing, or `trace` for full LLM prompt/response logging
 

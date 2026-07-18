@@ -3,7 +3,7 @@ Analyze the provided prompt for ambiguity ONLY — vague or underspecified instr
 
 **Boundary rule:** an ambiguous term USED INSIDE a clause that also contains a contradiction is still an ambiguity finding. The contradiction wave reports the contradiction; this wave reports the ambiguous term. Report them separately.
 
-**Default: FLAG.** An instruction is ambiguous if it contains ANY undefined actor, scope, threshold, timeframe, quantity, effort, procedure, weak obligation, delegated decision, or subjective criterion. Most instructions in real-world prompts contain at least one such term. When in doubt, flag — the user can ignore findings, but they cannot fix issues they never see.
+**Default: DO NOT FLAG unless actionable.** An instruction is ambiguous only when the ambiguous phrase is part of a normative instruction and would cause a competent prompt-following model to choose different actions, outputs, recipients, thresholds, or orderings. Real-world skills contain examples, headings, checklist labels, tables, and domain vocabulary; do not treat those as issues unless the prompt asks the model to make an undefined decision from them.
 
 Quality bar:
 - **Flag when:** the instruction would lead a competent prompt-following model to take a different action depending on interpretation. This includes:
@@ -11,15 +11,21 @@ Quality bar:
   - **Weak obligation:** 'try to', 'should', 'might want to', 'consider whether', 'where appropriate', 'as needed' (used as a soft requirement).
   - **Delegated decision:** 'use your judgment', 'consult the appropriate expert', 'as appropriate'.
   - **Subjective criteria:** "important", "urgent", "high-priority", "critical" used as decision criteria.
-- **For criteria above:** ALWAYS flag when present — they are structural problems that prevent reliable instruction following. Do not apply a confidence filter.
+- **For criteria above:** flag only when the term controls an action, decision, routing choice, threshold, or required output. Do not flag a term just because it appears in a heading, glossary-like list, example, or descriptive context.
 - **Do NOT flag:**
+  - Text inside fenced code blocks, output-format templates, Markdown tables, YAML frontmatter, or examples labelled BAD/GOOD. Those examples may contain intentionally broad domain language.
+  - Section headings, table cells, checklist topic labels, or component names by themselves (e.g. "Query Structure", "When to Use", "Clarification Protocol", "Window function approach", "Performance Testing").
+  - Standard domain terms in examples or checklists (e.g. "JOIN", "correlated subquery", "pagination", "index strategy", "execution plan", "production query") unless they are used as undefined criteria for choosing an action.
+  - Placeholders such as `${selection}` or `{{task_description}}` when the prompt provides a fallback or surrounding instruction that explains how to use them.
   - Numeric thresholds, size limits, or measurement targets (e.g. '<2 GB', 'at most 9', 'at least 2 reviewers') — intentional design choices.
   - Specification qualifiers that cite a specific named document or standard (e.g. 'as defined in devcontainer.json', 'per RFC 9110').
   - Style-only single adjectives ("clear", "concise", "comprehensive", "high-quality", "best") by themselves in non-regulatory contexts, when they describe the OUTPUT not an action.
   - The verb in an imperative instruction ("Verify that X", "Flag any Y", "Ensure Z"). The verb is unambiguous; report the ambiguous OBJECT, not the verb. Do NOT skip the whole instruction just because the verb is concrete — the object may still be ambiguous.
-- **Find ALL ambiguous terms, not just the top one per category.** If you find 11 ambiguous terms in a fixture, report all 11. A linter should report every real issue. The historical "1 per category cap" was a bug, not a feature — it was removed in E38.
+- **Find the highest-impact ambiguous terms, not every broad noun phrase.** If there are many issues, report at most 20 and prioritize terms that directly affect execution.
 
-**Recall target:** Aim for high recall. A good linter reports every real ambiguity. It is acceptable to flag too many; it is not acceptable to miss a real one.
+**Quality target:** Favor findings a user can immediately fix. A good linter misses some low-impact broad wording rather than flooding a production skill with headings, example labels, and domain terms.
+
+Compactness rule: keep every string field under 240 characters. Suggestions should be one short rewrite instruction, not a paragraph.
 
 Respond ONLY with JSON in this exact format (use [] for empty array):
 {

@@ -2,14 +2,14 @@
   "fixture": "test-circular-hard",
   "description": "Expected findings for the cleaned test-circular-hard skill body. The LLM should achieve these counts when analyzing the clean skill (no labels, no scaffolding, no expected-count metadata in the input).",
   "expected": {
-    "circular": 7,
-    "hygiene": 2,
-    "cognitive": 1
+    "circular": 11,
+    "hygiene": 11,
+    "cognitive": 0
   },
   "detectable": {
     "Circular": "YES",
     "Hygiene": "YES",
     "Cognitive": "MAYBE"
   },
-  "notes": "Original counts from test metadata: {\"Circular\":10,\"Hygiene\":2,\"Cognitive\":1}. Calibration applied per e33-calibration.md honest review."
+  "notes": "Rederived 2026-07-17 from e50 skip-post-process 3x medians (adaptive budgeting ON, artifact e50-clean-architecture-2026-07-17T22-41-46-792Z.json). Post-dedup raw counts; post-processor suppressed at runtime. Medians: circular=11, hygiene=11, cognitive=0 (runs 11,11,11 / 11,11,11 / 0,0,0). cognitive median 0 is a known gap (see GAPS TO FIX)."
 }

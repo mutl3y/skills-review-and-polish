@@ -64,6 +64,20 @@ export class VsCodeLmProvider implements LlmProvider {
     return this.cachedStandard?.id;
   }
 
+  /**
+   * The smallest input context length across the three configured tiers.
+   * Returns the most conservative value so the analyzer's document budget
+   * fits every model the provider might serve. When no tier has been
+   * resolved yet (cold cache), returns `undefined`.
+   */
+  getContextLength(): number | undefined {
+    const contexts = [this.cachedStandard, this.cachedDeep, this.cachedFix]
+      .filter((m): m is vscode.LanguageModelChat => !!m && typeof m.maxInputTokens === 'number')
+      .map(m => m.maxInputTokens);
+    if (contexts.length === 0) return undefined;
+    return Math.min(...contexts);
+  }
+
   private async selectModel(modelId: string): Promise<vscode.LanguageModelChat | undefined> {
     const allModels = await vscode.lm.selectChatModels();
     this.log.debug('models available', { count: allModels.length, ids: allModels.map(m => m.id).join(', ') });
