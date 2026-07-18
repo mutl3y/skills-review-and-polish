@@ -37,11 +37,11 @@ Leave it as **vscode-lm** if you have Copilot. Otherwise, pick your provider.
 
 ### Recommended OpenRouter Models
 
-If you use **openrouter**, here are the best models for cost/quality (from our 2026-07-13 benchmark on 327 production skills + 6 test fixtures, E27/E28/E53/E54/E55/E56):
+If you use **openrouter**, these are the current recommended models for cost/coverage (from the 2026-07-13 E27/E28/E53/E54/E55/E56 experiments on production skills and calibration fixtures):
 
 | Use case | Model | Cost (per 340 skills) | Why |
 | --- | --- | ---: | --- |
-| **Best overall (recommended for `model`)** | `google/gemini-2.5-flash-lite` | **$0.15** | 47% recall on test fixtures, 41% on full corpus. Fastest paid model (~8s/call). E56 corpus-scan winner. |
+| **Best overall (recommended for `model`)** | `google/gemini-2.5-flash-lite` | **$0.15** | Best current cost/coverage trade-off. The latest clean-fixture beta gate is 73.1% capped recall with a 65.4% precision proxy; response-shape reliability is still a formal-release blocker. |
 | **Best for `deepModel` (contradictions wave)** | `deepseek/deepseek-chat-v3` | **$0.59** (1 wave only) | 90% on test-circular-hard (vs 67% for gemini), 3x improvement on contradictions. |
 | **Free tier** | `poolside/laguna-xs-2.1:free` | **$0.00** | 32% recall. 8 RPM rate limit, 25s avg. |
 | **High-stakes audits** | `meta-llama/llama-4-scout` | $0.65 | 17% recall but generates more findings. |
@@ -53,21 +53,46 @@ If you use **openrouter**, here are the best models for cost/quality (from our 2
 {
   "skillsReviewAndPolish.provider": "openrouter",
   "skillsReviewAndPolish.model": "google/gemini-2.5-flash-lite",
-  "skillsReviewAndPolish.deepModel": "deepseek/deepseek-chat-v3"
+  "skillsReviewAndPolish.deepModel": "deepseek/deepseek-chat-v3",
+  "skillsReviewAndPolish.external.structuredOutput": "schema"
 }
 ```
 
-This configuration scanned 327 production skills and found **8811 issues** (vs 1664 with qwen-only) at **half the cost** ($0.24 vs $0.50). Key wins:
+This configuration scanned 327 production skills and found **8811 candidate issues** (vs 1664 with qwen-only) at **half the cost** ($0.24 vs $0.50). Treat that as a coverage signal, not as validated precision. Key areas with more candidates:
+
 - Circular definitions: 1 → 15 (15x)
 - Contradictions: 11 → 35 (3x)
 - Dead instructions: 0 → 29 (new category)
 - Persona inconsistencies: 1 → 15 (15x)
 
-See [E56 — Corpus scan with multi-model mix](.github/experiments/documentation-review/notes/e56-corpus-multimodel.md) for full results.
+### Recommended Adaptive Output-Budget Settings (2026-07-17)
 
-You can also use the **Skills Review: Select Analysis Model** command palette command to pick from a sorted list — the picker shows pricing for each model.
+For production skills with structured-output mode on OpenRouter, use these adaptive settings so long prompts get enough room to emit full JSON responses:
 
-> **Methodology:** 27 paid + 20 free OpenRouter models were tested on 2 labeled fixtures (`test-contradictions-hard` for recall, `v8/SKILL.md` for precision), then 5 finalists were run on 6 real-world production skills from the `awesome-copilot-fork` corpus with manual investigation of every finding. See `.github/experiments/documentation-review/notes/e27-e28-leaderboard.md` and `e29-realworld-benchmark.md` for the full data.
+```json
+{
+  "skillsReviewAndPolish.external.adaptiveResponseTokens": true,
+  "skillsReviewAndPolish.external.adaptiveMaxResponseTokens": 131072,
+  "skillsReviewAndPolish.external.minAdaptiveResponseTokens": 16384,
+  "skillsReviewAndPolish.external.adaptiveCharsPerToken": 4
+}
+```
+
+Why these values (from `scripts/demos/adaptive-quality-playbook-live.mjs`, 2026-07-17):
+
+- `adaptiveCharsPerToken=4` — the default `8` asks for so few output tokens that real prompts get less room than the fixed 16K ceiling. `4` matches the structured-JSON output density better.
+- `minAdaptiveResponseTokens=4096` — never request less than the fixed-mode ceiling so adaptive mode never regresses vs fixed mode.
+- `adaptiveMaxResponseTokens=131072` — headroom for 1M-context Gemini. The default `65536` is enough for most production skills; raise this if you see `finish_reason: length` on long skills.
+- `adaptiveResponseTokens=true` — opt in. Off by default.
+
+If you don't use adaptive mode, the fixed budget defaults remain:
+
+- `external.maxResponseTokens`: 16384 (fixed-mode ceiling)
+- `external.requestTimeoutMs`: 120000 (per-request wall-clock)
+
+See [E2E tuning note](docs/plan/archive/releases/20260716-release-readiness-remediation/plan.yaml#notes-added-2026-07-17-adaptive-quality-playbook-live) for full evidence.
+
+> **Methodology:** Historical model experiments used labeled fixtures, clean fixtures, and production-skill corpus scans. The current formal release baseline should use clean fixtures as the primary recall benchmark and a manual production sample for precision; total finding count alone is not an accuracy metric.
 
 ## How to Analyze a File
 
@@ -138,6 +163,9 @@ A **diff preview** opens showing:
 
 - **Left side** = Your current text (red)
 - **Right side** = Suggested fix (green)
+
+Diff preview is the supported default. Automatic fix-loop mode is experimental
+and should not be used unattended for release decisions.
 
 ### Option 2: Review the Diff, Then Apply
 
@@ -251,7 +279,7 @@ Possible reasons:
 - The issue might be too subtle or require context outside the file
 - The AI model is not perfect and occasionally misses things
 
-Try running **"Analyze This File"** again. Results can vary slightly each time due to randomness in the AI model.
+Try running **"Analyze This File"** again. Under greedy decoding (temperature 0) the analyzer is deterministic — the 10× noise-floor probe shows range 3 penalty / 1 finding with 9 of 10 runs identical — so a re-run on the same unchanged file should reproduce the same findings. If an expected issue is still missing, it is a genuine false negative to report, not run-to-run variance.
 
 ### "The fix suggestion looks wrong"
 
@@ -267,6 +295,12 @@ Always review fixes before applying them:
 2. Search for: `Skills Review`
 3. Find `Enable` and uncheck it
 4. Or disable the extension entirely: Extensions panel → right-click → **Disable**
+
+### "Does the extension send telemetry?"
+
+No. The telemetry setting is reserved for possible future anonymous usage
+metrics, but it is disabled by default and the current extension does not send
+telemetry.
 
 ## Issue Types Explained
 

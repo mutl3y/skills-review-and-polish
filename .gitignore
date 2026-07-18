@@ -63,3 +63,6 @@ scripts/rebuild-ext.sh
 # Experiment data and logs (regenerable from scripts)
 .github/experiments/documentation-review/data/
 .github/experiments/documentation-review/logs/
+
+# Local recovery stash for deleted experiment scripts (see docs/plan/archive/releases/20260717-session-handover.md)
+.archive/

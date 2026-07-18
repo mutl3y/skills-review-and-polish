@@ -72,9 +72,9 @@ Full codebase review completed. **25 issues resolved** across all severity level
   author, not worked around in the analyzer. See plan
   `20260717-…-release-blockers.md` → "Model output-cap limitations".
 
-## Active Work
+## Completed Work (archived)
 
-- [`20260716-release-readiness-remediation`](20260716-release-readiness-remediation/) — Release-readiness remediation after independent review
+- [`20260716-release-readiness-remediation`](../archive/releases/20260716-release-readiness-remediation/) — Release-readiness remediation after independent review (published as v0.1.39/v0.1.40)
 
 ## Next Steps
 
