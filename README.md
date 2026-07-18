@@ -4,7 +4,7 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## Status: v0.1.43 — released
+## Status: v0.1.44 — released
 
 A production-ready authoring-time linter for AI customization files. Current
 calibration evidence (clean-fixture, schema-mode, 5×3): **87.3% recall**,
