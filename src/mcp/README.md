@@ -8,7 +8,7 @@ The server exposes seven tools:
 
 | Tool | Description |
 | --- | --- |
-| `analyze` | Run analysis waves on a document. Returns JSON diagnostics with codes, severities, line ranges, and suggestions. Use `enabledWaves` parameter to select specific waves (contradictions, ambiguities, persona, structural, coverage, hygiene) or omit for all 6 waves. |
+| `analyze` | Run analysis waves on a document. Returns JSON diagnostics with codes, severities, line ranges, and suggestions. Use `analysisWaves` (or legacy `enabledWaves`) to select specific waves, or omit for configured defaults. |
 | `fix` | Surgically fix ONE issue. Returns proposed fix text, accept/reject status, and risk flags. Only works on 5 codes: `ambiguity-llm`, `contradiction`, `hygiene-redundant-instruction`, `hygiene-unordered-process`, `hygiene-over-specification`. |
 | `score` | Compute quality score (0–100), letter grade (A+ through F), penalty breakdown, and pillar scores. |
 | `verify_fix` | Re-analyze a document and check if a specific issue is still present. Returns `{ fixed, matchingIssue, newIssues, issueCount }`. |
@@ -73,7 +73,20 @@ The MCP server reads a `.skills-review.json` file from the workspace root on sta
   "model": "gpt-4o-mini",
   "deepModel": "gpt-4o",
   "fixModel": "gpt-4o-mini",
+  "structuredOutput": false,
+  "requestTimeoutMs": 120000,
   "analysisMode": "multiWave",
+  "enabledWaves": ["contradictions", "ambiguities", "persona", "structural", "coverage", "hygiene"],
+  "analysisWaves": ["contradictions", "ambiguities"],
+  "scoreSamples": 3,
+  "filterFindings": true,
+  "severityOverrides": {
+    "coverage-gap": "warning"
+  },
+  "fixStrategy": "subtractive",
+  "fixSemanticCheck": false,
+  "fixSelfCritique": false,
+  "fixReferenceGrounding": true,
   "logLevel": "info"
 }
 ```
@@ -83,6 +96,23 @@ The MCP server reads a `.skills-review.json` file from the workspace root on sta
 - `multiWave` (recommended) — Runs all 6 analysis waves separately for best quality
 - `focused` — Runs 2 high-signal passes (contradictions + ambiguities)
 - `single` — Runs one combined prompt (cheapest/fastest, lower recall)
+
+**Wave selection:**
+
+- `enabledWaves` sets the default waves for multi-wave mode.
+- `analysisWaves` is a stricter per-run list that bypasses `analysisMode`.
+- Tool calls can pass `analysisWaves` to override the file config for one request.
+
+**Scoring and filtering:**
+
+- `scoreSamples` controls median-of-N scoring for the `score` tool.
+- `filterFindings` enables deterministic post-processing before results are returned.
+- `severityOverrides` maps diagnostic codes to `error`, `warning`, `info`, `hint`, or `off`.
+
+**External provider reliability:**
+
+- `structuredOutput` requests OpenAI-compatible JSON object mode where supported. Keep it off unless you have validated the selected provider/model path.
+- `requestTimeoutMs` bounds a single external-provider HTTP request so a stalled model response cannot hang the MCP server indefinitely.
 
 **Log levels:**
 
@@ -113,7 +143,13 @@ For headless/CI usage without the extension, set env vars directly:
 {
   "env": {
     "GITHUB_TOKEN": "<your-github-token>",
-    "ANALYSIS_MODEL": "gpt-4o-mini"
+    "ANALYSIS_MODEL": "gpt-4o-mini",
+    "DEEP_MODEL": "gpt-4o",
+    "FIX_MODEL": "gpt-4o-mini",
+    "STRUCTURED_OUTPUT": "0",
+    "REQUEST_TIMEOUT_MS": "120000",
+    "ANALYSIS_MODE": "multiWave",
+    "SCORE_SAMPLES": "3"
   }
 }
 ```
@@ -124,7 +160,13 @@ Or for OpenRouter:
 {
   "env": {
     "OPENROUTER_API_KEY": "<your-openrouter-key>",
-    "ANALYSIS_MODEL": "openai/gpt-4o-mini"
+    "ANALYSIS_MODEL": "google/gemini-2.5-flash-lite",
+    "DEEP_MODEL": "deepseek/deepseek-chat-v3",
+    "FIX_MODEL": "google/gemini-2.5-flash-lite",
+    "STRUCTURED_OUTPUT": "0",
+    "REQUEST_TIMEOUT_MS": "120000",
+    "ANALYSIS_MODE": "multiWave",
+    "SCORE_SAMPLES": "3"
   }
 }
 ```

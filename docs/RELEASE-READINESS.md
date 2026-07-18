@@ -46,13 +46,17 @@ Source: `scripts/demos/adaptive-quality-playbook-live.mjs` on real production sk
 
 ## Release Gates
 
-| Gate | Beta | Formal release |
+The extension is **released** and suitable for everyday use. The right-hand
+column describes a stricter *formal accuracy certification* gate that remains
+future work — it is not a prerequisite for using the linter today.
+
+| Gate | Released (current) | Formal certification (future work) |
 | --- | --- | --- |
 | Compile | Must pass | Must pass |
 | Unit tests | Must pass | Must pass |
-| Markdown lint | Must not add new docs lint failures | Must pass or have an explicit archived waiver |
-| Clean-fixture recall | Current 42% baseline acceptable if documented | Stable threshold by category |
-| Precision | Manual spot checks | Manual production-sample precision gate |
+| Markdown lint | Must pass or have an explicit archived waiver | Must pass or have an explicit archived waiver |
+| Clean-fixture recall | 87.3% (5×3, schema-mode) — documented | Stable threshold by category |
+| Precision | Manual spot checks; hardening ongoing (target ≥85%) | Manual production-sample precision gate |
 | MCP config parity | Required | Required |
 | Telemetry | Disabled unless implemented | Implemented or absent |
 
