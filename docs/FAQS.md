@@ -30,24 +30,24 @@ Quick answers to the most common questions about **Skills Review and Polish**.
 
 ### Q: Which OpenRouter model should I use?
 
-**A:** We benchmarked 59 OpenRouter models in July 2026 across 2 labeled fixtures and 6 real-world production skills. The clear winner for cost/quality is **`qwen/qwen3-coder-30b-a3b-instruct`** ($0.17/1M tokens):
+**A:** For first run, use the default **vscode-lm** provider with Copilot. If you opt into OpenRouter, the current recommended cost/coverage setup is:
 
-- 100% recall on contradiction fixtures
-- 0 false positives on real-world skills
-- 3× cheaper than `gemini-flash-lite` (the previous default)
-- Same model also works as `deepModel` (100% in-cat on contradiction wave, 15s per scan)
+- `google/gemini-2.5-flash-lite` for `model` (⭐ in the picker)
+- `deepseek/deepseek-chat-v3` for `deepModel` (⭐ in the picker)
+
+This is based on the latest E56 multi-model corpus scan and fixture calibration (`scripts/e56-corpus-rescan-multimodel.mjs`). Older Qwen recommendations were useful historical experiments, but they are no longer the default recommendation. The picker surfaces the current recommendations with ⭐ so you don't need to memorise model IDs.
 
 **Quick setup** (in your VS Code `settings.json`):
 
 ```json
 {
   "skillsReviewAndPolish.provider": "openrouter",
-  "skillsReviewAndPolish.model": "qwen/qwen3-coder-30b-a3b-instruct",
-  "skillsReviewAndPolish.deepModel": "qwen/qwen3-coder-30b-a3b-instruct"
+  "skillsReviewAndPolish.model": "google/gemini-2.5-flash-lite",
+  "skillsReviewAndPolish.deepModel": "deepseek/deepseek-chat-v3"
 }
 ```
 
-For other options (free, speed-optimized, high-stakes), see the full table in [USER-GUIDE.md](USER-GUIDE.md#recommended-openrouter-models) or the underlying data in `.github/experiments/documentation-review/notes/e27-e28-leaderboard.md`.
+For other options (free, speed-optimized, high-stakes), see the full table in [USER-GUIDE.md](USER-GUIDE.md#recommended-openrouter-models).
 
 ---
 

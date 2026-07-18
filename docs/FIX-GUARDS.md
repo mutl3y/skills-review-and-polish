@@ -6,6 +6,12 @@ This document explains the hardcoded safety guards in the surgical fixer and whi
 
 The surgical fixer applies multiple safety guards to prevent destructive or incorrect edits. These guards are **hardcoded** for safety and stability, but some could be made configurable for advanced users.
 
+Release positioning:
+
+- `diff` mode is the supported default. Users review every proposed change before applying it.
+- `loop` mode is experimental. Do not use it as an unattended release gate until calibration and fix-quality gates are revalidated.
+- `chat` mode is a handoff path, not an automatic fixer.
+
 ## Hardcoded Guard Values
 
 ### Size Bounds (`computeFixBounds`)

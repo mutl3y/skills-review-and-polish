@@ -6,7 +6,7 @@ When selecting `nvidia/nemotron-3-super-120b-a12b:free` as the fix model, the ex
 
 ## Log Analysis
 
-```
+```text
 2026-07-07 23:10:32.326 [info] selectModel: validating nvidia/nemotron-3-super-120b-a12b:free before saving
 2026-07-07 23:10:32.512 [info] selectChatModels({id}) result {"count":1}
 2026-07-07 23:10:32.512 [info] model rejected: copilotcli vendor only
@@ -16,22 +16,27 @@ When selecting `nvidia/nemotron-3-super-120b-a12b:free` as the fix model, the ex
 ## Current Model Picker Logic (src/extension.ts)
 
 ### 1. Fetch Models
+
 - `vscode.lm.selectChatModels()` returns all available models (Copilot + Copilot CLI + OpenRouter via Copilot)
 - External models are fetched only when `lmModels.length === 0` AND an API key is configured
 
 ### 2. Filter Models
+
 ```typescript
 const visibleModels = lmModels
   .filter((m) => m.vendor !== 'copilotcli' && !m.id.includes('auto') && !m.name.toLowerCase().includes('auto'))
 ```
+
 - Filters OUT `copilotcli` vendor models from the picker
 - But the validation step still uses `vscode.lm.selectChatModels({ id: picked.modelId })` which CAN find copilotcli models
 
 ### 3. Build Picker Items
+
 - Uses `🟢` for `vendor: 'copilot'` models
 - Uses `🔵` for other vendors (including OpenRouter models exposed via Copilot)
 
 ### 4. Validation
+
 ```typescript
 const testModels = await vscode.lm.selectChatModels({ id: picked.modelId });
 if (testModels.length === 0) { ... }
@@ -44,6 +49,7 @@ if (!preferred) {
 ## Root Cause
 
 VS Code's `vscode.lm` API exposes OpenRouter models through the Copilot CLI vendor (`copilotcli`). These models:
+
 1. Appear in `selectChatModels()` results
 2. Have no pricing field (or have `copilotcli` vendor)
 3. Are filtered out of the picker UI
@@ -60,6 +66,7 @@ VS Code's `vscode.lm` API exposes OpenRouter models through the Copilot CLI vend
 ## Model List Structure
 
 From `vscode.lm.selectChatModels()`:
+
 - Copilot models: `vendor: 'copilot'`, have pricing field (e.g., `'1x'`, `'3x'`)
 - Copilot CLI models: `vendor: 'copilotcli'`, no pricing field
 - OpenRouter models via Copilot: `vendor: 'copilotcli'`, no pricing field

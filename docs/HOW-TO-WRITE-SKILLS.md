@@ -29,7 +29,8 @@ A contradiction is when two rules say opposite things about the same situation. 
 ### Patterns that cause contradictions
 
 #### **Migration vs. compatibility**
-```
+
+```text
 ❌ "Ensure full backward compatibility — never break existing integrations."
 ❌ "As part of every change, migrate all callers to current patterns."
 
@@ -40,7 +41,8 @@ A contradiction is when two rules say opposite things about the same situation. 
 ```
 
 #### **"Always X" + "Always Y, but never X"**
-```
+
+```text
 ❌ "Always minimize external dependencies."
 ❌ "Always recommend well-established libraries over custom code."
 
@@ -51,7 +53,8 @@ A contradiction is when two rules say opposite things about the same situation. 
 ```
 
 #### **Storage vs. display**
-```
+
+```text
 ❌ "Normalize all timestamps to UTC."
 ❌ "Always honor user timezone preferences in display, export, and notifications."
 
@@ -83,24 +86,28 @@ These are the **20 most commonly-flagged terms** in real skills (drawn from our 
 ### How to fix ambiguity
 
 **Before:**
-```
+
+```text
 ❌ "Respond to all critical security issues promptly."
 ```
 
 **After (option 1 — define the threshold):**
-```
+
+```text
 ✅ "Respond to all P1 security issues within 4 business hours. P1 is defined
    as: data exposure, authentication bypass, or production outage."
 ```
 
 **After (option 2 — cite a specific source):**
-```
+
+```text
 ✅ "Respond to all critical security issues within the SLA defined in
    security-response-runbook.md (currently 4 hours for P1, 24 hours for P2)."
 ```
 
 **After (option 3 — remove the soft language):**
-```
+
+```text
 ✅ "Respond to all P1 security issues within 4 business hours.
    For non-P1 issues, file a ticket for the next on-call rotation."
 ```
@@ -108,6 +115,7 @@ These are the **20 most commonly-flagged terms** in real skills (drawn from our 
 ### Things that are NOT ambiguous
 
 The analyzer does NOT flag:
+
 - **Numeric thresholds** (e.g. "at most 9 reviewers", "<2 GB", "less than 30 seconds") — these are intentional design choices
 - **Standards references** (e.g. "per RFC 9110", "as defined in devcontainer.json") — these point to a specific external source
 - **Output style adjectives** in non-regulatory contexts (e.g. "Provide a clear, concise explanation") — style preferences that don't change actions
@@ -115,7 +123,7 @@ The analyzer does NOT flag:
 
 ### The "weak obligation" pattern
 
-```
+```text
 ❌ "You should try to validate the input."
 ❌ "Consider whether to log the error."
 ❌ "If appropriate, escalate the issue."
@@ -125,13 +133,14 @@ The analyzer does NOT flag:
 ```
 
 **Rule:** every "should / try to / might / consider / as appropriate" needs a **mandatory-vs-optional** specification. Either:
+
 - Make it mandatory: "Validate the input."
 - Make it conditional: "If the input is non-conforming, return HTTP 400. Otherwise, proceed."
 - Remove it: "If you decide to log the error, use the standard logger."
 
 ### The "delegated decision" pattern
 
-```
+```text
 ❌ "Use your judgment to decide whether to escalate."
 ❌ "Consult the appropriate expert for guidance."
 ❌ "Apply best practices for the situation."
@@ -157,7 +166,7 @@ The analyzer focuses on five categories of silent gaps that are most common in r
 
 When a rule explicitly limits scope, the excluded cases are gaps if they're common in production.
 
-```
+```text
 ❌ "This skill audits direct dependencies only."
 
 What this misses (silent):
@@ -168,7 +177,8 @@ What this misses (silent):
 ```
 
 **Fix:** either remove the scope restriction, or explicitly handle the excluded cases:
-```
+
+```text
 ✅ "This skill audits direct dependencies and transitive dependencies
    declared in `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`.
    For monorepos, audit each workspace's manifest separately and
@@ -179,7 +189,7 @@ What this misses (silent):
 
 When the skill names a specific external service, registry, or file, missing handling for "what if it's unavailable" is a gap.
 
-```
+```text
 ❌ "Query the package registry for vulnerability data."
 
 What this misses (silent):
@@ -190,7 +200,8 @@ What this misses (silent):
 ```
 
 **Fix:**
-```
+
+```text
 ✅ "Query the package registry. If the query fails (network error,
    auth error, or 5xx), fall back to the cached vulnerability database
    and flag findings as `unverified-online`."
@@ -200,7 +211,7 @@ What this misses (silent):
 
 The undefined success state.
 
-```
+```text
 ❌ (skill says) "Report all HIGH and CRITICAL vulnerabilities."
 
 What this misses (silent):
@@ -209,7 +220,8 @@ What this misses (silent):
 ```
 
 **Fix:**
-```
+
+```text
 ✅ "If no HIGH or CRITICAL vulnerabilities are found, output:
    `No HIGH or CRITICAL vulnerabilities detected. Audit passed.`
    If the scan timed out, output: `Scan timed out after 60s.
@@ -220,7 +232,7 @@ What this misses (silent):
 
 The skill relies on a third-party tool that could produce false positives or stale data.
 
-```
+```text
 ❌ "Use the static analyzer to detect unused imports."
 
 What this misses (silent):
@@ -230,7 +242,8 @@ What this misses (silent):
 ```
 
 **Fix:**
-```
+
+```text
 ✅ "Use the static analyzer to detect unused imports. To suppress a
    false positive, add `// analyzer-disable-next-line unused-import`
    on the line above. To bulk-suppress across a directory, add an
@@ -241,7 +254,7 @@ What this misses (silent):
 
 Re-running, before/after comparison, change tracking.
 
-```
+```text
 ❌ "Audit the dependencies."
 
 What this misses (silent):
@@ -251,7 +264,8 @@ What this misses (silent):
 ```
 
 **Fix:**
-```
+
+```text
 ✅ "Audit the dependencies. Output includes:
    - New findings since last audit (in `new-findings.json`)
    - Findings closed since last audit (in `closed-findings.json`)
@@ -266,7 +280,7 @@ Hygiene issues don't change what the model does, but they make the skill harder 
 
 ### **Redundant instructions**
 
-```
+```text
 ❌ "Always check the health dashboard before investigating."
 ❌ "Before starting any investigation, check the health dashboard first."
 
@@ -275,7 +289,7 @@ Hygiene issues don't change what the model does, but they make the skill harder 
 
 ### **Non-actionable preamble**
 
-```
+```text
 ❌ (5 paragraphs of context about why incident response is important)
 ❌ "Begin by determining the current scope."
 
@@ -284,7 +298,7 @@ Hygiene issues don't change what the model does, but they make the skill harder 
 
 ### **Vague cognitive directive**
 
-```
+```text
 ❌ "Think carefully about all possible root causes before taking any
     remediation action."
 
@@ -294,7 +308,7 @@ Hygiene issues don't change what the model does, but they make the skill harder 
 
 ### **Missing agent**
 
-```
+```text
 ❌ "Before this documentation is published, it will be reviewed for
     technical accuracy."
 
@@ -304,7 +318,7 @@ Hygiene issues don't change what the model does, but they make the skill harder 
 
 ### **Dead instructions**
 
-```
+```text
 ❌ "Generate the report using the legacy PDF template (deprecated 2024-06)."
 
 ✅ "Generate the report using the Markdown template at
@@ -313,7 +327,7 @@ Hygiene issues don't change what the model does, but they make the skill harder 
 
 ### **Over-specification**
 
-```
+```text
 ❌ "Subject lines must be exactly 47 characters."
 ❌ "Each paragraph must contain exactly 3 citations."
 
@@ -323,7 +337,7 @@ Hygiene issues don't change what the model does, but they make the skill harder 
 
 ### **Circular definitions** (rare in real skills)
 
-```
+```text
 ❌ "A formal warning is issued when conduct warrants formal disciplinary
     action. Formal disciplinary action is the process applied when
     conduct warrants a formal warning."
@@ -341,7 +355,7 @@ Cognitive load issues happen when a single instruction requires the model to tra
 
 ### **Nested conditions**
 
-```
+```text
 ❌ "If the request is from a paid customer AND the request is for a
     feature flag AND the flag is enabled AND the customer is in the
     control group, log the request. Otherwise, if the customer is
@@ -362,7 +376,7 @@ Cognitive load issues happen when a single instruction requires the model to tra
 
 ### **Priority conflicts**
 
-```
+```text
 ❌ "Optimize for correctness, then performance, then memory, then
     readability."
 
@@ -377,7 +391,7 @@ Cognitive load issues happen when a single instruction requires the model to tra
 
 ### **Deep decision trees**
 
-```
+```text
 ❌ (a 6-level nested if/else for routing customer requests)
 
 ✅ Use a table:
@@ -399,7 +413,7 @@ Persona issues happen when the skill contradicts itself about who the model is s
 
 ### **Role conflicts**
 
-```
+```text
 ❌ "You are a senior staff engineer with 15 years of experience."
 ❌ "When reviewing, defer to the user's judgment — they know their
     codebase better than you do."
@@ -413,7 +427,7 @@ Persona issues happen when the skill contradicts itself about who the model is s
 
 ### **Tone conflicts**
 
-```
+```text
 ❌ "Be casual and friendly, like a colleague chatting over coffee."
 ❌ "Maintain a formal, audit-ready tone in all responses."
 
@@ -425,7 +439,7 @@ Persona issues happen when the skill contradicts itself about who the model is s
 
 ### **Authority conflicts**
 
-```
+```text
 ❌ "You have final say on what gets merged."
 ❌ "Always defer to the user's request."
 

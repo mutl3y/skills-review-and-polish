@@ -1,8 +1,8 @@
 # VS Code Language Model API: Streaming Fix & Testing Validation
 
-**Status:** ✅ COMPLETE — Implemented, tested, locked in with regression tests  
-**Date:** June 3, 2026  
-**Root Cause:** Used `response.text` instead of `response.stream` in vscode.lm API  
+**Status:** ✅ COMPLETE — Implemented, tested, locked in with regression tests
+**Date:** June 3, 2026
+**Root Cause:** Used `response.text` instead of `response.stream` in vscode.lm API
 **Tests:** 60/60 passing, including 3 regression tests for streaming behavior
 
 ## Problem
@@ -52,8 +52,8 @@ for await (const part of response.stream) {
 
 ### Code Location
 
-**File:** `src/providers/vscodeLmProvider.ts`  
-**Method:** `complete()` (lines 280–310)  
+**File:** `src/providers/vscodeLmProvider.ts`
+**Method:** `complete()` (lines 280–310)
 **Implementation:** Iterates `response.stream` and handles both string and object parts
 
 ### Regression Tests (Locked In)
