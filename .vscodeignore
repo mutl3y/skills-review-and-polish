@@ -22,6 +22,14 @@ logs/**
 .husky/**
 .openmcp/**
 node_modules/**
+# Re-include runtime deps the VS Code extension actually requires at load time.
+# `config.js` does require("picomatch") at the top level, so excluding all of
+# node_modules breaks activation ("Cannot find module 'picomatch'"). picomatch
+# is self-contained (no transitive deps). The MCP SDK / mcp-remote are only used
+# by the standalone `out/mcp/server.js` (run via `npm run mcp`), not by the
+# extension host, so they stay excluded to keep the VSIX lean.
+!node_modules/picomatch/
+!node_modules/picomatch/**
 scripts/**
 # Regenerable experiment data + logs (see .gitignore)
 .github/experiments/documentation-review/data/**
