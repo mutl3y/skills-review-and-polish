@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] (v0.1.39)
+## [Unreleased] (v0.1.40)
 
 ### Added (v0.1.37 — 2026-07-13)
 
@@ -77,6 +77,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Analyzer truncation was destroying analyzer quality.** The 60K-char cap was forcing head/tail slicing on any skill over 60K chars (lines 256-2262 of `quality-playbook` were entirely invisible to the model). The probe (`scripts/probes/verify-full-doc.mjs`) shows the new behavior: a 292K-char skill now produces a 293K-char prompt including 6 reference files, no head/tail marker.
 - **Output-budget under-sizing on large skills (root cause of `finish_reason: length`).** `resolveMaxTokens` derived the output budget from *input length* (`ceil(prompt.length / adaptiveCharsPerToken)`), which for a 293K-char skill yielded only ~73K output tokens — far below the model's real generation cap. Both `OpenRouterProvider` and `GitHubModelsProvider` now size the budget from the model's generation cap (`adaptiveMaxTokensCap * multiplier`) via `desired = max(inputDerived, scaledCap)`, so large skills get the full budget. Verified: the contradiction wave on `quality-playbook` now requests 768K tokens (was 73K) and completes without truncation. Residual `finish_reason: length` on `quality-playbook`'s hygiene/coverage/ambiguity waves is the model's *realized* generation limit (~73K tokens / ~293K chars) even at `max_tokens=384000` — a model behavior limit, not a code defect; `salvageTruncatedJSON` recovers partial findings. Skill chunking is explicitly deferred (long skills are rare; authors should split them). See `docs/plan/20260717-handling-noise-floor-and-release-blockers.md` → "Model output-cap limitations".
 - **Deterministic retry/merge path (schema-mode noise-floor fix).** When a wave got a non-stop finish reason and retried, the merge previously kept whichever degraded response was *longer* — a non-deterministic signal that injected run-to-run variance. The merge now keeps the **first** response unless the retry is a *clean* recovery (stop finish, no error, passes `shouldRetryFinishResponse`); under greedy decoding (temperature 0) the first response is the deterministic result. This collapsed the 10× noise-floor probe from range 89 → range 3 (9 of 10 runs identical). `seed` was prototyped and **rejected** (greedy decoding makes it inert) and fully reverted. See `docs/plan/20260718-determinism-and-noise-floor-resolution.md`.
+
+## [0.1.40] — 2026-07-18 (marketplace publish)
+
+### Changed
+
+- **Package hygiene — VSIX size cut from ~60 MB to ~272 KB.** `.vscodeignore` now excludes internal/non-shipped artifacts (`.github/**`, `.archive/**`, `logs/**`, `.husky/**`, `.openmcp/**`, `node_modules/**`, `scripts/**`) and the regenerable experiment `data/` + `logs/` JSON checkpoints. Previously `vsce` packaged by `.gitignore` rules, so gitignored experiment data (62 MB of run checkpoints) and the full `.github/experiments` tree were bundled into every release.
+
+### Changed (repo hygiene, not shipped behavior)
+
+- **Archived pre-20260716 plan dirs** into `docs/plan/archive/{releases,infrastructure,gilfoyle-reviews}` per the `AGENTS.md` plan-file convention. Updated references in `README.md`, `src/core/scoring.ts`, `scripts/fix-markdown.mjs`, `.markdownlint-cli2.jsonc`, and `.markdownlintignore`; dropped now-obsolete ignore globs.
 
 ## [0.1.38] — 2026-07-13 (marketplace publish)
 

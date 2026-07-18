@@ -4,7 +4,7 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## Status: v0.1.39 beta / release-candidate hardening
+## Status: v0.1.40 beta / release-candidate hardening
 
 This project is useful for authoring-time review, but it should be treated as
 beta-quality until calibration gates are stronger. Current calibration evidence
