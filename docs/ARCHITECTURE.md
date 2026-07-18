@@ -179,10 +179,13 @@ The current honest release baseline is:
 - **Precision:** 63–73% (precision hardening to ≥85% is the remaining gate to formal release)
 - **Determinism:** noise floor collapsed to range 3 penalty / 1 finding (9 of 10 runs identical) after the v0.1.39 deterministic retry/merge fix
 
-The analyzer is useful as a reviewer and teaching aid, but it is not ready to be
-marketed as a formal certification gate. Historical fixture-specific runs found
-much higher category recall in some focused modes, but those results are
-model-dependent and must be revalidated before being used as public claims.
+The analyzer is useful as a reviewer and teaching aid, and is released as a
+production-ready linter. Formal accuracy certification (e.g. unattended release
+blocking on a fixed precision threshold) remains future work; precision
+hardening is ongoing, not a blocker on using it as a linter today. Historical
+fixture-specific runs found much higher category recall in some focused modes,
+but those results are model-dependent and must be revalidated before being used
+as public claims.
 
 ### What It Might Miss
 

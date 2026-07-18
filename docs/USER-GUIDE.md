@@ -41,7 +41,7 @@ If you use **openrouter**, these are the current recommended models for cost/cov
 
 | Use case | Model | Cost (per 340 skills) | Why |
 | --- | --- | ---: | --- |
-| **Best overall (recommended for `model`)** | `google/gemini-2.5-flash-lite` | **$0.15** | Best current cost/coverage trade-off. The latest clean-fixture beta gate is 73.1% capped recall with a 65.4% precision proxy; response-shape reliability is still a formal-release blocker. |
+| **Best overall (recommended for `model`)** | `google/gemini-2.5-flash-lite` | **$0.15** | Best current cost/coverage trade-off. The latest clean-fixture gate is 73.1% capped recall with a 65.4% precision proxy; precision hardening (target ≥85%) is ongoing improvement, not a blocker on using it as a linter today. |
 | **Best for `deepModel` (contradictions wave)** | `deepseek/deepseek-chat-v3` | **$0.59** (1 wave only) | 90% on test-circular-hard (vs 67% for gemini), 3x improvement on contradictions. |
 | **Free tier** | `poolside/laguna-xs-2.1:free` | **$0.00** | 32% recall. 8 RPM rate limit, 25s avg. |
 | **High-stakes audits** | `meta-llama/llama-4-scout` | $0.65 | 17% recall but generates more findings. |

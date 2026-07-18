@@ -1,6 +1,6 @@
 # Implementation Status
 
-> Updated July 16, 2026. **Status: Beta / release-candidate hardening**
+> Updated July 18, 2026. **Status: Released (v0.1.42) — production-ready linter**
 >
 > For release details, see [archive/releases/RELEASE-IMPLEMENTATION-PLAN.md](archive/releases/RELEASE-IMPLEMENTATION-PLAN.md)
 > For engineering decisions, see [LEARNINGS.md](LEARNINGS.md)
@@ -78,5 +78,5 @@ Full codebase review completed. **25 issues resolved** across all severity level
 
 ## Next Steps
 
-1. Monitor feedback during beta window
-2. Plan GA release after beta validation
+1. Monitor feedback from production use
+2. Continue precision hardening (target ≥85% accepted findings)

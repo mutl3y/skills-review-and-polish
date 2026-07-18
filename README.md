@@ -4,16 +4,15 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## Status: v0.1.41 beta / release-candidate hardening
+## Status: v0.1.42 — released
 
-This project is useful for authoring-time review, but it should be treated as
-beta-quality until calibration gates are stronger. Current calibration evidence
-(clean-fixture, schema-mode, 5×3): **87.3% recall**, **63–73% precision**,
-**deterministic output** (10× noise-floor probe: range 3 penalty / 1 finding,
-9 of 10 runs identical). Recall is strong; the remaining gate to formal release
-is **precision hardening** (target ≥85% accepted findings), not recall or
-determinism. Treat production-skill counts as coverage evidence, not validated
-precision/recall.
+A production-ready authoring-time linter for AI customization files. Current
+calibration evidence (clean-fixture, schema-mode, 5×3): **87.3% recall**,
+**63–73% precision**, **deterministic output** (10× noise-floor probe: range
+3 penalty / 1 finding, 9 of 10 runs identical). Recall and determinism are
+solid; ongoing work is **precision hardening** (target ≥85% accepted findings)
+to reduce false positives, not a blocker on using it as a linter today. Treat
+production-skill counts as coverage evidence, not validated precision/recall.
 
 - **v0.1.38** — Multi-model scan support: `google/gemini-2.5-flash-lite` (standard tier, ⭐ in picker) + `deepseek/deepseek-chat-v3` (`deepModel`, also ⭐). E56 corpus scan found 8811 candidate findings on 327 skills (vs 1664 in E30). Treat this as coverage evidence, not validated precision/recall. See `scripts/e56-corpus-rescan-multimodel.mjs` for the experiment and the [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models) table for the full per-model scorecard.
 - Core analyzer with 6-wave analysis ✅

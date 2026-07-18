@@ -2,7 +2,7 @@
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems. VS Code extension provides AI-suggested fixes with diff preview for human review; MCP server returns proposed fixes for agent-controlled application.",
-  "version": "0.1.41",
+  "version": "0.1.42",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",
