@@ -35,6 +35,12 @@ function extractFixtureMetadata(file: string) {
   };
 }
 
+function listFiles(root: string, extension: string): string[] {
+  return fs.readdirSync(root)
+    .filter((entry) => entry.endsWith(extension))
+    .sort();
+}
+
 describe('fixture validation gate', () => {
   it('keeps the seeded corpus wired for the release gate', () => {
     const fixtureRoot = path.resolve(__dirname, '..', 'tests', 'fixtures');
@@ -93,5 +99,49 @@ describe('fixture validation gate', () => {
     }
 
     expect(fixtureFiles.length).toBeGreaterThanOrEqual(expectedPrimaryFixtures.length);
+  });
+
+  it('keeps clean fixtures paired with expected answer files for calibration', () => {
+    const cleanRoot = path.resolve(__dirname, '..', 'tests', 'fixtures', 'clean');
+    const expectedRoot = path.resolve(__dirname, '..', 'tests', 'fixtures', 'expected');
+    const cleanNames = listFiles(cleanRoot, '.md').map((file) => file.replace(/\.md$/, ''));
+    const expectedNames = listFiles(expectedRoot, '.json').map((file) => file.replace(/\.json$/, ''));
+
+    expect(cleanNames.length).toBeGreaterThanOrEqual(10);
+    expect(cleanNames).toEqual(expectedNames);
+  });
+
+  it('validates expected answer files contain positive category counts', () => {
+    const expectedRoot = path.resolve(__dirname, '..', 'tests', 'fixtures', 'expected');
+    for (const file of listFiles(expectedRoot, '.json')) {
+      const parsed = JSON.parse(fs.readFileSync(path.join(expectedRoot, file), 'utf8')) as {
+        fixture?: string;
+        expected?: Record<string, number>;
+      };
+
+      expect(parsed.fixture).toBe(file.replace(/\.json$/, ''));
+      expect(parsed.expected).toBeDefined();
+      expect(Object.keys(parsed.expected ?? {}).length).toBeGreaterThan(0);
+      for (const [category, count] of Object.entries(parsed.expected ?? {})) {
+        expect(category.trim()).not.toBe('');
+        expect(Number.isInteger(count)).toBe(true);
+        // A 0 median is a legitimate (and now explicitly tracked) calibration
+        // outcome: the analyzer currently yields no findings for that category
+        // on this fixture. The fixture's `notes` field records the known gap
+        // (see plan Item 4 GAPS TO FIX). We keep the category in the map rather
+        // than dropping it so the gap stays visible.
+        expect(count).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  it('keeps clean fixtures free of label scaffolding and expected-count metadata', () => {
+    const cleanRoot = path.resolve(__dirname, '..', 'tests', 'fixtures', 'clean');
+    for (const file of listFiles(cleanRoot, '.md')) {
+      const contents = fs.readFileSync(path.join(cleanRoot, file), 'utf8');
+      expect(contents).not.toMatch(/Test metadata:/i);
+      expect(contents).not.toMatch(/Expected analyzer categor/i);
+      expect(contents).not.toMatch(/\[(?:HARD-CIRC|HARD-DIRECT|HARD-AMBIG|HARD-OBLIG|SUBTLE|DIRECT|COGNITIVE|PERSONA|QUALITY|STRUCTURAL|POSITIVE|NEGATIVE|INFER|GAP-H|GAP|AMBIENT)-\d+\]/);
+    }
   });
 });

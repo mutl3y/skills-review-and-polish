@@ -46,6 +46,7 @@ describe('classifyCode', () => {
 
   it('maps structural and hygiene issues to the right pillars', () => {
     expect(classifyCode('cognitive-nested-conditions')).toBe('Structure');
+    expect(classifyCode('cognitive-logical-inversion')).toBe('Structure');
     expect(classifyCode('hygiene-over-specification')).toBe('Structure');
     expect(classifyCode('hygiene-dead-instruction')).toBe('Completeness');
   });
@@ -80,10 +81,11 @@ describe('scoreSkill', () => {
   it('drops cognitive findings to info for workflow and meta skill types', () => {
     const result = scoreSkill([
       makeResult('cognitive-nested-conditions', 'warning'),
+      makeResult('cognitive-logical-inversion', 'warning'),
     ], 80, 'workflow');
 
-    expect(result.issuePenalty).toBe(2);
-    expect(result.score).toBe(98);
+    expect(result.issuePenalty).toBe(4);
+    expect(result.score).toBe(96);
   });
 
   it('skips infrastructure-only diagnostics from the penalty total', () => {

@@ -195,6 +195,27 @@ describe('createMcpToolRegistry', () => {
     expect(parsed.configSource).toBeDefined();
   });
 
+  it('includes external response settings in health output when configured', async () => {
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => ({
+        engine: { analyze: vi.fn() },
+        config: {
+          provider: 'openrouter',
+          model: 'google/gemini-2.5-flash-lite',
+          structuredOutput: true,
+          requestTimeoutMs: 45_000,
+          configSource: 'test',
+        },
+      })) as any,
+    });
+
+    const result = await registry.callTool('health', {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.structuredOutput).toBe(true);
+    expect(parsed.requestTimeoutMs).toBe(45_000);
+  });
+
   it('returns error status when engine build fails in health tool', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => { throw new Error('No provider'); }) as any,

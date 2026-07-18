@@ -24,7 +24,7 @@ const DEFAULT_CONFIG = {
   pickerSortBy: 'price',
   inlineRewrites: false,
   showScoreCodeLens: true,
-  telemetryEnable: true,
+  telemetryEnable: false,
   runOn: 'manual',
   logLevel: 'info',
 } as const;

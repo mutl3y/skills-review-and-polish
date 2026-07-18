@@ -2,19 +2,26 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Engine } from '../core/index';
+import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
 import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
 import { GitHubModelsProvider, OpenRouterProvider } from '../providers/externalProvider';
-import type { AnalysisResult, LlmProvider } from '../core/types';
+import { resolveContextLength } from '../modelCatalog';
+import type { AnalysisResult, EngineConfig, LlmProvider, Severity, WaveName } from '../core/types';
 
 export interface McpEngineConfig {
   provider: string;
   model: string;
+  deepModel?: string;
+  fixModel?: string;
+  structuredOutput?: boolean | 'schema';
+  requestTimeoutMs?: number;
   configSource: string;
+  engineConfig?: EngineConfig;
 }
 
 /** Maximum text length accepted by tools. Prevents runaway LLM costs. */
@@ -67,6 +74,44 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
   return typeof args[key] === 'string' && (args[key] as string).trim() ? (args[key] as string) : undefined;
 }
 
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  if (/^(1|true|yes)$/i.test(value)) return true;
+  if (/^(0|false|no)$/i.test(value)) return false;
+  return undefined;
+}
+
+/**
+ * Resolve the 3-state structuredOutput value (boolean | 'schema') from a
+ * file/env value. Accepts:
+ *   - 'schema' (string)        → 'schema' (strict JSON schema mode)
+ *   - true / 'true' / '1' / 'on' → true (legacy json_object mode)
+ *   - false / 'false' / '0' / 'off' → false (no response_format)
+ *   - undefined               → undefined (caller applies its own default)
+ */
+function structuredOutputValue(value: unknown): boolean | 'schema' | undefined {
+  if (value === 'schema' || value === 'true' || value === 'false'
+      || value === '1' || value === '0' || value === 'on' || value === 'off') {
+    if (value === 'schema') return 'schema';
+    // String truthy/falsy values fall through to boolean parsing.
+  }
+  const bool = optionalBoolean(value);
+  if (typeof bool === 'boolean') return bool;
+  if (value === undefined) return undefined;
+  // Unknown non-boolean values map to 'schema' — safer default.
+  return 'schema';
+}
+
+function optionalPositiveNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
+}
+
 function requireText(args: Record<string, unknown>): string {
   const text = requireString(args, 'text');
   if (text.length > MAX_TEXT_LENGTH) {
@@ -95,6 +140,56 @@ function validateRelevantText(raw: string): string {
   // eslint-disable-next-line no-control-regex
   const sanitized = trimmed.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
   return sanitized;
+}
+
+function asWaveList(value: unknown, fallback: WaveName[] = [...ALL_WAVES]): WaveName[] {
+  const valid = new Set<WaveName>(ALL_WAVES);
+  if (!Array.isArray(value)) return fallback;
+  const waves = value.filter((w): w is WaveName => typeof w === 'string' && valid.has(w as WaveName));
+  return waves.length > 0 ? waves : fallback;
+}
+
+function asAnalysisMode(value: unknown): EngineConfig['analysisMode'] {
+  return value === 'single' || value === 'focused' || value === 'multiWave'
+    ? value
+    : DEFAULT_ENGINE_CONFIG.analysisMode;
+}
+
+function asFixStrategy(value: unknown): EngineConfig['fixStrategy'] {
+  return value === 'additive' ? 'additive' : DEFAULT_ENGINE_CONFIG.fixStrategy;
+}
+
+function asSeverityOverrides(value: unknown): Record<string, Severity | 'off'> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const allowed = new Set(['error', 'warning', 'info', 'hint', 'off']);
+  const out: Record<string, Severity | 'off'> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw === 'string' && allowed.has(raw)) out[key] = raw as Severity | 'off';
+  }
+  return out;
+}
+
+function buildEngineConfig(raw: Record<string, unknown> = {}): EngineConfig {
+  return {
+    ...DEFAULT_ENGINE_CONFIG,
+    analysisMode: asAnalysisMode(raw['analysisMode']),
+    enabledWaves: asWaveList(raw['enabledWaves']),
+    analysisWaves: Array.isArray(raw['analysisWaves'])
+      ? asWaveList(raw['analysisWaves'], [])
+      : undefined,
+    scoreSamples: typeof raw['scoreSamples'] === 'number'
+      ? Math.max(1, Math.min(5, Math.floor(raw['scoreSamples'])))
+      : DEFAULT_ENGINE_CONFIG.scoreSamples,
+    fixStrategy: asFixStrategy(raw['fixStrategy']),
+    fixSemanticCheck: typeof raw['fixSemanticCheck'] === 'boolean' ? raw['fixSemanticCheck'] : DEFAULT_ENGINE_CONFIG.fixSemanticCheck,
+    fixSelfCritique: typeof raw['fixSelfCritique'] === 'boolean' ? raw['fixSelfCritique'] : DEFAULT_ENGINE_CONFIG.fixSelfCritique,
+    fixReferenceGrounding: typeof raw['fixReferenceGrounding'] === 'boolean' ? raw['fixReferenceGrounding'] : DEFAULT_ENGINE_CONFIG.fixReferenceGrounding,
+    filterFindings: typeof raw['filterFindings'] === 'boolean' ? raw['filterFindings'] : DEFAULT_ENGINE_CONFIG.filterFindings,
+    severityOverrides: asSeverityOverrides(raw['severityOverrides']),
+    fixGuardUpperBoundMultiplier: typeof raw['fixGuardUpperBoundMultiplier'] === 'number' ? raw['fixGuardUpperBoundMultiplier'] : undefined,
+    fixGuardLowerBoundMultiplier: typeof raw['fixGuardLowerBoundMultiplier'] === 'number' ? raw['fixGuardLowerBoundMultiplier'] : undefined,
+    fixGuardMaxAnchorChars: typeof raw['fixGuardMaxAnchorChars'] === 'number' ? raw['fixGuardMaxAnchorChars'] : undefined,
+  };
 }
 
 interface ToolHandlerContext {
@@ -241,6 +336,8 @@ async function handleHealth(_args: Record<string, unknown>, ctx: ToolHandlerCont
           status: 'ok',
           provider: ctx.resolvedConfig?.provider ?? 'unknown',
           model: ctx.resolvedConfig?.model ?? 'unknown',
+          structuredOutput: ctx.resolvedConfig?.structuredOutput ?? false,
+          requestTimeoutMs: ctx.resolvedConfig?.requestTimeoutMs,
           configSource: ctx.resolvedConfig?.configSource ?? 'unknown',
         }, null, 2),
       }],
@@ -343,7 +440,46 @@ export interface McpToolCallResult {
   isError?: boolean;
 }
 
-function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
+/**
+ * Resolve context lengths for `model`, `deepModel`, and `fixModel` so the
+ * provider can scale its document budget to the actual model. Returns the
+ * *smallest* value — the analyzer uses the most conservative so any wave
+ * fits. Falls back to `undefined` when unknown (analyzer logs a warning).
+ */
+async function resolveContextLengths(
+  model: string | undefined,
+  deepModel: string | undefined,
+  fixModel: string | undefined,
+): Promise<{ standard?: number; deep?: number; fix?: number }> {
+  const [stdR, deepR, fixR] = await Promise.all([
+    model ? resolveContextLength(model).catch(() => undefined) : Promise.resolve(undefined),
+    deepModel ? resolveContextLength(deepModel).catch(() => undefined) : Promise.resolve(undefined),
+    fixModel ? resolveContextLength(fixModel).catch(() => undefined) : Promise.resolve(undefined),
+  ]);
+  const out: { standard?: number; deep?: number; fix?: number } = {};
+  if (stdR) out.standard = stdR.contextLength;
+  if (deepR) out.deep = deepR.contextLength;
+  if (fixR) out.fix = fixR.contextLength;
+  return out;
+}
+
+/**
+ * Pick the smallest context length across `model` / `deepModel` /
+ * `fixModel` so the analyzer's document budget fits the most constrained
+ * model in the configured tier set. Returns `undefined` when every tier
+ * is unknown — the analyzer's 200K-char fallback then kicks in.
+ */
+async function pickSmallestContextLength(
+  model: string | undefined,
+  deepModel: string | undefined,
+  fixModel: string | undefined,
+): Promise<number | undefined> {
+  const all = await resolveContextLengths(model, deepModel, fixModel);
+  const values = [all.standard, all.deep, all.fix].filter((v): v is number => typeof v === 'number');
+  return values.length > 0 ? Math.min(...values) : undefined;
+}
+
+async function createDefaultEngine(): Promise<{ engine: Engine; config: McpEngineConfig }> {
   // Priority 1: .skills-review.json in workspace root
   // MCP_SERVER_WORKSPACE env var takes precedence for config discovery,
   // falling back to process.cwd() for CLI usage.
@@ -353,16 +489,26 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
     if (cfg && typeof cfg === 'object') {
+      const engineConfig = buildEngineConfig(cfg as Record<string, unknown>);
       const provider = cfg.provider || 'githubModels';
       const model = cfg.model || 'gpt-4o-mini';
+      const deepModel = cfg.deepModel || undefined;
       const fixModel = cfg.fixModel || undefined;
+      const structuredOutput = structuredOutputValue(cfg.structuredOutput) ?? structuredOutputValue(cfg.externalStructuredOutput);
+      const requestTimeoutMs = optionalPositiveNumber(cfg.requestTimeoutMs) ?? optionalPositiveNumber(cfg.externalRequestTimeoutMs);
+      // Resolve context lengths from the OpenRouter catalog (1h cached;
+      // ~50ms cold, ~5ms warm). The MCP registry awaits this before
+      // serving the first request, so the analyzer's 200K-char fallback
+      // is never hit on the cold path.
+      const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
+      const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
 
       if (provider === 'openrouter') {
         const apiKey = process.env.OPENROUTER_API_KEY?.trim();
         if (apiKey) {
           return {
-            engine: new Engine(new OpenRouterProvider({ apiKey, model, fixModel })),
-            config: { provider: 'openrouter', model, configSource: 'file:.skills-review.json' } as McpEngineConfig,
+            engine: new Engine(new OpenRouterProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
+            config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
           };
         }
       }
@@ -371,8 +517,8 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
       const apiKey = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
       if (apiKey) {
         return {
-          engine: new Engine(new GitHubModelsProvider({ apiKey, model, fixModel })),
-          config: { provider: 'githubModels', model, configSource: 'file:.skills-review.json' } as McpEngineConfig,
+          engine: new Engine(new GitHubModelsProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
+          config: { provider: 'githubModels', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
         };
       }
     }
@@ -385,22 +531,40 @@ function createDefaultEngine(): { engine: Engine; config: McpEngineConfig } {
   const githubToken = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
   if (githubToken) {
     const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
+    const deepModel = process.env.DEEP_MODEL ?? undefined;
     const fixModel = process.env.FIX_MODEL ?? undefined;
-    const provider = new GitHubModelsProvider({ apiKey: githubToken, model, fixModel });
+    const structuredOutput = structuredOutputValue(process.env.STRUCTURED_OUTPUT);
+    const requestTimeoutMs = optionalPositiveNumber(process.env.REQUEST_TIMEOUT_MS);
+    const engineConfig = buildEngineConfig({
+      analysisMode: process.env.ANALYSIS_MODE,
+      scoreSamples: process.env.SCORE_SAMPLES ? Number(process.env.SCORE_SAMPLES) : undefined,
+    });
+    const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
+    const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
+    const provider = new GitHubModelsProvider({ apiKey: githubToken, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
     return {
-      engine: new Engine(provider),
-      config: { provider: 'githubModels', model, configSource: process.env.GITHUB_MODELS_TOKEN ? 'env:GITHUB_MODELS_TOKEN' : 'env:GITHUB_TOKEN' } as McpEngineConfig,
+      engine: new Engine(provider, engineConfig),
+      config: { provider: 'githubModels', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: process.env.GITHUB_MODELS_TOKEN ? 'env:GITHUB_MODELS_TOKEN' : 'env:GITHUB_TOKEN', engineConfig } as McpEngineConfig,
     };
   }
 
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openRouterKey) {
     const model = process.env.ANALYSIS_MODEL ?? 'openai/gpt-4o-mini';
+    const deepModel = process.env.DEEP_MODEL ?? undefined;
     const fixModel = process.env.FIX_MODEL ?? undefined;
-    const provider = new OpenRouterProvider({ apiKey: openRouterKey, model, fixModel });
+    const structuredOutput = structuredOutputValue(process.env.STRUCTURED_OUTPUT);
+    const requestTimeoutMs = optionalPositiveNumber(process.env.REQUEST_TIMEOUT_MS);
+    const engineConfig = buildEngineConfig({
+      analysisMode: process.env.ANALYSIS_MODE,
+      scoreSamples: process.env.SCORE_SAMPLES ? Number(process.env.SCORE_SAMPLES) : undefined,
+    });
+    const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
+    const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
+    const provider = new OpenRouterProvider({ apiKey: openRouterKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
     return {
-      engine: new Engine(provider),
-      config: { provider: 'openrouter', model, configSource: 'env:OPENROUTER_API_KEY' } as McpEngineConfig,
+      engine: new Engine(provider, engineConfig),
+      config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: 'env:OPENROUTER_API_KEY', engineConfig } as McpEngineConfig,
     };
   }
 
@@ -587,7 +751,11 @@ export function createMcpToolRegistry({
   };
 }
 
-export function createMcpServer(options: McpToolRegistryOptions = {}) {
+export interface McpServerOptions extends McpToolRegistryOptions {
+  transport?: Transport;
+}
+
+export function createMcpServer(options: McpServerOptions = {}) {
   const registry = createMcpToolRegistry(options);
 
   const server = new Server(
@@ -604,8 +772,11 @@ export function createMcpServer(options: McpToolRegistryOptions = {}) {
   return {
     server,
     async start() {
-      const transport = new StdioServerTransport();
+      const transport = options.transport ?? new StdioServerTransport();
       await server.connect(transport);
+    },
+    async stop() {
+      await server.close();
     },
   };
 }
@@ -614,8 +785,29 @@ export async function main(): Promise<void> {
   // Wire core logger to stderr — MCP uses stdio for protocol communication.
   setTransport((line) => process.stderr.write(line + '\n'));
 
+  process.stdin.resume();
   const { start } = createMcpServer();
   await start();
+
+  // Keep the stdio server alive until the client closes stdin or the process
+  // receives a termination signal. Without this explicit ref, Node can exit
+  // immediately after connect() resolves in some child-process environments.
+  const keepAlive = setInterval(() => undefined, 60_000);
+  let sawStdinData = false;
+  process.stdin.on('data', () => {
+    sawStdinData = true;
+  });
+  await new Promise<void>((resolve) => {
+    const done = (force = false) => {
+      if (!force && !sawStdinData) return;
+      clearInterval(keepAlive);
+      resolve();
+    };
+    process.stdin.once('end', () => done());
+    process.stdin.once('close', () => done());
+    process.once('SIGTERM', () => done(true));
+    process.once('SIGINT', () => done(true));
+  });
 }
 
 if (require.main === module) {

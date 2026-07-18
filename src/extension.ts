@@ -18,6 +18,7 @@ import { SkillsCodeActionProvider } from './ui/codeActions';
 import { SuggestionHoverProvider } from './ui/hover';
 import { createInlineRewriteProvider } from './ui/inlineRewrites';
 import { fetchPricing, formatPricing, normalizeModelName, ModelPricing } from './pricing';
+import { fetchContextLengths, formatContextLength } from './modelCatalog';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -185,7 +186,7 @@ function computeConfigHash(cfg: ReturnType<typeof readConfig>, apiKey?: string):
       try { return `${f}:${fs.statSync(path.join(promptsDir, f)).mtimeMs}`; } catch { return f; }
     }).join(',');
   } catch { /* prompts dir not available — skip */ }
-  return `${cfg.provider}:${cfg.model}:${cfg.deepModel}:${cfg.fixModel}:${cfg.analysisMode}:${cfg.enabledWaves.join(',')}:${cfg.fixStrategy}:${cfg.fixSemanticCheck}:${cfg.fixSelfCritique}:${cfg.fixReferenceGrounding}:${JSON.stringify(cfg.severityOverrides)}:${apiKeyDiscriminator}:${promptMtimes}`;
+  return `${cfg.provider}:${cfg.model}:${cfg.deepModel}:${cfg.fixModel}:${cfg.externalStructuredOutput}:${cfg.externalMaxResponseTokens}:${cfg.externalAdaptiveMaxResponseTokens}:${cfg.externalAdaptiveResponseTokens}:${cfg.externalMinAdaptiveResponseTokens}:${cfg.externalAdaptiveCharsPerToken}:${cfg.externalRequestTimeoutMs}:${cfg.analysisMode}:${cfg.enabledWaves.join(',')}:${cfg.fixStrategy}:${cfg.fixSemanticCheck}:${cfg.fixSelfCritique}:${cfg.fixReferenceGrounding}:${JSON.stringify(cfg.severityOverrides)}:${apiKeyDiscriminator}:${promptMtimes}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +310,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('skillsReviewAndPolish.syncMcpConfig', syncMcpConfig),
     vscode.commands.registerCommand('skillsReviewAndPolish.showFixRejectionReasons', showFixRejectionReasons),
     vscode.commands.registerCommand('skillsReviewAndPolish.inspectModels', inspectModels),
+    vscode.commands.registerCommand('skillsReviewAndPolish.showAllFindings', showAllFindings),
   );
 
   context.subscriptions.push(
@@ -423,9 +425,33 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     }
     const provider =
       cfg.provider === 'openrouter'
-        ? new OpenRouterProvider({ apiKey, model: cfg.model || '', fixModel: cfg.fixModel || undefined })
-        : new GitHubModelsProvider({ apiKey, model: cfg.model || '', fixModel: cfg.fixModel || undefined });
-    log('info', `buildEngine: using external provider ${cfg.provider} model=${cfg.model || '(auto)'} fixModel=${cfg.fixModel || '(same as model)'}`);
+        ? new OpenRouterProvider({
+            apiKey,
+            model: cfg.model || '',
+            deepModel: cfg.deepModel || undefined,
+            fixModel: cfg.fixModel || undefined,
+            maxTokens: cfg.externalMaxResponseTokens,
+            adaptiveMaxTokens: cfg.externalAdaptiveResponseTokens,
+            adaptiveMaxTokensCap: cfg.externalAdaptiveMaxResponseTokens,
+            minAdaptiveTokens: cfg.externalMinAdaptiveResponseTokens,
+            adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
+            structuredOutput: cfg.externalStructuredOutput,
+            requestTimeoutMs: cfg.externalRequestTimeoutMs,
+          })
+        : new GitHubModelsProvider({
+            apiKey,
+            model: cfg.model || '',
+            deepModel: cfg.deepModel || undefined,
+            fixModel: cfg.fixModel || undefined,
+            maxTokens: cfg.externalMaxResponseTokens,
+            adaptiveMaxTokens: cfg.externalAdaptiveResponseTokens,
+            adaptiveMaxTokensCap: cfg.externalAdaptiveMaxResponseTokens,
+            minAdaptiveTokens: cfg.externalMinAdaptiveResponseTokens,
+            adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
+            structuredOutput: cfg.externalStructuredOutput,
+            requestTimeoutMs: cfg.externalRequestTimeoutMs,
+          });
+    log('info', `buildEngine: using external provider ${cfg.provider} model=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(same as model)'} fixModel=${cfg.fixModel || '(same as model)'}`);
     state!.currentVsCodeLmProvider = undefined;
     state!.cachedEngine = new Engine(provider, cfg);
     state!.cachedEngineConfigHash = hash;
@@ -816,7 +842,7 @@ async function analyzeDocument(
             log('debug', `  [${r.severity}] ${r.code} L${(r.range?.start?.line ?? 0) + 1}: ${r.message.slice(0, 120)}`);
           }
 
-          publishDiagnostics(state!.diagnostics, doc.uri, results, cfg.severityOverrides);
+          publishDiagnostics(state!.diagnostics, doc.uri, results, cfg.severityOverrides, cfg.maxDiagnostics);
 
           // Store for later fix commands
           state?.lastResults.set(uriKey, results);
@@ -1192,6 +1218,27 @@ async function showFixRejectionReasons(): Promise<void> {
   await vscode.window.showTextDocument(doc, { preview: false });
 }
 
+/**
+ * Re-publish every cached finding for the active document, bypassing the
+ * `maxDiagnostics` cap (plan item 5). The cap keeps the editor responsive on
+ * large skills; this command lets the user expand the full list on demand.
+ */
+async function showAllFindings(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || !state?.diagnostics) return;
+  const uri = editor.document.uri;
+  const results = state.lastResults.get(uri.toString()) ?? [];
+  if (results.length === 0) {
+    vscode.window.showInformationMessage('Skills Review: no findings to show for this file.');
+    return;
+  }
+  const cfg = readConfig();
+  // Pass a very high cap so publishDiagnostics renders every finding and
+  // suppresses the "show all" summary diagnostic.
+  publishDiagnostics(state.diagnostics, uri, results, cfg.severityOverrides, Number.MAX_SAFE_INTEGER);
+  vscode.window.showInformationMessage(`Skills Review: showing all ${results.length} findings.`);
+}
+
 // ---------------------------------------------------------------------------
 // Diff helpers
 // ---------------------------------------------------------------------------
@@ -1295,11 +1342,12 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
   picker.items = [{ label: '$(sync~spin) Loading model pricing…', description: '', alwaysShow: true }];
   picker.show();
 
-  // Fetch models and pricing in parallel while the picker is visible
+  // Fetch models, pricing, and context-length catalog in parallel while the picker is visible
   const cfg = readConfig();
-  const [lmModels, pricingMap] = await Promise.all([
+  const [lmModels, pricingMap, contextMap] = await Promise.all([
     vscode.lm.selectChatModels(),
     fetchPricing(),
+    fetchContextLengths().catch(() => new Map<string, number>()),
   ]);
 
   // If Copilot returned 0 models (not signed in) but we have an active
@@ -1380,29 +1428,45 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
         costHint = '  ❓ cost unknown';
       }
 
+      const ctxTokens = contextLengthForModel(m.id, m.name, contextMap);
+      const ctxHint = ` · ctx=${formatContextLength(ctxTokens)}`;
+
       return {
         label: `${vendor} ${m.name}`,
         description: costHint,
-        detail: `     ${m.id} · ${m.vendor}`,
+        detail: `     ${m.id} · ${m.vendor}${ctxHint}`,
         modelId: m.id,
         name: m.name,
       } as vscode.QuickPickItem & { modelId: string; name: string };
     });
   } else if (externalModels.length > 0) {
     // Show external models with pricing from the pricing map
-    // E29 (2026-07-11) benchmark winner — recommended for OpenRouter.
+    // E56 (2026-07-13) corpus-scan winner — recommended for OpenRouter.
+    // Starred as "best overall" + "deep wave"; matches the package.json
+    // markdownDescription and the docs/USER-GUIDE.md recommendation table.
     const RECOMMENDED_MODELS = new Set([
-      'qwen/qwen3-coder-30b-a3b-instruct',
+      'google/gemini-2.5-flash-lite',
+    ]);
+    const RECOMMENDED_DEEP_MODELS = new Set([
+      'deepseek/deepseek-chat-v3',
     ]);
     items = externalModels.map((m) => {
       // Use pricingForModel for substring matching (handles variations like "Poolside: Laguna M.1" vs "poolside/laguna-m.1")
       const pricing = pricingForModel(m.name, pricingMap);
       const costHint = pricing ? `  💰 ${formatPricing(pricing)}` : '  ❓ cost unknown';
       const isRecommended = RECOMMENDED_MODELS.has(m.id);
+      const isDeepRecommended = RECOMMENDED_DEEP_MODELS.has(m.id);
+      const ctxTokens = contextLengthForModel(m.id, m.name, contextMap);
+      const ctxHint = ` · ctx=${formatContextLength(ctxTokens)}`;
+      const recommendedTag = isRecommended
+        ? '  (recommended for model)'
+        : isDeepRecommended
+          ? '  (recommended for deepModel)'
+          : '';
       return {
-        label: isRecommended ? `🔵⭐ ${m.name}` : `🔵 ${m.name}`,
-        description: isRecommended ? `${costHint}  (recommended)` : costHint,
-        detail: `     ${m.id} · ${cfg.provider}`,
+        label: isRecommended ? `🔵⭐ ${m.name}` : isDeepRecommended ? `🔵⭐ ${m.name}` : `🔵 ${m.name}`,
+        description: `${costHint}${recommendedTag}`,
+        detail: `     ${m.id} · ${cfg.provider}${ctxHint}`,
         modelId: m.id,
         name: m.name,
       } as vscode.QuickPickItem & { modelId: string; name: string };
@@ -1535,6 +1599,8 @@ async function syncMcpConfig(silent = false): Promise<void> {
     model: cfg.model,
     deepModel: cfg.deepModel,
     fixModel: cfg.fixModel,
+    structuredOutput: cfg.externalStructuredOutput,
+    requestTimeoutMs: cfg.externalRequestTimeoutMs,
     analysisMode: cfg.analysisMode,
     logLevel: cfg.logLevel,
   };
@@ -1592,6 +1658,44 @@ function pricingForModel(name: string, pricingMap: Map<string, ModelPricing>): M
   return bestMatch;
 }
 
+/**
+ * Look up the input context length (in tokens) for a model.
+ * Tries the catalog directly by id, then by normalized id, then by
+ * normalized name. Returns `undefined` when no match is found — callers
+ * display `❓ ctx` rather than fabricating a value.
+ */
+function contextLengthForModel(
+  id: string,
+  name: string,
+  contextMap: Map<string, number>,
+): number | undefined {
+  if (!id && !name) return undefined;
+  if (contextMap.size === 0) return undefined;
+  // Exact id
+  if (id) {
+    const hit = contextMap.get(id);
+    if (hit) return hit;
+    const normalizedId = id.replace(/^[^/]+\//, '').toLowerCase().replace(/[-_./]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const hitNorm = contextMap.get(normalizedId);
+    if (hitNorm) return hitNorm;
+  }
+  // Substring fallback on name (best-effort)
+  if (name) {
+    const lower = name.toLowerCase();
+    let bestMatch: number | undefined;
+    let bestKeyLen = 0;
+    for (const [key, val] of contextMap) {
+      const keyLower = key.toLowerCase();
+      if ((lower.includes(keyLower) || keyLower.includes(lower)) && keyLower.length > bestKeyLen) {
+        bestMatch = val;
+        bestKeyLen = keyLower.length;
+      }
+    }
+    if (bestMatch) return bestMatch;
+  }
+  return undefined;
+}
+
 async function testModelSimplePrompt(): Promise<void> {
   log('info', 'testModelSimplePrompt: Starting simple prompt test...');
   
@@ -1609,8 +1713,18 @@ async function testModelSimplePrompt(): Promise<void> {
     const model = cfg.model || '';
     const provider =
       cfg.provider === 'openrouter'
-        ? new OpenRouterProvider({ apiKey, model })
-        : new GitHubModelsProvider({ apiKey, model });
+        ? new OpenRouterProvider({
+            apiKey,
+            model,
+            structuredOutput: cfg.externalStructuredOutput,
+            requestTimeoutMs: cfg.externalRequestTimeoutMs,
+          })
+        : new GitHubModelsProvider({
+            apiKey,
+            model,
+            structuredOutput: cfg.externalStructuredOutput,
+            requestTimeoutMs: cfg.externalRequestTimeoutMs,
+          });
 
     vscode.window.showInformationMessage(`Testing ${cfg.provider} model "${model}" with simple JSON prompt…`);
     try {
@@ -1802,4 +1916,3 @@ export function registerLanguageModelTools(
     }),
   );
 }
-
