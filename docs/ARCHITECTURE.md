@@ -2,7 +2,7 @@
 
 **This guide explains the technical decisions behind the extension** — why it works the way it does, what to expect from results, and how to interpret accuracy metrics.
 
-**For end users:** Read this if you want to understand why the analyzer makes the choices it does.  
+**For end users:** Read this if you want to understand why the analyzer makes the choices it does.
 **For developers:** See [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md) and [docs/plan/LEARNINGS.md](plan/LEARNINGS.md) for implementation details.
 
 ---
@@ -26,10 +26,10 @@ Here's what happens when you run analysis:
 
 **Why waves instead of one big scan?**
 
-- **Single-pass accuracy:** 82% Jaccard score
-- **Multi-wave accuracy:** 86% Jaccard score
-- **Cost:** Multi-wave uses ~1.5–2× more LLM requests, but with prompt caching, the latency is comparable
-- **Quality:** Waves allow for specialized prompts per category, reducing false positives
+- **Current release baseline:** about 87.3% recall on clean fixtures (schema-mode, 5×3), with 63–73% precision (see README Status)
+- **Cost:** Multi-wave uses more LLM requests than single-pass, but gives each category a focused prompt
+- **Quality:** Waves make failures easier to diagnose and tune than one large blended prompt
+- **Caution:** Historical 82-86% Jaccard experiments are not current release claims unless re-run against the clean-fixture gate
 
 ### How Results Are Scored
 
@@ -37,7 +37,7 @@ Each wave produces a list of issues with severity levels (Error/Warning/Hint/Inf
 
 1. **Deduplicates** issues within the same document
 2. **Scores** each issue by category
-3. **Applies median-of-N sampling** — analyzes your file **3 times** and takes the median penalty score
+3. **Applies median-of-N scoring** — `scoreSamples` controls how many analyses are scored, then the median penalty sample is returned
    - This smooths out AI randomness (see "The Noise Floor" below)
    - More consistent results without changing the model
 
@@ -61,11 +61,11 @@ Even at temperature 0 (most deterministic setting), running the analyzer on the 
 
 ## Why Low-Reasoning Models?
 
-The analyzer uses **gpt-4.1** (or equivalent Copilot models), not reasoning models or Claude Haiku. Here's why:
+The analyzer uses low-reasoning models (the default Copilot model, or `google/gemini-2.5-flash-lite` on OpenRouter), not reasoning models or Claude Haiku. Here's why:
 
 ### The Trade-Offs
 
-| Aspect | Low-Reasoning (gpt-4.1) | Reasoning (o1/o3) | Claude Haiku |
+| Aspect | Low-Reasoning (default Copilot / gemini-2.5-flash-lite) | Reasoning (o1/o3) | Claude Haiku |
 | --- | --- | --- | --- |
 | **Speed** | 30 seconds | 2+ minutes | 20 seconds |
 | **Cost** | $0.003–$0.01 per call | $0.15–$0.30 per call | $0.001–$0.003 per call |
@@ -87,27 +87,29 @@ During tuning, **Claude Haiku was tested and rejected:**
 
 ---
 
-## The Noise Floor: ±6 Points
+## The Noise Floor: Now Deterministic (range 3)
 
 **This is the most important fact to understand about analyzer accuracy.**
 
-When we measure the analyzer's performance, we run it multiple times on the same file and compare results. The fundamental baseline measurement is:
-
-> Running the analyzer 5 times on the **same unchanged file** with **temperature 0** and **top_p 0** (most deterministic settings) produces penalty scores: ~30, 32, 38, 38, 42.
+The analyzer runs under greedy decoding (temperature 0). Historically the
+schema-mode noise floor was ±6 points of irreducible variance. The v0.1.39
+deterministic retry/merge fix (first response wins unless a clean retry
+recovery occurs) collapsed this: a 10× noise-floor probe now shows **range 3
+penalty / 1 finding, with 9 of 10 runs identical**.
 
 **What this means:**
 
-- **±6 points is irreducible variance.** Even with perfect LLM determinism, you can't get tighter than this.
-- **Score changes < 6 points are noise, not real improvements.** If you fix something and the score drops from 42 to 40, that could be random variance.
+- **Output is deterministic.** Re-running the analyzer on the same unchanged file reproduces the same findings (greedy decoding makes `seed` inert — it was prototyped and rejected).
+- **Score changes < 3 points are noise, not real improvements.**
 - **Score changes > 10 points are real improvements.** We only accept/reject fixes if the penalty change exceeds the noise margin.
 
 ### Implications
 
-1. **Don't chase small gains.** If a fix improves the score by 3 points, run it 3 times. If the median improvement is <6 points, it's probably random variance.
+1. **Don't chase small gains.** If a fix improves the score by 1–2 points, run it 3 times. If the median improvement is <3 points, it's probably random variance.
 
-2. **Use median-of-N for reliability.** The analyzer is configured to run **3 passes by default** (configurable via `SCORE_SAMPLES`) and takes the median score. This is your best estimate of the "true" score.
+2. **Use median-of-N for reliability.** The analyzer is configured to run **3 passes by default** (configurable via `scoreSamples`) and takes the median score. This is your best estimate of the "true" score.
 
-3. **CI/CD and automation need this too.** If you're using the MCP server for CI/CD checks, don't set pass/fail thresholds tighter than ±6 points.
+3. **CI/CD and automation need this too.** If you're using the MCP server for CI/CD checks, don't set pass/fail thresholds tighter than the residual noise margin.
 
 ---
 
@@ -121,7 +123,7 @@ When you install **Skills Review and Polish**, it defaults to using **GitHub Cop
 
 - No API keys to manage
 - Already trusted by VS Code
-- Uses a strong, optimized model (gpt-4.1 family)
+- Uses a strong, optimized model (the selected Copilot model by default; `google/gemini-2.5-flash-lite` recommended on OpenRouter)
 - Familiar to most VS Code users
 
 ### Changing the Model
@@ -162,41 +164,40 @@ If you use **openrouter**, you can pick any model:
 
 ### What the Analyzer Does Well
 
-✅ **Contradictions** — Detects logical conflicts (instructions that contradict each other)  
-✅ **Ambiguities** — Flags vague language that could be misunderstood  
-✅ **Persona issues** — Catches inconsistent voice or character shifts  
-✅ **Structural problems** — Finds redundancy, over-nesting, dead code  
-✅ **Coverage gaps** — Identifies missing important information  
+✅ **Contradictions** — Detects logical conflicts (instructions that contradict each other)
+✅ **Ambiguities** — Flags vague language that could be misunderstood
+✅ **Persona issues** — Catches inconsistent voice or character shifts
+✅ **Structural problems** — Finds redundancy, over-nesting, dead code
+✅ **Coverage gaps** — Identifies missing important information
 ✅ **Hygiene issues** — Spots formatting, redundancy, and dead code
 
 ### Current Accuracy
 
-Based on **100+ skill files** from the test corpus:
+The current honest release baseline is:
 
-- **Overall Jaccard accuracy: 86%**
-- **Contradictions: 100%** ✅ Perfect detection
-- **Ambiguities: 100%** ✅ Perfect detection
-- **Persona: 89%** ⚠️ Occasional subtle shifts missed
-- **Structural: 91%** ⚠️ Very complex nesting rarely missed
-- **Coverage: 85%** — High confidence for major gaps
-- **Hygiene: 88%** — Catches most redundancy
+- **Clean fixtures:** about 87.3% recall (schema-mode, 5×3)
+- **Precision:** 63–73% (precision hardening to ≥85% is the remaining gate to formal release)
+- **Determinism:** noise floor collapsed to range 3 penalty / 1 finding (9 of 10 runs identical) after the v0.1.39 deterministic retry/merge fix
 
-(Jaccard = True Positives / (True Positives + False Positives + False Negatives))
+The analyzer is useful as a reviewer and teaching aid, but it is not ready to be
+marketed as a formal certification gate. Historical fixture-specific runs found
+much higher category recall in some focused modes, but those results are
+model-dependent and must be revalidated before being used as public claims.
 
 ### What It Might Miss
 
-⚠️ **Very subtle persona shifts** — If the voice changes gradually, might not be caught  
-⚠️ **Context-dependent ambiguities** — If ambiguity is only a problem in specific use cases  
-⚠️ **Domain-specific knowledge** — If your field has specialized terminology the analyzer doesn't know  
+⚠️ **Very subtle persona shifts** — If the voice changes gradually, might not be caught
+⚠️ **Context-dependent ambiguities** — If ambiguity is only a problem in specific use cases
+⚠️ **Domain-specific knowledge** — If your field has specialized terminology the analyzer doesn't know
 ⚠️ **Intentional vagueness** — Sometimes you *want* to be vague (e.g., creative prompts)
 
 ### When to Trust the Analyzer
 
-✅ **Trust it when:** You're writing technical instructions, prompt templates, or skill definitions  
-✅ **Trust it when:** You want a fast first pass at quality before human review  
-✅ **Trust it when:** You're building a corpus of consistent, well-written instructions  
+✅ **Trust it when:** You're writing technical instructions, prompt templates, or skill definitions
+✅ **Trust it when:** You want a fast first pass at quality before human review
+✅ **Trust it when:** You're building a corpus of consistent, well-written instructions
 
-⚠️ **Don't trust it when:** Writing creative or artistic prompts where vagueness is intentional  
+⚠️ **Don't trust it when:** Writing creative or artistic prompts where vagueness is intentional
 ⚠️ **Don't trust it when:** Your domain has very specialized terminology or context
 
 ### False Positives and False Negatives
@@ -308,11 +309,9 @@ With **prompt caching** enabled (automatic in Copilot), repeat analyses on the s
 {
   "skillsReview.enable": true,
   "skillsReview.provider": "vscode-lm",
-  "skillsReview.model": "gpt-4.1",  // Used if provider supports model selection
-  "skillsReview.analysisMode": "multiWave",  // or "single"
-  "skillsReview.logLevel": "info",  // or "debug"
-  "skillsReview.temperature": 0,  // Determinism
-  "skillsReview.maxTokens": 16384
+  "skillsReview.model": "",  // Empty = provider default / selected Copilot model (recommended). OpenRouter: "google/gemini-2.5-flash-lite"
+  "skillsReview.analysisMode": "multiWave",  // or "single" / "focused"
+  "skillsReview.logLevel": "info"  // or "debug" / "trace"
 }
 ```
 
@@ -329,13 +328,43 @@ OPENROUTER_API_KEY=sk-...
 DEBUG=skills-review:*
 ```
 
+### Model Catalog & Context-Length Resolution
+
+The analyzer's document budget comes from the model's context window,
+resolved via a three-tier lookup at `src/modelCatalog.ts`. As of
+2026-07-17 there is no hard char cap on the analyzer; the budget is
+`max(MIN, ctxTokens × 4 × CONTEXT_FRACTION)` (default
+`MIN_DOCUMENT_CHARS = 8_000`, `CONTEXT_FRACTION = 0.8`).
+
+| Tier | Source | When used |
+| --- | --- | --- |
+| 1 | Live OpenRouter `/models` catalog (~1,215 entries) | When OpenRouter is reachable. Cached 1h in-memory. |
+| 2 | Bundled `assets/openrouter-catalog.json` (top-75 popular models, ~4.5KB) | Cold start, offline, or any time tier 1 fails. Ships inside the .vsix. |
+| 3 | Static table (5 entries: `gpt-4o mini`, `gemini 2.0 flash`, `gemini 3.0 pro`, `mistral-small-2503`, `phi-3.5-mini-instruct`) | Niche Copilot display names and GitHub Models IDs not in the OpenRouter catalog. |
+| Fallback | `undefined` → analyzer 200K-char fallback with `info`-level warning | When all lookups miss. |
+
+Refresh maintenance: `npm run refresh-fixtures` re-pulls the live catalog
+and rewrites both `assets/openrouter-catalog.json` (bundled subset,
+~4.5KB) and `tests/fixtures/openrouter-catalog.json` (full 1,215-entry
+catalog for test drift detection at `src/modelCatalog.test.ts`).
+
+Provider interface: `LlmProvider.getContextLength()` is a **required**
+method. `VsCodeLmProvider` reads `maxInputTokens` from the cached
+`vscode.LanguageModelChat`. `OpenRouterProvider` /
+`GitHubModelsProvider` accept a `contextLength` constructor opt. The
+picker UI surfaces `· ctx=200K` on each model's detail line via the
+same lookup.
+
 ### MCP Server
 
 For CI/CD and automation, use the **MCP server**:
 
 ```bash
-node src/mcp/server.ts --provider openrouter --model gpt-4.1
+npm run mcp   # compiles (if needed) and starts the stdio server: node out/mcp/server.js
 ```
+
+`createDefaultEngine` is **async** and awaits `pickSmallestContextLength`
+at startup before serving the first analyze request.
 
 See [src/mcp/README.md](../src/mcp/README.md) for details.
 

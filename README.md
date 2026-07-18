@@ -4,7 +4,7 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## Status: v0.1.40 beta / release-candidate hardening
+## Status: v0.1.41 beta / release-candidate hardening
 
 This project is useful for authoring-time review, but it should be treated as
 beta-quality until calibration gates are stronger. Current calibration evidence
@@ -146,11 +146,10 @@ See [DEVELOPMENT-STANDARDS.md](docs/DEVELOPMENT-STANDARDS.md) for code quality g
 Report issues, request features, or contribute:
 
 - [Open an issue](https://github.com/mutl3y/skills-review-and-polish/issues)
-- [See CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines
+- [Start a discussion](https://github.com/mutl3y/skills-review-and-polish/discussions)
 
 Questions?
 
-- [Start a discussion](https://github.com/mutl3y/skills-review-and-polish/discussions)
 - Read [DEVELOPMENT-STANDARDS.md](docs/DEVELOPMENT-STANDARDS.md) for code patterns
 - Check [docs/plan/LEARNINGS.md](docs/plan/LEARNINGS.md) for engineering decisions
 
@@ -165,9 +164,8 @@ This extension handles LLM API interactions and file system access. Security mea
 - **Concurrent analysis locks** — Per-URI analysis serialization prevents race conditions on `lastResults`
 - **Safe text replacement** — Function-as-replacement prevents `$`-pattern corruption in surgical fixes
 
-Report vulnerabilities to [security@example.com](mailto:security@example.com) rather than the issue tracker. See [SECURITY.md](SECURITY.md).
+Report vulnerabilities to [security@example.com](mailto:security@example.com) rather than the issue tracker.
 
 ## License & Conduct
 
 - **License:** MIT — See [LICENSE](LICENSE)
-- **Code of Conduct:** [Contributor Covenant](CODE_OF_CONDUCT.md)

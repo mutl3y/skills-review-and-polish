@@ -25,16 +25,17 @@ src/
 │   ├── acceptedFindings.ts  # Per-file accepted findings store
 │   ├── logger.ts            # Structured logging with log levels
 │   ├── prompts.ts           # Prompt loading from .md files
-│   └── prompts/             # Editable .md prompts (8 files)
-│       ├── contradiction.md
-│       ├── ambiguity.md
-│       ├── persona.md
-│       ├── structural-quality.md
-│       ├── coverage.md
-│       ├── hygiene.md
-│       ├── surgical-fix.md
-│       ├── composition-conflicts.md
-│       └── custom-diagnostics.md
+│   └── prompts/             # Editable .prompt files (10 wave/analysis prompts)
+│       ├── contradiction.prompt
+│       ├── ambiguity.prompt
+│       ├── persona.prompt
+│       ├── structural-quality.prompt
+│       ├── coverage.prompt
+│       ├── hygiene.prompt
+│       ├── surgical-fix.prompt
+│       ├── composition-conflicts.prompt
+│       ├── custom-diagnostics.prompt
+│       └── single-pass.prompt
 │
 ├── providers/               # LLM provider implementations
 │   ├── vscodeLmProvider.ts  # VS Code LM API (Copilot)
@@ -50,14 +51,14 @@ src/
 │
 ├── mcp/                     # MCP server (7 tools, headless seam)
 │   ├── server.ts            # Server + tool registry
-│   ├── server.test.ts       # Unit tests (9 tests, mocked)
-│   └── server.integration.test.ts  # E2E tests (7 tests, real MCP protocol)
+│   ├── server.test.ts       # Unit tests (mocked engine/provider)
+│   └── server.integration.test.ts  # E2E tests (real MCP protocol, live provider)
 │
 └── extension.ts             # Main activation + command wiring
 
 tests/
 ├── fixtures/                # Test corpus (primary + adversarial)
-│   ├── primary/             # 6 core fixtures (91 issues)
+│   ├── primary/             # Core fixtures (8 SKILL.md bodies + 2 extra)
 │   └── adversarial/         # 7 hard cases
 │
 ├── e2e/                     # Playwright smoke tests
@@ -73,7 +74,6 @@ docs/
 │   │   └── infrastructure/
 │   ├── LEARNINGS.md         # Hard-won lessons from analyzer tuning
 │   ├── PROGRESS.md          # Implementation status summary
-│   ├── ENGINE-REFERENCE.md  # Deep dive into analyzer architecture
 │   ├── HANDOVER.md          # Context for new contributors
 │   └── ...
 │
