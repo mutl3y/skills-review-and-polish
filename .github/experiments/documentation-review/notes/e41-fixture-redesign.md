@@ -17,12 +17,14 @@ The original `test-contradictions-direct/SKILL.md` had 15 paragraphs where each 
 | test-contradictions-direct / contradiction | 45/15 | 42/15 | -3 (less over-firing) |
 
 The redesigned fixture surfaces REAL findings the original was hiding:
+
 - "staging" / "production" / "developer convenience credentials" — undefined domain terms
 - Hygiene issues: over-specification, unordered process, vague-cognitive-directive
 
 ## Why the redesign works
 
 Original v1 structure (ambiguity stacked with contradiction in same sentence):
+
 ```
 **[DIRECT-N] <Rule Name>**
 <positive rule with ambiguous term>.
@@ -30,6 +32,7 @@ Original v1 structure (ambiguity stacked with contradiction in same sentence):
 ```
 
 Redesigned v2 structure (ambiguity in separate sentence):
+
 ```
 **[DIRECT-N] <Rule Name>**
 <positive rule>.

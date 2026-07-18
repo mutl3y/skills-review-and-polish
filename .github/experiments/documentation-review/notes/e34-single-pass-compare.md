@@ -41,12 +41,15 @@
 ## Key observations
 
 ### 1. Model change (E20 → E34): +78% findings (9 → 16)
+
 The new model alone (no prompt fix) accounts for a substantial improvement. The E20 prompt was v3-era (before E8-E11 fixes), but the model switch from gpt-4o-mini to qwen3-coder-30b alone yields 78% more findings on the 6-skill subset.
 
 ### 2. Single vs multiWave (E34 → E29): +100% findings (16 → 32)
+
 MultiWave still finds ~2x more than single mode on the same model + prompt. The new prompt's coverage rules (silent-gap inference) help single mode catch more, but multiWave's per-category focused calls still find more on average.
 
 ### 3. Code distribution: single mode favors cognitive, multiWave favors ambiguity
+
 - **Single mode** finds 11 cognitive-priority-conflict findings + 5 hygiene-unordered-process + 3 cognitive-deep-decision-tree + 2 hygiene-redundant-instruction
 - **MultiWave** finds 0 of these
 
@@ -55,23 +58,28 @@ This is the **opposite** of what we expected. Single mode (1 combined call) seem
 The ambiguity-llm shows the reverse: multiWave finds 15 vs single's 11. Per-category focus helps ambiguity detection.
 
 ### 4. Coverage-gap: single mode finds more (12 vs 6)
+
 Single mode finds 12 coverage-gaps; multiWave finds 6. Single mode seems better at inferring silent gaps because it sees the full document. MultiWave's per-category approach may be too narrow.
 
 ### 5. E20 had 9 findings across 6 skills; E29 multiWave has 32 (3.6x)
+
 The combined model + prompt + multiWave improvement is 256%. This is REAL signal: the E20 baseline was severely undercounting issues.
 
 ## Verdict
 
 The new model + new prompt combination recovers a significant amount of real signal that E20 missed:
+
 - E20 missed all 4 real issues in quality-playbook (cognitive priority conflict, deep nesting, redundancy, over-specification)
 - E20 missed the priority conflict in acquire-codebase-knowledge
 - E20 missed all but 1 finding in github-issues, microsoft-agent-framework, phoenix-tracing, etc.
 
 The new combination is correct. The 78% improvement on the 6-skill subset, and the -36% total findings on the 327-skill E30→E32 corpus scan, are not contradictory — they're different dimensions of the same improvement:
+
 - **On real-world skills**: noise was high (E30), prompt fix removed it (E32)
 - **On 6 production skills**: real issues were being missed (E20), new model + new prompt finds them (E34)
 
 The E29 multiWave result (32 findings) confirms the new combination is working correctly. The earlier E29 baseline run (with old prompts) was 83 findings on the same 6 skills, so:
+
 - E20: 9 findings (gpt-4o + v3 prompts, single mode)
 - E29 (original, v3 prompts): 83 findings (qwen + v3 prompts, multiWave)
 - E29 (re-run, E33 prompts): 32 findings (qwen + E33 prompts, multiWave) ← current
@@ -105,6 +113,7 @@ The E29 multiWave result (32 findings) confirms the new combination is working c
 | `meta-llama/llama-4-scout` | 78 | 9 | 5 | 25 | 11 | 11.5s | $0.20 |
 
 Compared to E29 v1 (v3 prompts):
+
 - qwen3-coder-30b: 26 → 32 (+23% on these 6 skills, but the prompt fix mostly reduced coverage-gap and ambiguity-llm noise)
 - gemini-flash-lite: 83 → 101 (+22% — over-flagger actually got worse with the prompt fix because it's not selective)
 - llama-4-scout: 72 → 78 (+8%)

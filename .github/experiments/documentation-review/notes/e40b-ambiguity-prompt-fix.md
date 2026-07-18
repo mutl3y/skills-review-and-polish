@@ -40,6 +40,7 @@ Restructured the prompt into:
 | test-contradictions-direct | 11 | 0 | 0-1 | **7-11 (median 8)** |
 
 The probe's 3 runs varied (8, 7, 11) — noise is high even with N=3, but the LLM is now finding the right terms. The 11/11 run 3 included:
+
 - "appropriate team" (undefined actor)
 - "high-throughput production environments" (undefined scope)
 - "high-priority releases" (undefined threshold)
@@ -50,6 +51,7 @@ The probe's 3 runs varied (8, 7, 11) — noise is high even with N=3, but the LL
 ## E33 full re-run (in progress)
 
 Running 13 fixtures × 3 runs at N=3, all 6 waves. Will report:
+
 - ambiguity-llm recall per fixture (vs E33 baseline)
 - any regressions in non-ambiguity categories
 

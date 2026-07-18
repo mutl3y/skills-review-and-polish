@@ -28,6 +28,7 @@ calibration follows that principle. For each fixture:
 Expected: 12 contradictions + 4 ambiguities + 1 coverage + 6 hygiene + 2 cognitive
 
 **Review of the 6 expected hygiene:**
+
 - SUBTLE-5: "split any function whose conditional logic exceeds **ten lines**" — this is **over-specification** (exact count "10"). **Real.**
 - SUBTLE-12: "Catch and handle all errors at service boundaries" — missing agent (no named actor for "service boundaries"). **Real.**
 - The other 10 SUBTLEs are pure contradictions with no anchored hygiene issue.
@@ -35,6 +36,7 @@ Expected: 12 contradictions + 4 ambiguities + 1 coverage + 6 hygiene + 2 cogniti
 **Calibration: hygiene 6 → 2**
 
 **Review of the 2 expected cognitive:**
+
 - SUBTLE-5: "Reduce complexity" + "Make all edge cases explicit" — both rules increase complexity. This is a real cognitive-nested-conditions pattern. **Real.**
 - No other SUBTLE has an anchored cognitive issue.
 
@@ -45,6 +47,7 @@ Expected: 12 contradictions + 4 ambiguities + 1 coverage + 6 hygiene + 2 cogniti
 Expected: 5 cognitive + 6 ambiguities + 4 coverage + 4 hygiene + 4 persona + 1 circular
 
 **Review of the 5 expected cognitive:**
+
 - COGNITIVE-1: 4-level nested IF/THEN → rule (a) **Real**
 - COGNITIVE-2: 3 competing priority systems → rule (b) **Real**
 - COGNITIVE-3: 7 simultaneous AND conditions in escalation gate → **the rule previously excluded this** (constraint-overload was excluded based on count alone). The user's review established this IS a real cognitive issue. **Fix the rule, keep the expectation.**
@@ -58,12 +61,14 @@ Expected: 5 cognitive + 6 ambiguities + 4 coverage + 4 hygiene + 4 persona + 1 c
 Expected: 13 coverage + 7 ambiguity + 5 hygiene + 1 cognitive
 
 **Review of 5 expected hygiene:**
+
 - Body is a pure coverage test (dependency audit process). No anchored hygiene issues in the body text. The 5 expected is over-claimed.
 - The LLM finds 0-1, which is correct.
 
 **Calibration: hygiene 5 → 1** (allow 1 for any hygiene edge case the LLM might catch)
 
 **Review of 1 expected cognitive:**
+
 - No real cognitive finding in the body.
 
 **Calibration: cognitive 1 → 0 (removed)**
@@ -73,6 +78,7 @@ Expected: 13 coverage + 7 ambiguity + 5 hygiene + 1 cognitive
 Expected: 8 ambiguity + 7 hygiene + 2 coverage + 1 contradiction + 4 cognitive
 
 **Review of 4 expected cognitive:**
+
 - QUALITY-4: Double negative (rule c) — **Real**
 - QUALITY-14: Prerequisite mentioned after step (rule d) — **Real**
 - QUALITY-? others: 2 more expected but not labeled. The 4-claim is over.
@@ -84,6 +90,7 @@ Expected: 8 ambiguity + 7 hygiene + 2 coverage + 1 contradiction + 4 cognitive
 Expected: 15 coverage + 7 hygiene
 
 **Review of 15 expected coverage:**
+
 - GAP-H-1 (secrets lifecycle): Real for pre-prod review
 - GAP-H-2 (rate limiting/DDoS): Real
 - GAP-H-3 (supply chain/SBOM): Real for pre-prod review
@@ -103,6 +110,7 @@ Expected: 15 coverage + 7 hygiene
 **Calibration: coverage-gap 15 → 10** (drop H-8, H-11, H-15 — clearly out of scope; keep the rest as in-scope)
 
 **Review of 7 expected hygiene:**
+
 - Body has ~3 real hygiene issues (over-specification in cipher suite rules, missing-agent in some sections, vague-cognitive-directive in "verify" sections). The other 4 are over-counted.
 
 **Calibration: hygiene 7 → 3**
@@ -112,6 +120,7 @@ Expected: 15 coverage + 7 hygiene
 Expected: 10 circular + 2 hygiene + 1 cognitive
 
 **Review of 10 expected circular:**
+
 - HARD-CIRC-1, 5, 9: near-synonym/reciprocal circles — **Real**
 - HARD-CIRC-3, 7: 3-hop circles — **Real** (with the new 3-hop rule in hygiene.prompt)
 - HARD-CIRC-4, 8: reciprocal with domain jargon — **Real**
@@ -124,6 +133,7 @@ Expected: 10 circular + 2 hygiene + 1 cognitive
 Expected: 15 ambiguity + 2 coverage + 5 hygiene + 1 cognitive
 
 **Review of 1 expected cognitive:**
+
 - All HARD-OBLIG patterns are about weak obligations (ambiguities). None are anchored cognitive issues.
 
 **Calibration: cognitive 1 → 0 (removed)**
@@ -133,6 +143,7 @@ Expected: 15 ambiguity + 2 coverage + 5 hygiene + 1 cognitive
 Expected: 20 ambiguity + 1 hygiene
 
 **Review of 1 expected hygiene:**
+
 - Body is pure ambiguity test (HARD-AMBIG-1 through 20). No anchored hygiene issues.
 
 **Calibration: hygiene 1 → 0 (removed)**

@@ -123,6 +123,7 @@ Findings that **2+ models agreed on**:
 | quality-playbook | 158 | contradiction | qwen3-coder (analysis) + qwen3-coder (deep) |
 
 **Insights:**
+
 - **github-issues L25/L47** is the most-flagged "contradiction" — but the LLM-eval-style reading is that it IS a contradiction (MCP says it can't do X, doc tells you to do X with `gh api`). Whether this is a real issue is a judgment call.
 - **create-agentsmd L30 / L109** agreement is strong — the doc's "no required fields" + "customize based on the specific project" is genuinely underspecified.
 
@@ -141,6 +142,7 @@ Findings that **2+ models agreed on**:
 **Switch the default `model` from `google/gemini-2.5-flash-lite` to `qwen/qwen3-coder-30b-a3b-instruct`.**
 
 **Reasons:**
+
 1. **3x cheaper** ($0.17 vs $0.25 per 1M tokens)
 2. **More precise** — 26 findings vs 83 (less noise, fewer FPs)
 3. **Verified quality** — sample findings are real issues
@@ -148,6 +150,7 @@ Findings that **2+ models agreed on**:
 5. **Faster** than the worst models, slightly slower than gemini-flash (5s vs 19s avg)
 
 **Configuration:**
+
 ```json
 {
   "skillsReviewAndPolish.provider": "openrouter",
@@ -177,6 +180,7 @@ After applying the E33 prompt fixes (anti-boilerplate, material-difference test,
 | `qwen/qwen3-vl-8b-instruct` | 9 | 0 | 0 | 0 | 0 | 8.7s |
 
 Compared to the original E29 (v3 prompts):
+
 - qwen3-coder-30b: 26 → 32 (+23% on 6 skills)
 - gemini-flash-lite: 83 → 101 (+22% — over-flagger got worse)
 - llama-4-scout: 72 → 78 (+8%)

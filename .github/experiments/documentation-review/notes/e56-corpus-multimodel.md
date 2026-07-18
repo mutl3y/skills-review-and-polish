@@ -41,6 +41,7 @@ The multi-model mix recommended by E53/E54 is a **major improvement** over the E
 ## Why the Mix Wins
 
 The multi-model mix is a **complementary specialization**:
+
 - **gemini-2.5-flash-lite** (standard tier): Best on general analysis (ambiguities, coverage, cognitive). On test fixtures, got 47% recall overall — much higher than qwen3-coder-30b's 21%.
 - **deepseek-chat-v3** (deep tier, used for contradictions wave only): Best on circular definitions (90% on test-circular-hard vs gemini-flash 67%) and contradictions (52% on test-contradictions-direct vs gemini-flash 68%, but better on the harder cases).
 
@@ -80,6 +81,7 @@ The `deepModel` is used for: contradictions wave (and the `tier='deep'` tier in 
 ## Recommendation
 
 **Ship this configuration as the default for v0.1.37.** It is:
+
 - 429% more findings than E30 (qwen3-coder-30b)
 - Half the cost ($0.24 vs $0.50)
 - Similar runtime

@@ -3,6 +3,7 @@
 > **Investigation date:** 2026-07-10
 > **Status:** paper analysis — no LLM calls, no code changes.
 > **Inputs:**
+>
 > - `.github/experiments/documentation-review/data/e12-*.json` (4 underperformer findings)
 > - `tests/fixtures/{primary,adversarial}/test-{coverage-gaps,coverage-gaps-hard,dead-hard,circular-hard}/SKILL.md` (labeled tables)
 > - `src/core/prompts/{coverage,single-pass,hygiene}.prompt` (the active wave prompts)
@@ -33,7 +34,9 @@ P2 and P3 each help 1.
 ## 1. test-coverage-gaps (PRIMARY, 7%)
 
 ### What was expected (per labeled table)
+
 15 explicit coverage gaps, classified as:
+
 - **HIGH** impact (8): GAP-2 (air-gapped registry), GAP-3 (diamond deps), GAP-4 (transitive CVEs), GAP-5 (dev vs prod), GAP-6 (monorepo), GAP-7 (missing lockfile), GAP-9 (deprecated no-successor), GAP-10 (CRITICAL CVE no patch), GAP-14 (success criteria)
 - **MEDIUM** impact (5): GAP-8 (license combinations), GAP-11 (false positives), GAP-12 (all-clear), GAP-13 (before/after)
 - **LOW** impact (2): GAP-1 (empty manifest), GAP-15 (non-English metadata)
@@ -45,6 +48,7 @@ gates by `processCoverage` skipping `impact: 'low'` in analyzer.ts
 the prompt's filter.
 
 ### What was detected (per E12 JSON)
+
 3 findings: 1 `coverage-gap` (GAP-2 air-gapped registry, flagged on
 the "Scope: direct dependencies only" line) + 1
 `cognitive-nested-conditions` (a false positive on step 4 "version
@@ -59,6 +63,7 @@ air-gapped registries." That **is** a legitimate GAP-2 detection
 a real hit, and 14/15 are misses.
 
 ### Why the gap exists
+
 Look at the `coverage.prompt` Pre-check (lines 5-9):
 
 ```
@@ -160,6 +165,7 @@ is harder for the LLM to apply consistently, so the median FP
 rate on real-world skills may rise from 0 to 1-2 per run.
 
 **Estimated impact:**
+
 - test-coverage-gaps: 7% → ~50% (the LLM fires more coverage-gaps
   on the genuine gaps; misses stay at 0-3 because the
   LLM is now more willing to flag ambiguity-of-handling)
@@ -179,6 +185,7 @@ the document mentions the category elsewhere."
 
 For the 2 underperforming fixtures, set the required-scope
 list to:
+
 - test-coverage-gaps: `['input-edge-cases', 'infrastructure-prerequisites',
   'success-criteria', 'multi-factor-interactions', 'meta-operational-gaps']`
 - test-coverage-gaps-hard: `['infrastructure-prerequisites',
@@ -204,6 +211,7 @@ transparent, more testable, and aligns with the project's existing
 (plan.yaml principles.prefer_deterministic_prompts).
 
 **Files to change:**
+
 - `src/core/config.ts` — add `requiredScopeCategories?: string[]` to
   `EngineConfig`.
 - `src/core/prompts/coverage.prompt` — add: "If required-scope
@@ -238,6 +246,7 @@ script reads the SKILL.md, but a sibling file is fine.
 ## 2. test-coverage-gaps-hard (ADVERSARIAL, 7%)
 
 ### What was expected (per labeled table)
+
 15 domain-knowledge-heavy security gaps (GAP-H-1 through GAP-H-15):
 secrets lifecycle, rate limiting, SBOMs, security regression tests,
 PAM, data residency, vulnerability disclosure, security awareness,
@@ -247,6 +256,7 @@ All marked as `Expected analyzer category: coverage_gap` for
 GAP-H-1 through GAP-H-15.
 
 ### What was detected (per E12 JSON)
+
 3 findings: 1 `coverage-gap` (GAP-H-1 secrets management lifecycle,
 flagged correctly) + 1 `cognitive-nested-conditions` (false positive
 on the XXE + SSRF lines) + 1 `hygiene-non-actionable-preamble` (false
@@ -255,6 +265,7 @@ positive on the L7 intro line).
 So 1/15 is a real hit (GAP-H-1), and 14/15 are misses.
 
 ### Why the gap exists
+
 Same root cause as test-coverage-gaps: the E10 pre-check
 ("search the document first") is too aggressive. The hard fixture
 makes the problem worse because:
@@ -288,6 +299,7 @@ E12 ran single mode to test the cost-optimized path.
 
 Option B (required-scope list) is the recommended fix. The
 required-scope list for this fixture would be:
+
 ```
 ['infrastructure-prerequisites', 'output-result-gaps',
  'meta-operational-gaps', 'multi-factor-interactions',
@@ -307,7 +319,9 @@ fixture configs).
 ## 3. test-circular-hard (ADVERSARIAL, 0%)
 
 ### What was expected (per labeled table)
+
 10 hard circular definitions across 4 patterns:
+
 - **Near-synonym circles** (HARD-CIRC-1, -5, -9): A defined using
   a near-synonym of A.
   - Example (HARD-CIRC-1): "Credit risk is the risk that a
@@ -341,6 +355,7 @@ fixture configs).
     the maximum potential loss threshold used in VaR calculation."
 
 ### What was detected (per E12 JSON)
+
 2 findings: 1 `hygiene-circular-definition` (detected on the
 "credit loss" definition — but this is a NEAR-SYNONYM circle,
 HARD-CIRC-1) + 1 `cognitive-nested-conditions` (false positive on
@@ -376,7 +391,9 @@ Either way: only 1/10 detected. The root cause analysis below
 applies.
 
 ### Why the gap exists
+
 The `hygiene.prompt` pattern (h) is:
+
 ```
 (h) CIRCULAR DEFINITION — a term is defined by reference to a
     second term, and that second term is itself defined by
@@ -397,6 +414,7 @@ The `hygiene.prompt` pattern (h) is:
 ```
 
 The pattern is too narrow. It requires:
+
 1. Both sides of the loop must be explicitly stated.
 2. The structure must match "An X is [something that satisfies/
    meets/requires] Y. Y is [the criteria/process/standard] that
@@ -506,6 +524,7 @@ intermediate definitions that look legitimate on first read).
 
 Instead of relying on the LLM to detect circular definitions via
 pattern matching, add a deterministic pre-processor that:
+
 1. Extracts all definitions from the document (lines starting
    with "**Term** is" or similar).
 2. Builds a directed graph: term → words used in its definition.
@@ -529,6 +548,7 @@ synonym loops, and the tautologies. The reciprocal-jargon cases
 overlap is below threshold.
 
 **Files to change:**
+
 - New: `src/core/circularDefinitions.ts` — the deterministic
   detector.
 - New: `src/core/circularDefinitions.test.ts` — 10 unit tests
@@ -554,8 +574,10 @@ is the natural fit.
 ## 4. test-dead-hard (ADVERSARIAL, 8%)
 
 ### What was expected (per labeled table)
+
 12 dead instructions (HARD-DEAD-1 through HARD-DEAD-12), all
 deprecation-era Kubernetes / GitHub / Terraform features:
+
 - HARD-DEAD-1: `apiVersion: extensions/v1beta1` (removed in K8s 1.16)
 - HARD-DEAD-2: `kubectl run --generator=run-pod/v1` (removed in K8s 1.18)
 - HARD-DEAD-3: `PodSecurityPolicy` (removed in K8s 1.25)
@@ -570,6 +592,7 @@ deprecation-era Kubernetes / GitHub / Terraform features:
 - HARD-DEAD-12: argoproj.io/v1alpha1 Application (replaced by v1alpha2)
 
 ### What was detected (per E12 JSON)
+
 3 findings: 1 `hygiene-dead-instruction` (HARD-DEAD-1 — the
 apiVersion on L40-42) + 1 `cognitive-nested-conditions` (false
 positive on L53) + 1 `coverage-gap` (false positive on L39).
@@ -577,7 +600,9 @@ positive on L53) + 1 `coverage-gap` (false positive on L39).
 So 1/12 is a real hit (HARD-DEAD-1), and 11/12 are misses.
 
 ### Why the gap exists
+
 The `hygiene.prompt` pattern (e) is:
+
 ```
 (e) DEAD INSTRUCTION — an instruction that references a feature,
     resource, template, authentication scheme, or tool that no
@@ -606,6 +631,7 @@ version) and "extensions/v1beta1" (a 7-year-old removed API) is
 so stark that the LLM flags it despite the prompt restriction.
 
 For the other 11 hard-DEAD cases, the contrast is less stark:
+
 - HARD-DEAD-2 (`--generator=run-pod/v1`): removed 6 years before
   K8s 1.29, but the LLM has less confident world knowledge about
   kubectl flag removals.
@@ -703,6 +729,7 @@ Replace the existing pattern (e) with:
 (gpt-4o-mini may hallucinate removal versions for tools it
 doesn't know). The 4-evidence list is comprehensive but
 may produce FPs on:
+
 - Documents that mention old versions in a "history" or
   "changelog" context (where the old version is intentional).
 - Documents that reference multiple tools, where the LLM
@@ -750,6 +777,7 @@ flags. Only the deep version-knowledge ones (HARD-DEAD-12
 v1alpha1 → v1alpha2) might slip through.
 
 **Files to change:**
+
 - New: `src/core/deadInstructions.ts` — the deterministic
   detector (regex-based extraction + lookup table).
 - New: `src/core/deadInstructions.lookup.json` — the static
@@ -777,6 +805,7 @@ fix doesn't reach 60% on the hard fixture.
 | **P3b** | Option B for dead (deterministic version-mismatch detector) | New: `src/core/deadInstructions.ts`, `src/core/deadInstructions.lookup.json`, `src/core/deadInstructions.test.ts`. Modified: `src/core/analyzer.ts` | Low | +82 pp (8%→90% on 1 fixture) | None (fixture-specific), but could generalize to other version-sensitive tools (e.g. AWS SDK, npm packages) |
 
 **Total expected improvement** (all 4 fixes implemented):
+
 - test-coverage-gaps: 7% → 50% (+43 pp, +6 findings detected)
 - test-coverage-gaps-hard: 7% → 50% (+43 pp, +6 findings detected)
 - test-circular-hard: 0% → 90% (+90 pp, +9 findings detected)

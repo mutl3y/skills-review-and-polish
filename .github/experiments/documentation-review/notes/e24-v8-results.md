@@ -16,6 +16,7 @@ v8 of the documentation-review skill **eliminates all 5 contradiction findings f
 **v7 (problem):** D8's Factual Fix entry enumerated "must not change meaning/intent/scope" as SHAPE constraints. C2 ("no strengthen") and C3 ("no weaken") also defined those same properties as CONSTRAINTS. The LLM read this as overlapping/conflicting rules.
 
 **v8 (fix):** D8's Factual Fix entry now references C2 and C3 instead of redefining their terms:
+
 - Factual Fix: "changes only the words used to express a fact... A Factual Fix that strengthens a claim (Constraint C2) or weakens a claim (Constraint C3) is NOT a Factual Fix; see C2 and C3 for the precise definitions of 'strengthen' and 'weaken' in terms of meaning, intent, and scope."
 
 A new "Relationship to Constraints" subsection explicitly states: "D8 defines the SHAPE of a permitted Modification. Satisfying the shape constraints above is NECESSARY but not SUFFICIENT: every Modification must ALSO satisfy all five Constraints."
@@ -49,6 +50,7 @@ Also: R1's "When VD=TRUE: Apply a permitted Modification" branch updated to ackn
 ### Per-finding comparison
 
 The 8 v8 findings:
+
 - 3 `ambiguity-llm` — minor wording in the new D8 prose (acceptable, the new text is denser)
 - 5 `coverage-gap` — new findings: D8 now REFERENCES C1, C2, C3, C4 instead of duplicating them, so the analyzer flags that those references need to be present (they are, but the LLM still flags the reference pattern as a coverage check)
 
@@ -68,5 +70,6 @@ v7 B- (under-counted E11 baseline) → v8 with focused multiWave: the grade woul
 Adopt v8 as the canonical documentation-review skill. The 3 remaining `ambiguity-llm` findings are about the new "Relationship to Constraints" prose, which is the prose that fixed the contradictions. Tightening it further would risk re-introducing the contradictions. The 5 `coverage-gap` findings are false positives in the sense that the references ARE present in the document; the LLM is just verifying the reference pattern, not the content.
 
 **Next iteration (v9) candidates** (low priority — only 8 findings, mostly minor):
+
 1. The "Relationship to Constraints" paragraph in D8 could be moved to a footnote to reduce ambiguity
 2. The 5 coverage-gap findings might be eliminated by adding the cross-reference verification back to the coverage wave (currently the analyzer only checks for the existence of referenced terms, not whether the relationship is bidirectional)

@@ -14,6 +14,7 @@ is real.
 ## Analysis
 
 ### Prompt sizes (chars)
+
 - single-pass.prompt: 5584 chars (covers all 6 categories)
 - ambiguity.prompt: 2274 chars (41% of single-pass)
 - contradiction.prompt: 4114 chars (74% of single-pass)
@@ -80,12 +81,14 @@ prompt is bigger, but the LLM is smart enough to focus.
 ### Recommendation: don't change E12-N3, but document for E18+
 
 The E12-N3 results are still valid because:
+
 - In-category detection is 100% on 5/6 labeled fixtures
 - The "extras" are real new findings, not hallucinations
 - Cost was $0.01 for 48 calls — not worth optimizing further
 
 For future fixture-specific runs (e.g. E18: "run N=3 on test-circular-hard
 with only the circular detection enabled"), use:
+
 ```js
 analysisMode: 'focused',
 enabledWaves: ['hygiene'],   // only run the circular detection

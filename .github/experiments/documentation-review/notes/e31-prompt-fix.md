@@ -15,13 +15,17 @@
 Two prompt files modified:
 
 ### `src/core/prompts/coverage.prompt`
+
 Added a new "Anti-boilerplate rule" section explicitly:
+
 - Forbids reporting "empty input" / "invalid input" / "missing required data" coverage gaps UNLESS the skill explicitly accepts user input (has Parameters/Input/Arguments section)
 - Forbids reporting coverage gaps for skills whose primary purpose is to describe rules or generate artifacts (reference docs, style guides, blueprint generators)
 - Requires every gap to reference specific content in the document
 
 ### `src/core/prompts/ambiguity.prompt`
+
 Strengthened the quality bar:
+
 - Added explicit guidance on the material-difference test: "would two competent prompt-following models produce different actions, or just slightly different wording? If only wording differs, do NOT flag"
 - Added rule against flagging single subjective adjectives ("clear", "concise", "comprehensive") by themselves
 - Added rule against flagging imperative verbs followed by concrete objects
@@ -61,11 +65,13 @@ The Rule 12 filter (added in E30 follow-up) only matched the `Verify:` / `Run:` 
 ## What still needs work
 
 ### Coverage-gap is still over-eager
+
 - 6/6 skills still got 1 coverage-gap each
 - The new anti-boilerplate rule helps but doesn't fully eliminate the "What if user provides empty input?" pattern
 - Next step: add a stronger pre-check rule that looks for a Parameters/Input/Arguments section in the document before considering coverage gaps about user input
 
 ### Some genuine ambiguity still gets suppressed
+
 - 4 ambiguity findings remained on quality-playbook — need to verify they're all real
 - The "use your judgment" delegation pattern is correctly preserved (it's a real signal)
 

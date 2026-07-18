@@ -8,6 +8,7 @@
 ## TL;DR
 
 After two failed attempts (E40b: too narrow on test-ambiguities; E40c: too narrow on test-contradictions-direct), **E40d landed on a much simpler prompt** that:
+
 - Drops the structured (a1/a2) split — it was over-restricting
 - Adds explicit "Default: FLAG" + "Recall target: high recall" framing
 - Keeps the boundary rule (ambiguity vs contradiction)
@@ -31,6 +32,7 @@ E40b (structured a1/a2 criteria): the LLM followed (a1) but applied (a2)'s "inte
 E40c ("Default: FLAG" + "flag the WHOLE INSTRUCTION"): the LLM applied (a)'s "action-defining term" restriction strictly, missing the subjective criteria (b)/(c)/(d) on test-contradictions-direct (0/11 → 6/11).
 
 Both attempts over-engineered the prompt. The E12-N3 success used a much simpler prompt from the Gilfoyle review (`bb1fcf6`):
+
 - "ALWAYS flag when present — they are structural problems that prevent reliable instruction following"
 - "Do not apply a confidence filter"
 
@@ -53,18 +55,21 @@ The key change is the framing: the LLM is told "**default to flag, aim for high 
 ## E40d probe results (ambiguities only, N=3, qwen3-coder-30b)
 
 ### test-contradictions-direct (expected 11)
+
 - Run 1 (23.4s): 11
 - Run 2 (17.9s): 11
 - Run 3 (17.0s): 7
 - **Median: 11/11 ✓ PASS**
 
 ### test-ambiguities (expected 20)
+
 - Run 1 (32.4s): 19
 - Run 2 (30.9s): 19
 - Run 3 (31.1s): 20
 - **Median: 19/20 ⚠ PARTIAL (one short)**
 
 ### test-ambiguities-hard (expected 20)
+
 - Run 1 (35.8s): 20
 - Run 2 (33.9s): 20
 - Run 3 (32.5s): 20
@@ -75,6 +80,7 @@ The key change is the framing: the LLM is told "**default to flag, aim for high 
 Bumped per-call timeout from 180s to 360s (the new prompt produces longer output) and reduced batch size from 5 to 4 (avoid API overload).
 
 Will report:
+
 - ambiguity-llm recall per fixture (vs E33 baseline)
 - any regressions in non-ambiguity categories
 - total findings (may increase on other waves too if the LLM is now more aggressive)
@@ -82,6 +88,7 @@ Will report:
 ## Risk
 
 The "Default: FLAG" + "Aim for high recall" framing may cause over-flagging on:
+
 - Real-world skills (corpus scan may spike above E30's 939 findings)
 - test-ambiguities (17→19-20, possible over-fire in some runs)
 

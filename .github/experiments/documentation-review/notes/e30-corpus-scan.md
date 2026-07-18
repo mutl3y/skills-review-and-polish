@@ -43,6 +43,7 @@
 The `coverage-gap` count distribution is striking: **323/327 skills have EXACTLY 1 coverage-gap finding.** This strongly suggests the analyzer is generating one generic "what if X edge case" per skill, regardless of the skill's actual content. The content varies but the count is constant.
 
 Sample messages:
+
 - "What if the provided DAX formula is empty?" (dax-optimizer)
 - "What if the repository contains no identifiable app metadata?" (apple-appstore-reviewer)
 - "What if the user provides no input or empty input?" (create-llms)
@@ -99,13 +100,13 @@ Based on E30 data, here are the new filter rules to add:
 
 ### Medium priority (2 rules)
 
-2. **Blueprint generator skills**: Skills with "blueprint-generator" or "blueprint" in the name are intentionally abstract. Suppress `ambiguity-llm` findings inside the "Guidance" or "Output Requirements" sections where abstract instructions are expected. (Requires section detection — more complex.)
+1. **Blueprint generator skills**: Skills with "blueprint-generator" or "blueprint" in the name are intentionally abstract. Suppress `ambiguity-llm` findings inside the "Guidance" or "Output Requirements" sections where abstract instructions are expected. (Requires section detection — more complex.)
 
-3. **`ambiguity-llm` on "verify/identify" imperative verbs**: The pattern "Verify: <command>" is a well-established documentation convention, not real ambiguity. Suppress findings where the quoted text starts with "Verify" or "Identify" followed by a concrete action.
+2. **`ambiguity-llm` on "verify/identify" imperative verbs**: The pattern "Verify: <command>" is a well-established documentation convention, not real ambiguity. Suppress findings where the quoted text starts with "Verify" or "Identify" followed by a concrete action.
 
 ### Low priority (investigation only)
 
-4. **`contradiction-related` rate**: With only 10 skills showing contradictions, no need for a filter. The wave is well-calibrated.
+1. **`contradiction-related` rate**: With only 10 skills showing contradictions, no need for a filter. The wave is well-calibrated.
 
 ## Stats vs E11 baseline
 

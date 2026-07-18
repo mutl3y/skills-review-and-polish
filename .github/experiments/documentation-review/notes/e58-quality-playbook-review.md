@@ -10,6 +10,7 @@
 ## TL;DR
 
 The E56 multi-model config found **41 real findings** in a B-grade skill that the original E11 evaluation found 0 issues in. All 41 findings are **specific, actionable, and grounded in the actual text**. The findings are concentrated in:
+
 - 22 ambiguity-llm (subjective terms)
 - 12 hygiene-redundant-instruction (duplicate text)
 - 4 contradiction-related (5 contradiction pairs)
@@ -101,6 +102,7 @@ The E56 multi-model config found **41 real findings** in a B-grade skill that th
 ## Where Did E11 Find 0 Findings?
 
 E11 was a different evaluation methodology. Looking at the E29 corpus-scan notes, the 6 graded skills (`github-issues` A+, `microsoft-agent-framework` A, `phoenix-tracing` A, `datanalysis-credit-risk` A-, `create-agentsmd` B-, `quality-playbook` B) were:
+
 - Already scanned with E11 baseline
 - NOT re-scanned with the new prompts in E29 or E56
 - The 0 findings from E11 is a baseline, not a result of running the new prompts

@@ -72,6 +72,7 @@ The deepModel is invoked with tier=`'deep'` only for the contradiction wave. The
 ## E28 — Free model leaderboard (20 free models tested)
 
 Most free models returned **0% recall** because they either:
+
 - Returned empty responses (small models like 1.2B/3B parameters)
 - Were rate-limited (8 RPM cap on most `:free` models)
 - Timed out (large models like nvidia nemotron-3-ultra-550b)

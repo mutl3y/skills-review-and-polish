@@ -12,6 +12,7 @@
 Across 4 prompt iterations, the analyzer now passes 100% of expected findings on 14/47 category-fixture combinations. Several major categories that were completely broken after E31 (test-ambiguities-hard 4/20, test-contradictions-direct ambiguity 0/11) are now working correctly (test-ambiguities-hard 19/20, test-coverage-gaps ambiguity 7/7).
 
 **The remaining misses are concentrated in:**
+
 1. **Coverage-gap on "silent gap" fixtures** (test-coverage-gaps, test-coverage-gaps-hard) — the LLM needs to infer gaps from mentioned-but-not-handled topics, which is a hard fine-grained inference
 2. **Cognitive-* family on adversarial fixtures** (test-circular-hard, test-mixed-hard) — the cognitive family is unstable across runs (E22/E23 confirmed this)
 3. **Hygiene-* on tests that are PRIMARILY about other categories** — the LLM is correctly focusing on the labeled category
@@ -56,6 +57,7 @@ Across 4 prompt iterations, the analyzer now passes 100% of expected findings on
 The 33 misses cluster into 4 categories:
 
 #### A. Coverage-gap on silent-gap fixtures (8 misses)
+
 - test-coverage-gaps: 1/13 (expected 13)
 - test-coverage-gaps-hard: 1/15
 - test-cognitive-structural: 1/4
@@ -65,11 +67,13 @@ These fixtures use a "test metadata" header that lists 13-15 gaps but the BODY h
 **Root cause:** These fixtures are testing the LLM's ability to make fine-grained inferences. The test author expects the LLM to recognize that mentioning "Monorepo" without addressing "private registry" is a gap. The current model can do this for some gaps (private registry, empty manifest) but not consistently for all 13.
 
 **Fix options:**
+
 - Add explicit "section X says Y but doesn't address Z" guidance — risk: too complex, may regress other categories
 - Accept that the LLM has a ceiling on silent-gap detection at ~1 gap per document
 - Document as known limitation, recommend the human review
 
 #### B. Cognitive-* family on adversarial fixtures (5 misses)
+
 - test-circular-hard: cognitive 0/1, circular 2/10
 - test-mixed-hard: cognitive 1/4
 - test-cognitive-structural: cognitive 2/5
@@ -79,11 +83,13 @@ The cognitive-* family (nested-conditions, priority-conflict, deep-decision-tree
 **Root cause:** The cognitive-* codes are based on subjective pattern recognition. Different runs give different counts (E12-N3 showed R1=1, R2=12, R3=12 on test-dead-hard — wait, that was a different code). The current finding (2/5 on test-cognitive-structural) is within expected noise variance.
 
 **Fix options:**
+
 - Run N=10 medians instead of N=3 (doubles cost for marginal gain)
 - Use `scoreSamples: 5` in the engine config (built-in median-of-N)
 - Accept as noise; document
 
 #### C. Hygiene / cognitive on ambiguous-text fixtures (8 misses)
+
 - test-contradictions-subtle: hygiene 0/6, cognitive-nested 0/2
 - test-coverage-gaps: hygiene 1/5, cognitive 0/1
 - test-coverage-gaps-hard: hygiene 0/7
@@ -104,10 +110,12 @@ These are zero-recall cases on fixtures where ambiguity-llm is expected. The bod
 ## Conclusion
 
 The prompt fix has improved the analyzer in 2 key dimensions:
+
 1. **Reduced boilerplate** — 36% fewer total findings on real-world corpus
 2. **Recovered legal/regulatory ambiguity detection** — test-ambiguities-hard went from 4/20 to 19/20 (95%)
 
 But the prompt fix has NOT solved:
+
 1. **Fine-grained silent-gap detection** — the LLM has a ceiling at ~1 gap per document when sections mention topics without handling
 2. **Cross-fixture stability on cognitive-* family** — noise floor, not prompt-fixable
 3. **Some test-contradictions-direct/subtle ambiguity findings** — over-correction on the material-difference test

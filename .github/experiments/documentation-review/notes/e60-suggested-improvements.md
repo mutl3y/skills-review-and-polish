@@ -68,20 +68,20 @@
 
 ### P1 — High (would improve production recall)
 
-4. **Add dedup for contradiction-related findings**
+1. **Add dedup for contradiction-related findings**
    - Currently the same contradiction gets reported 4-5 times (as `contradiction` + multiple `contradiction-related`)
    - The E42 dedup fix counts each finding once, but the JSON output still has duplicates
    - Fix: deduplicate by `range.start.line` or by finding similarity
    - Test: re-run E58 on quality-playbook, expect 5 contradictions → 1 contradiction
    - Cost: $0 (engine change only)
 
-5. **Test the v2 coverage prompt on production corpus**
+2. **Test the v2 coverage prompt on production corpus**
    - E43 showed 5/13 → 12-14/13 on test-circular. But E51 showed it doesn't help production.
    - Run E56-style corpus scan with v2 coverage prompt
    - Cost: ~$0.25 (327 skills × 1 model × 1 run)
    - Risk: medium (already failed on production)
 
-6. **Try Claude 3.5 Sonnet on the clean test fixtures**
+3. **Try Claude 3.5 Sonnet on the clean test fixtures**
    - E54 had 404 errors (model ID not on OpenRouter) — need to find correct ID
    - Try `anthropic/claude-3.5-sonnet-20241022` or similar
    - Cost: ~$0.15
@@ -89,35 +89,35 @@
 
 ### P2 — Medium (nice to have)
 
-7. **Run the multi-model corpus scan with deepseek for ALL waves (not just deep)**
+1. **Run the multi-model corpus scan with deepseek for ALL waves (not just deep)**
    - Currently deepseek only runs for contradictions wave
    - Test if running deepseek for all waves gives even better recall
    - Cost: ~$0.60 (327 × 1 model × 1 run)
    - Risk: medium (slower, more expensive)
 
-8. **Add coverage-gap rule for "What if multiple X are missing" pattern**
+2. **Add coverage-gap rule for "What if multiple X are missing" pattern**
    - test-coverage-gaps / hygiene and coverage-gap are at 0% — the LLM doesn't fire for multiple-missing-inputs patterns
    - Add explicit examples to coverage prompt
 
-9. **Improve the test-ambiguities-hard fixture**
+3. **Improve the test-ambiguities-hard fixture**
    - LLM finds only 5/20 — the other 15 may be valid ambiguities the LLM is missing, or invalid expectations
    - Manual review needed to determine if 15 is over-claimed or if the rule needs examples
 
-10. **Add a "code-only" mode that detects undefined variables, unused imports, etc.**
+4. **Add a "code-only" mode that detects undefined variables, unused imports, etc.**
     - Currently the analyzer only looks at instruction-quality, not code-quality
     - This would be a new wave, requires new prompt and validation
 
 ### P3 — Low (research / exploration)
 
-11. **Test the v2 coverage prompt on individual fixtures with more runs**
+1. **Test the v2 coverage prompt on individual fixtures with more runs**
     - E50 only ran 3 runs. Test with 10+ runs to get more stable estimates.
 
-12. **Explore whether a single good model is better than multi-model**
+2. **Explore whether a single good model is better than multi-model**
     - Run E50/E53 with single-model configs on the same fixtures
     - Currently we have multi-model data but no single-model comparison on clean fixtures
     - Cost: ~$0.50
 
-13. **Build a "skill-quality-score" that combines all findings into a single grade**
+3. **Build a "skill-quality-score" that combines all findings into a single grade**
     - Currently each finding is independent
     - A combined score would help users see overall quality
     - Similar to E11's A/B/C/D/F grading

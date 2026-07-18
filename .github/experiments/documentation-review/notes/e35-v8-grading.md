@@ -64,6 +64,7 @@ The v7→v8 jump is by far the largest single-iteration improvement. The "RFC-st
 **Yes.** The v7→v8 jump (+41 points) is the largest single-iteration improvement. The explicit "RFC-style" design — with numbered definitions, numbered constraints, numbered rule, explicit precedence, explicit modification taxonomy — gives the LLM a clear structure to reason about.
 
 The v8 design follows a clear pattern:
+
 - D1-D9: Definitions (numbered, alphabetical ordering in the precedence rule)
 - C1-C5: Constraints (each is a single rule)
 - R1: Verification Rule (single rule with trigger conditions)

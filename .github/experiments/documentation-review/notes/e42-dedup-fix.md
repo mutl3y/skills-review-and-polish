@@ -37,6 +37,7 @@ This is acceptable — the test is still passing the "are all 15 contradictions 
 ## Why the overall PASS didn't improve
 
 The overall 21/47 is the same as E40d because:
+
 - The dedup fix is a counting bug fix, not a real performance change
 - E42 has LLM noise on test-instruction-quality / contradiction (0/1) and test-dead-hard / hygiene (0/12 due to timeouts)
 - Test-dead-hard timed out in E42 due to OpenRouter being slow today; the runs completed earlier in E41b

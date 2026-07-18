@@ -11,6 +11,7 @@
 ## What I tried
 
 **v5 prompt changes** (rejected):
+
 1. Added "Critical: this wave runs INDEPENDENTLY of the contradiction wave" at the top
 2. Added "Critical boundary rule — RE-READ BEFORE ANSWERING" with explicit "do not suppress" language at the bottom
 
@@ -36,6 +37,7 @@
 The probe runs the ambiguity wave in isolation with a 3-run N=3 medians. The LLM has full cognitive space, no parallel wave pressure, and stable variance.
 
 The full E33 runs all 6 waves in parallel via `Promise.allSettled`. The LLM:
+
 - Sees the same document text (no context contamination from prior waves)
 - Is being asked to produce 6 different LLM calls in parallel
 - May have different token/temperature behavior when the system prompt is longer (v5 is 5421 chars vs v4's 4728)
@@ -46,6 +48,7 @@ The LLM is **not actually being primed by the contradiction wave** (waves are pa
 ## Why prompt-only fixes don't generalize
 
 When I added the "RE-READ BEFORE ANSWERING" anti-suppression language, the LLM did read it — and it shifted behavior in unintended ways. It started being more conservative on test-ambiguities (16/20 vs 18/20) and test-cognitive-structural (3/6 vs 11/6). The longer prompt likely caused:
+
 - More token budget spent on prompt reading
 - Less token budget for output generation
 - Higher variance in finding generation
@@ -55,27 +58,33 @@ When I added the "RE-READ BEFORE ANSWERING" anti-suppression language, the LLM d
 To fix the contradiction-direct suppression, the options ranked by **architectural soundness**:
 
 ### ❌ Option A: Inject contradiction findings into the ambiguity wave's user prompt
+
 **Status: Rejected after re-evaluation (2026-07-12).**
 
 Reasons to reject:
+
 1. **Architectural smell** — breaks wave separation. The whole point of independent waves is each LLM call is idempotent and standalone. Adding `priorFindings` to `analyzeAmbiguitiesWave` creates a hidden coupling that becomes technical debt.
 2. **Optimizes for the wrong fixture** — test-contradictions-direct is synthetic (1:1 contradiction:ambiguity pairing in every paragraph). Real-world docs don't have this property. The e40e run on quality-playbook (2739 lines, real) found 8 ambiguities + 1 contradiction with zero cross-suppression issues.
 3. **The "suppression" is arguably correct** — when a paragraph has "must do X" / "must NOT do X" AND "appropriate team", the user only needs ONE finding. Fixing the contradiction reveals the ambiguity. Reporting both is redundant noise.
 4. **High cost, low payoff** — would add 1 category (test-contradictions-direct: 0/11 → 11/11) at the cost of cross-wave coupling, plumbing changes, and implicit ordering dependencies. Not worth it.
 
-### ✅ Option D (recommended): Accept the limitation. Document it. Ship v0.1.36.
+### ✅ Option D (recommended): Accept the limitation. Document it. Ship v0.1.36
+
 **Status: This is what we're doing.**
 
 The v4 prompt is a clear win (21/47 vs 17/47). The 0/11 on test-contradictions-direct is a known limitation. Users hitting this can:
+
 - Run `analysisMode: 'single'` for contradiction-heavy docs (e12-N3 pattern, gets 11/11)
 - Or accept the noise reduction (only contradiction, not ambiguity, is reported — which is arguably the right behavior for these documents)
 
 ### Option B: Auto-detect contradiction density and re-run ambiguity-focused
+
 **Status: Future work, if needed.**
 
 A v0.1.37 candidate. If the multiWave analysis produces >N contradictions, automatically run a follow-up `analysisWaves: ['ambiguities']` pass. ~3h of work, including a new E33 run to validate.
 
 ### Option E (best long-term): Smarter test fixture
+
 **Status: Future work, trivial effort.**
 
 test-contradictions-direct has 15 paragraphs with 1:1 contradiction:ambiguity pairing. This is unrealistic. Real-world documents have varied patterns: most paragraphs are clean, some have ambiguities, a few have contradictions, rarely do all three overlap on the same paragraph. Redesigning the fixture to reflect realistic distribution would make 0/11 a non-issue.

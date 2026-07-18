@@ -148,11 +148,12 @@ A findingFilter.ts post-processor rule could demote them.
 
 **Status (2026-07-10): COMPLETED.** Added 3 new FilterRule implementations in
 `src/core/findingFilter.ts`:
-  - Rule 8 (yamlDescriptionRedundancyRule): suppresses hygiene-redundant-instruction
+
+- Rule 8 (yamlDescriptionRedundancyRule): suppresses hygiene-redundant-instruction
     on YAML frontmatter lines (1..closing ---).
-  - Rule 9 (definitionsPreambleRule): suppresses hygiene-non-actionable-preamble
+- Rule 9 (definitionsPreambleRule): suppresses hygiene-non-actionable-preamble
     and hygiene-vague-directive on the first 5 lines after "# Definitions".
-  - Rule 10 (skillOpeningParagraphRule): suppresses hygiene-non-actionable-preamble
+- Rule 10 (skillOpeningParagraphRule): suppresses hygiene-non-actionable-preamble
     and hygiene-redundant-instruction on the first 5 body lines after the YAML.
 12 new unit tests added; all 30 tests in findingFilter.test.ts pass. Effect on v7:
 hygiene-non-actionable-preamble 1/3 → 0/3, hygiene-vague-directive 1/3 → 0/3.
@@ -274,9 +275,10 @@ with various `type:` values (workflow, meta, simple).
 
 **Status (2026-07-10): FIXTURES CREATED, NOT YET ANALYZED.** Added 7 new
 edge-case fixtures under `tests/fixtures/edge-cases/`:
-  - empty-body, frontmatter-only, extreme-length (10035 lines)
-  - type-workflow, type-meta, type-simple
-  - all-finding-types (200-line stress fixture)
+
+- empty-body, frontmatter-only, extreme-length (10035 lines)
+- type-workflow, type-meta, type-simple
+- all-finding-types (200-line stress fixture)
 All have valid Test metadata + Expected analyzer category. The
 fixture-validation gate still passes (4/4 tests). README updated. Per-fixture
 detection accuracy has NOT been measured yet — needs 7 LLM calls.
@@ -310,6 +312,7 @@ to establish a noise-floor baseline. OpenRouter has no rate limits so all
 OpenRouter pricing: ~$0.05/M input, ~$0.40/M output. Total cost: ~$0.01.
 
 **Key findings (vs E12-rerun):**
+
 - N=3 medians confirm that the E12-rerun "regressions" were LLM noise, not
   real regressions. The E12-rerun's test-ambiguities-hard 9->0 was a one-off
   outlier; N=3 shows the true median is 20 (matching expected).
@@ -325,6 +328,7 @@ OpenRouter pricing: ~$0.05/M input, ~$0.40/M output. Total cost: ~$0.01.
   show very wide variation.
 
 **Conclusions:**
+
 - The E8/E10/E9/E11/E14/E15 fixes do NOT cause regressions — confirmed
   by the N=3 medians.
 - The analyzer needs a post-processor rule to deduplicate findings that
@@ -345,6 +349,7 @@ finding by (a) in-category vs out-of-category and (b) stable across N=3 vs
 flickering.
 
 **In-category findings are 100% real:**
+
 - test-contradictions-direct: 14/14 contradictions on the SAME lines every run
 - test-contradictions-subtle: 12/12 in R2 (the run that hit expected)
 - test-ambiguities: 20/20 in all 3 runs
@@ -382,6 +387,7 @@ on a 15-expected-contradictions fixture) are real new findings, not
 hallucinations.
 
 **Prompt sizes:**
+
 - single-pass.prompt: 5584 chars (covers all 6 categories)
 - ambiguity.prompt: 2274 chars (41% of single-pass)
 - contradiction.prompt: 4114 chars (74%)
@@ -475,6 +481,7 @@ Add a simpler API: `analysisWaves: ['hygiene']` directly bypasses all
 We have the E13 baseline of 15 real-world skills analyzed with single mode.
 Run v7 documentation-review (the primary artifact of this experiment session)
 through focused multiWave with all 6 waves enabled. Compare:
+
 - Single mode: 2-5 findings per run, all under threshold
 - Focused mode: same total but with each finding traceable to its wave
 

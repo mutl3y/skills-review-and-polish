@@ -9,20 +9,20 @@ For every iteration:
 - Genuine prompt issue
 - Possible analyzer issue
 
-3. Rank findings.
+1. Rank findings.
 
 - Critical
 - High
 - Medium
 - Low
 
-4. Select ONE logical improvement.
+1. Select ONE logical improvement.
 
-5. Modify the prompt.
+2. Modify the prompt.
 
-6. Re-run analyzer.
+3. Re-run analyzer.
 
-7. Record:
+4. Record:
 
 - Resolved
 - New

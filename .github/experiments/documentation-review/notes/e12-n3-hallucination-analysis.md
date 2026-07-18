@@ -6,6 +6,7 @@ but the in-category findings are highly stable and match the expected counts.**
 ## Methodology
 
 For each fixture, classified findings into:
+
 - **In-category** (matches the labeled Expected analyzer category)
 - **Out-of-category** (other codes the fixture didn't expect)
 - **Stable across N=3 runs** (same line+code appeared in all 3 runs)
@@ -31,6 +32,7 @@ High stability + in-category = real issue. Low stability + out-of-category = pot
 ### Real findings (high confidence)
 
 **The in-category findings on the 4 "perfect match" fixtures are 100% real:**
+
 - test-ambiguities: 20 ambiguity findings, all stable across 3 runs
 - test-ambiguities-hard: 20 ambiguity findings, all stable
 - test-contradictions-direct: 14-15 contradiction findings on the SAME lines every run
@@ -41,6 +43,7 @@ These match the fixture's labeled expected counts almost exactly. **The labels i
 ### Over-eager findings (model-dependent, not hallucinated)
 
 **The 11 ambiguity-llm findings on test-contradictions-direct (where expected=15 contradictions) are real ambiguities in the document, just not the category the fixture was labeled for.** Examples:
+
 - L 17: "Emergency hotfixes may be deployed directly to production without code review"
 - L 47: "Always perform the database migration dry-run first, before any other step"
 - L 59: "Keep all reviews concise — three bullet points maximum"
@@ -50,6 +53,7 @@ These ARE real ambiguities in the document. The fixture just wasn't labeled for 
 ### Possible hallucinations (low confidence, ~10-20%)
 
 **test-cognitive-structural** had 8 stable findings out of 32 unique (25% stable rate). The 24 unstable findings may include hallucinations. Examples of unstable content:
+
 - Different "persona-inconsistency" findings across runs (the model is uncertain about the persona)
 - Different "cognitive-nested-conditions" findings (the LLM finds different nesting patterns each time)
 
@@ -58,6 +62,7 @@ These are **plausibly hallucinated** — the LLM can't reliably find cognitive l
 ### Cross-model comparison (the key insight)
 
 The Gemini over-reporting (32 vs 15 expected on test-contradictions-direct) is **not a hallucination** — it's:
+
 1. **In-category (14-15 contradictions): 100% real**, matches expected exactly
 2. **Out-of-category (17-18 extras): real new findings** the fixture wasn't labeled for (ambiguity, coverage, hygiene issues in the same document)
 

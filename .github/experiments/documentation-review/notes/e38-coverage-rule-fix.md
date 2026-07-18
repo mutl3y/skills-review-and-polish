@@ -38,6 +38,7 @@ The "1 per category" rule was solving a non-problem at the cost of usability. A 
 **After (E33 with E38 fix):** 17/47 categories at 100% recall
 
 **Net wins:**
+
 - `test-circular-hard / cognitive`: 0/1 → 2/1 (200%)
 - `test-mixed-hard / coverage-gap`: 1/2 → 5/2 (250%)
 - `test-mixed-hard / circular`: 0/2 → 1/2 (50%)

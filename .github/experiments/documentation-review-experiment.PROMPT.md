@@ -87,7 +87,7 @@ Improve both:
 
 and
 
-2. the Skills Review analyser.
+1. the Skills Review analyser.
 
 Each analyser finding should be classified as one of:
 

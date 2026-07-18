@@ -28,6 +28,7 @@ The answer: **E20 was finding TOO FEW issues. The new model + new prompts find m
 The scoring formula is: `score = 100 - issue_penalty - length_penalty`. **More issues = lower score** by design. This means a model that finds MORE real issues is penalized, even if the findings are all real.
 
 The data:
+
 - **github-issues E20 = A+ (100, 0 findings).** E34 found 1 ambiguity. The 1 ambiguity IS A REAL ISSUE (E22 found 3 contradictions in the same file). E20 missed everything.
 - **quality-playbook E20 = B (78, 0 findings).** E34 found 4 real issues including priority conflict, nested conditions, redundancy. E20 missed all 4.
 - **microsoft-agent-framework E20 = A (94, 1 finding).** E34 found 4 — the 3 additional are real ambiguities E20 missed.

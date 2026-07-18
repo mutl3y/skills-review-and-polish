@@ -16,6 +16,7 @@
 ## Methodology
 
 Two documents with known ground truth:
+
 - `tests/fixtures/adversarial/test-contradictions-hard/SKILL.md` — 15 expected contradictions (from E19 stability runs)
 - `.github/experiments/documentation-review/versions/v8/SKILL.md` — 0 expected contradictions (verified clean by E24)
 

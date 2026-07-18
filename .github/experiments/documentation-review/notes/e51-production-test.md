@@ -83,6 +83,7 @@ v2 found 3 new hygiene-over-specification findings in cosmosdb-datamodeling. Cou
 **Do ship the E50 test architecture fix.** This is the real improvement — it gives us a way to validate prompts properly.
 
 **Next steps:**
+
 1. Apply E50 to more fixtures (to validate the pattern works generally)
 2. Re-test any future prompt changes against the E50 architecture
 3. Discuss shipping v0.1.37 with the E50 architecture as the foundation

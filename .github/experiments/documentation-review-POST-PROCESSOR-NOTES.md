@@ -183,8 +183,8 @@ Do not allow the post-processor become a "magic fixer." If you find yourself add
 
 A useful rule of thumb might be:
 
-* **Analyzer**: "Was this issue detected correctly?"
-* **Post-processor**: "How should this issue be presented?"
-* **UI**: "How should the user consume this issue?"
+- **Analyzer**: "Was this issue detected correctly?"
+- **Post-processor**: "How should this issue be presented?"
+- **UI**: "How should the user consume this issue?"
 
 Keeping these responsibilities separate will make the system much easier to evolve and reason about over time.

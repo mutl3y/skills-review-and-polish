@@ -30,11 +30,13 @@ to what a competent detector should realistically find.** See
 ## Five prompt iterations (all failed)
 
 ### v1 (baseline, E42) — E31 anti-boilerplate + E32 silent-gap rules
+
 - **Result:** test-coverage-gaps 5/13, test-coverage-gaps-hard 5/15
 - **Diagnosis:** Too conservative. The "Don't flag MEDIUM/LOW impact gaps" rule
   is suppressing legitimate HIGH-impact silent gaps.
 
 ### v2 — Added "Default: FLAG" + "Aim for high recall" global header
+
 - **Probe (coverage-only):** test-coverage-gaps 11/13 ✓, test-coverage-gaps-hard 16/15 ✓
 - **Full E33 (2 runs):** Coverage gains confirmed, BUT cross-wave regression on
   test-contradictions-hard / ambiguity-llm (4→2), test-contradictions-subtle /
@@ -44,15 +46,18 @@ to what a competent detector should realistically find.** See
   but loses nuance on ambiguity.
 
 ### v3 — Conservative framing + "Would a real-world user hit this?" test
+
 - **Probe (coverage-only):** test-coverage-gaps 6/13, test-coverage-gaps-hard 6/15
 - **Diagnosis:** Too conservative. The LLM reverted to under-detection.
 
 ### v4 — Added "High-impact silent-gap categories" paragraph
+
 - **Probe (coverage-only):** test-coverage-gaps 0/13, test-coverage-gaps-hard 0/15
 - **Diagnosis:** Severe regression. The added paragraph confused the LLM into
   over-filtering.
 
 ### v5 — Calibration explanation + "Apply the high-impact test for these 5 categories"
+
 - **Probe (coverage-only):** test-coverage-gaps 0/13, test-coverage-gaps-hard 0/15
 - **Diagnosis:** Same as v4. Any added "explanation" of the calibration issue
   causes the LLM to over-filter.
@@ -61,6 +66,7 @@ to what a competent detector should realistically find.** See
 
 The "Default: FLAG" framing in v2 was the only lever that fixed coverage, but
 it caused cross-wave regression. Every other change either:
+
 - Was too conservative (v1, v3)
 - Confused the LLM into over-filtering (v4, v5)
 
