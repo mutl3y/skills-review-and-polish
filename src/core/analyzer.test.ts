@@ -183,6 +183,25 @@ describe('extractJSON truncation salvage', () => {
       ambiguity_issues: [{ text: 'vague term', severity: 'info' }],
     });
   });
+
+  it('parses valid JSON followed by trailing prose (no salvage needed)', () => {
+    // Regression: tencent/hy3:free emitted valid JSON then commentary
+    // ("But ensure format: exactly as specified..."). The trailing text must
+    // be trimmed, not treated as a parse failure.
+    const withTrailing =
+      '{\n  "cognitive_load": {\n    "issues": [],\n    "overall_complexity": "low"\n  }\n}\n\n' +
+      'But ensure format: exactly as specified. Use "low" for overall_complexity.';
+    expect(extract(withTrailing)).toEqual({
+      cognitive_load: { issues: [], overall_complexity: 'low' },
+    });
+  });
+
+  it('parses valid JSON array followed by trailing prose', () => {
+    const withTrailing =
+      '{\n  "persona_issues": []\n}\n\nMake sure no extra text. The instruction says ' +
+      '"Respond ONLY with JSON in this exact format". So we output that.\n\nBut note the format.';
+    expect(extract(withTrailing)).toEqual({ persona_issues: [] });
+  });
 });
 
 // ─── buildUserPrompt large-document budget ─────────────────────────────────

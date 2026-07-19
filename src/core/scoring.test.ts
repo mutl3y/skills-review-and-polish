@@ -190,4 +190,28 @@ describe('scoreSkill', () => {
     // Score is still computed from real findings — only the grade is withheld.
     expect(mixed.score).toBeGreaterThan(0);
   });
+
+  it('does NOT cap grade when only meta findings are present (loop/complexity/coverage)', () => {
+    // Regression: llm-loop-detected / high-complexity / limited-coverage are
+    // legitimate model findings, NOT analysis failures. They must be excluded
+    // from the penalty but must NOT force `incomplete` / Ungraded. A run that
+    // produced real findings plus a loop-detection meta code should still get
+    // a real grade (the poolside/laguna-m.1:free run was wrongly Ungraded).
+    const withLoop = scoreSkill([
+      makeResult('llm-loop-detected', 'warning'),
+      makeResult('ambiguity-llm', 'warning'),
+    ], 40, 'standard');
+    expect(withLoop.incomplete).toBe(false);
+    // llm-loop-detected is excluded from penalty; ambiguity-llm warning = 6 → score 94 → A.
+    expect(withLoop.grade).toBe('A');
+    expect(withLoop.score).toBeGreaterThan(0);
+
+    const withMeta = scoreSkill([
+      makeResult('high-complexity', 'warning'),
+      makeResult('limited-coverage', 'warning'),
+      makeResult('contradiction', 'error'),
+    ], 40, 'standard');
+    expect(withMeta.incomplete).toBe(false);
+    expect(withMeta.grade).not.toBe('Ungraded');
+  });
 });

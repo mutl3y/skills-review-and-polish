@@ -138,23 +138,28 @@ export function scoreSkill(
   const THRESHOLD_OFFSETS: Record<SkillType, number> = { simple: 0, standard: 0, workflow: 10, meta: 15 };
   const thresholdOffset = THRESHOLD_OFFSETS[skillType];
 
-  // Detect incomplete analysis — wave failures, parse errors, disabled LLM.
-  // Any infra code means at least one wave failed or was rate-limited, so the
-  // finding set is partial and the grade would assert a completeness we can't
-  // vouch for — even when real findings ARE present (partial failure is more
-  // misleading than total failure, because the findings make the grade look
-  // trustworthy). Empty results WITHOUT infra codes means the skill is clean
-  // and deserves a real grade based on length penalty alone.
-  const hasInfraCode = results.some(r => INFRA_SKIP.has(r.code)) ||
-                        results.some(r => r.code === 'llm-rate-limited');
-  const incomplete = hasInfraCode;
+  // Detect incomplete analysis — wave failures, parse errors, disabled LLM,
+  // or rate limits. These are TRUE failures: the analysis did not complete, so
+  // the finding set is partial and the grade would assert a completeness we
+  // can't vouch for — even when real findings ARE present (partial failure is
+  // more misleading than total failure, because the findings make the grade
+  // look trustworthy).
+  //
+  // NOTE: INFRA_SKIP also contains meta/legitimate findings (llm-loop-detected,
+  // high-complexity, limited-coverage). Those are real findings the model
+  // produced and must NOT force `incomplete` — only the true-failure codes in
+  // INCOMPLETE_ANALYSIS_CODES do. Empty results WITHOUT true-failure codes means
+  // the skill is clean (or only has meta findings) and deserves a real grade
+  // based on length penalty alone.
+  const hasIncompleteCode = results.some(r => INCOMPLETE_ANALYSIS_CODES.has(r.code));
+  const incomplete = hasIncompleteCode;
   const infraErrorCount = results.filter(r => INCOMPLETE_ANALYSIS_CODES.has(r.code)).length;
   // Count rate-limited waves (llm-rate-limited = summary code from analyzer)
   const rateLimitedWaveCount = results.filter(r => r.code === 'llm-rate-limited').length;
 
-  // If the ONLY results are infra/rate-limit codes, the analysis truly failed
+  // If the ONLY results are true-failure codes, the analysis truly failed
   // and the grade should be capped to "Ungraded".
-  if (results.length > 0 && results.every(r => INFRA_SKIP.has(r.code) || r.code === 'llm-rate-limited')) {
+  if (results.length > 0 && results.every(r => INCOMPLETE_ANALYSIS_CODES.has(r.code))) {
     return {
       score: 0,
       grade: INCOMPLETE_GRADE_CAP,

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.50] — 2026-07-19 (marketplace publish)
+
+### Fixed
+
+- **Letter grade wrongly withheld on successful analysis.** `scoreSkill` treated `llm-loop-detected`, `high-complexity`, and `limited-coverage` as analysis failures (they were in `INFRA_SKIP`), so any run that produced those *legitimate* meta findings — e.g. re-analyzing the same file (loop detection fires) — was forced to `Ungraded` even when all 6 waves succeeded with real findings. Only true failures (`llm-error`, `llm-parse-error`, `llm-disabled`, `llm-rate-limited`) now force `Ungraded`; the meta findings are still excluded from the penalty but no longer suppress the grade.
+- **Free models that append prose after JSON failed to parse.** `extractJSON` threw when the model returned a valid JSON object/array followed by trailing commentary (e.g. `"But ensure format: exactly as specified..."`). `parsePossiblyRepairableJSON` now trims trailing non-JSON text after the first complete top-level value before falling back to the salvage/error paths, so those waves recover instead of producing `llm-parse-error` diagnostics.
+
 ## [0.1.49] — 2026-07-19 (marketplace publish)
 
 ### Fixed

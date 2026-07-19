@@ -4,7 +4,7 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## Status: v0.1.49 — released
+## Status: v0.1.50 — released
 
 A production-ready authoring-time linter for AI customization files. Current
 calibration evidence (clean-fixture, schema-mode, 5×3): **87.3% recall**,
@@ -14,6 +14,16 @@ solid; ongoing work is **precision hardening** (target ≥85% accepted findings)
 to reduce false positives, not a blocker on using it as a linter today. Treat
 production-skill counts as coverage evidence, not validated precision/recall.
 
+- **v0.1.50** — Grading + parsing hardening: `scoreSkill` no longer withholds the letter grade when only *legitimate* meta findings are present (`llm-loop-detected`, `high-complexity`, `limited-coverage`) — only true analysis failures (`llm-error`, `llm-parse-error`, `llm-disabled`, `llm-rate-limited`) force `Ungraded`. `extractJSON` now tolerates valid JSON followed by trailing prose (free models that append commentary after the JSON object/array).
+- **v0.1.49** — Withholds the letter grade (`Ungraded`) when ANY wave fails or is rate-limited, instead of reporting a misleading letter grade on partial analysis; failed waves now retry once (stream-iteration + same-tier error retry) and the UI warns about failed waves by name.
+- **v0.1.48** — Fixed extension activation failure (`Cannot find module 'picomatch'`) caused by a stale `--no-dependencies` publish flag; `verify:vsix` now uses the same vsce packager as publish.
+- **v0.1.47** — Fixed vscode-lm context-budget fallback (model now pre-warmed via `warmUp()`) and redundant per-wave prompt rebuilds (per-run prompt cache).
+- **v0.1.44** — Added `verify:vsix` runtime-dependency guard to `release:gate` (catches the missing-`picomatch` regression class before publish).
+- **v0.1.43** — Re-included `picomatch` in the VSIX so the extension activates.
+- **v0.1.42** — Repositioned as a released production linter (no longer beta/RC framing).
+- **v0.1.41** — Documentation accuracy pass (removed broken links, fixed recall/precision/FAQ claims).
+- **v0.1.40** — Package hygiene: VSIX size cut from ~60 MB to ~272 KB (excludes internal/non-shipped artifacts).
+- **v0.1.39** — Precision hardening + output-budget fix for large skills; analyzer no longer head/tail truncates; bundled OpenRouter catalog asset; async `createDefaultEngine`; deterministic retry/merge path (noise floor range 89 → 3).
 - **v0.1.38** — Multi-model scan support: `google/gemini-2.5-flash-lite` (standard tier, ⭐ in picker) + `deepseek/deepseek-chat-v3` (`deepModel`, also ⭐). E56 corpus scan found 8811 candidate findings on 327 skills (vs 1664 in E30). Treat this as coverage evidence, not validated precision/recall. See `scripts/e56-corpus-rescan-multimodel.mjs` for the experiment and the [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models) table for the full per-model scorecard.
 - Core analyzer with 6-wave analysis ✅
 - Surgical fixer with safety guards ✅

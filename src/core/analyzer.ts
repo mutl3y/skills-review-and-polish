@@ -1426,6 +1426,19 @@ export class Analyzer {
     try {
       return JSON.parse(jsonStr) as T;
     } catch (originalError) {
+      // Some models emit valid JSON followed by trailing prose
+      // (e.g. "But ensure format: exactly as specified..."). Trim the trailing
+      // non-JSON text after the first complete top-level value and retry.
+      const trimmed = this.trimTrailingTextAfterJSON(jsonStr);
+      if (trimmed !== undefined && trimmed !== jsonStr) {
+        try {
+          const parsed = JSON.parse(trimmed) as T;
+          this.log.info('extractJSON: parsed after trimming trailing text');
+          return parsed;
+        } catch {
+          // fall through to syntax-repair attempt
+        }
+      }
       const repaired = this.repairCommonJSONSyntax(jsonStr);
       if (repaired !== jsonStr) {
         try {
@@ -1438,6 +1451,42 @@ export class Analyzer {
       }
       throw originalError;
     }
+  }
+
+  /**
+   * If `text` contains a single complete JSON object/array followed by trailing
+   * non-JSON prose, return the JSON portion. Returns undefined when no complete
+   * top-level value is found (caller falls back to salvage/error paths).
+   */
+  private trimTrailingTextAfterJSON(text: string): string | undefined {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return undefined;
+    const open = trimmed[0];
+    const close = open === '{' ? '}' : open === '[' ? ']' : undefined;
+    if (close === undefined) return undefined;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === open) depth++;
+      else if (ch === close) {
+        depth--;
+        if (depth === 0) {
+          // Found the end of the complete top-level value.
+          return trimmed.slice(0, i + 1);
+        }
+      }
+    }
+    return undefined;
   }
 
   private repairCommonJSONSyntax(jsonStr: string): string {
