@@ -34,3 +34,8 @@ scripts/**
 # Regenerable experiment data + logs (see .gitignore)
 .github/experiments/documentation-review/data/**
 .github/experiments/documentation-review/logs/**
+
+# Local debug/session leftovers — never ship
+debug_me/**
+.accepted-findings.json
+.skills-review.json

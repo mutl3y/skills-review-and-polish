@@ -1,8 +1,8 @@
 {
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
-  "description": "Authoring-time linter and surgical fixer for AI customizations (skills, instructions, agents, prompts). Finds contradictions, ambiguities, coverage gaps, and structural problems. VS Code extension provides AI-suggested fixes with diff preview for human review; MCP server returns proposed fixes for agent-controlled application.",
-  "version": "0.1.44",
+  "description": "Authoring-time linter and fixer for AI customization files. Catches contradictions, ambiguities, coverage gaps, and structural issues. VS Code extension provides AI-suggested fixes with diff preview for human review.",
+  "version": "0.1.47",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",
@@ -14,7 +14,6 @@
   },
   "categories": [
     "Linters",
-    "Programming Languages",
     "AI"
   ],
   "keywords": [
@@ -545,7 +544,8 @@
     "mcp": "node out/mcp/server.js",
     "clean": "rm -rf out",
     "vscode:prepublish": "npm run refresh-fixtures && npm run compile",
-    "release:gate": "npm run refresh-fixtures && npm run compile && npm run test && npm run lint && npm run lint:md && npm run verify:vsix"
+    "release:gate": "npm run refresh-fixtures && npm run compile && npm run test && npm run lint && npm run lint:md && npm run verify:vsix",
+    "publish:vsce": "node scripts/publish-vsce.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

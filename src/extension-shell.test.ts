@@ -176,6 +176,7 @@ vi.mock('./core/fixer', () => ({
 vi.mock('./providers/vscodeLmProvider', () => ({
   VsCodeLmProvider: class {
     invalidate = vi.fn();
+    warmUp = vi.fn().mockResolvedValue(undefined);
     testSimplePrompt = mocks2.vscodeLmTestMock;
     constructor(_model?: string, _deepModel?: string) {
       mocks2.lastVsCodeLmProvider.current = this;

@@ -5,7 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] (v0.1.44)
+## [0.1.47] — 2026-07-19 (marketplace publish)
+
+### Fixed
+
+- **Context budget always fell back to 200K chars (vscode-lm provider).** Model selection in `VsCodeLmProvider` was lazy (first `complete()` call), but every analysis wave builds its prompt *before* calling the model — so `getContextLength()` returned `undefined` for the entire run and every wave used the conservative 200K-char fallback budget regardless of the real model's context size. Reference files that would have fit (e.g. 128K-token models → ~409K-char budget) were silently omitted. `buildEngine` now pre-warms model selection via a new `VsCodeLmProvider.warmUp()`, so the real `maxInputTokens` is known from the first wave onward.
+- **Redundant per-wave prompt builds.** All six analysis waves independently rebuilt the identical user prompt — re-reading reference files from disk and re-logging the context-budget fallback warning six times per document. The built prompt is now cached per `analyze()` run (keyed on entry text + file path; the in-flight promise is shared so concurrent waves build exactly once).
+
+## [0.1.46] — 2026-07-19 (marketplace publish)
+
+### Changed
+
+- **Release notes polish.** Added concise Marketplace-facing release notes and kept the package metadata aligned with the published version.
+
+## [0.1.45] — 2026-07-19 (marketplace publish)
+
+### Added
+
+- **Release wrapper (`publish:vsce`).** Added `npm run publish:vsce -- 0.1.45`, which runs `release:gate` and publishes with an explicit `VCSE_PAT`/`VSCE_PAT` token. This avoids the Linux keyring blocker in headless shells and gives the publish flow a repeatable entry point.
 
 ### Added (v0.1.37 — 2026-07-13)
 

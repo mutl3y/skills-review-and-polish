@@ -201,6 +201,13 @@ export class Analyzer {
    * wave name; absent means schema mode is still in effect.
    */
   private readonly waveDisableStructuredOutput = new Map<string, boolean>();
+  /**
+   * Per-analyze() cache of the built user prompt. All waves in one run
+   * analyze the same document with identical reference files, so building
+   * the prompt once avoids 6× redundant disk I/O (readReferenceFiles) and
+   * repeated context-budget fallback logging.
+   */
+  private cachedUserPrompt?: { text: string; filePath?: string; prompt: Promise<string> };
 
   constructor(
     private readonly provider: LlmProvider,
@@ -228,6 +235,9 @@ export class Analyzer {
     // output for that wave on all subsequent skills in the session. See plan
     // item 3a.
     this.waveDisableStructuredOutput.clear();
+    // Reset the per-run prompt cache so a stale document is never reused
+    // across documents (the Engine reuses this Analyzer instance).
+    this.cachedUserPrompt = undefined;
 
     try {
       if (token?.isCancellationRequested) return results;
@@ -312,6 +322,8 @@ export class Analyzer {
     config?: EngineConfig,
   ): Promise<AnalysisResult[]> {
     const results: AnalysisResult[] = [];
+    // Reset the per-run prompt cache (see analyze() for rationale).
+    this.cachedUserPrompt = undefined;
     try {
       if (input.token?.isCancellationRequested) return results;
       const skillMetadata = this.parseSkillMetadata(input.text);
@@ -1652,7 +1664,23 @@ export class Analyzer {
     return response.finishReason === 'error' && response.text.length < 1000;
   }
 
-  private async buildUserPrompt(text: string, filePath?: string): Promise<string> {
+  /**
+   * Returns the built user prompt, caching it for the duration of one
+   * analyze()/analyzeSinglePass() run. The cache key is the exact entry
+   * text + filePath; the promise is cached (not the resolved string) so
+   * concurrent waves share a single build.
+   */
+  private buildUserPrompt(text: string, filePath?: string): Promise<string> {
+    const cached = this.cachedUserPrompt;
+    if (cached && cached.text === text && cached.filePath === filePath) {
+      return cached.prompt;
+    }
+    const prompt = this.buildUserPromptUncached(text, filePath);
+    this.cachedUserPrompt = { text, filePath, prompt };
+    return prompt;
+  }
+
+  private async buildUserPromptUncached(text: string, filePath?: string): Promise<string> {
     // Read linked reference files (e.g. references/*.md, quality/*.md) so
     // the model sees the full skill surface, not just the entry file.
     // References are first-class content; we add them to the budget and

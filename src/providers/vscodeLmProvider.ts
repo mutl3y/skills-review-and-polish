@@ -78,6 +78,22 @@ export class VsCodeLmProvider implements LlmProvider {
     return Math.min(...contexts);
   }
 
+  /**
+   * Eagerly resolve the standard (and deep, if configured) model so that
+   * `getContextLength()` returns a real value before the first analysis
+   * wave builds its prompt. Without this, every wave's prompt is built
+   * against the 200K-char fallback budget because model selection is lazy.
+   * Failures are non-fatal — `complete()` will surface a user-facing error.
+   */
+  async warmUp(): Promise<void> {
+    if (!this.cachedStandard) {
+      this.cachedStandard = await this.selectModel(this.standardModelId);
+      if (this.cachedStandard && this.onModelSelected) {
+        this.onModelSelected(this.cachedStandard.id);
+      }
+    }
+  }
+
   private async selectModel(modelId: string): Promise<vscode.LanguageModelChat | undefined> {
     const allModels = await vscode.lm.selectChatModels();
     this.log.debug('models available', { count: allModels.length, ids: allModels.map(m => m.id).join(', ') });

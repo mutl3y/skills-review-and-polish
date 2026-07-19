@@ -467,6 +467,10 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
   vscodeLmProvider.onModelSelected = (modelId: string) => {
     log('info', `buildEngine: vscode-lm selected model: ${modelId}`);
   };
+  // Pre-warm model selection so provider.getContextLength() returns the real
+  // maxInputTokens before the analyzer builds wave prompts. Without this the
+  // first analyze() run builds every wave against the 200K-char fallback.
+  await vscodeLmProvider.warmUp();
   state!.currentVsCodeLmProvider = vscodeLmProvider;
   state!.cachedEngine = new Engine(vscodeLmProvider, cfg);
   state!.cachedEngineConfigHash = hash;

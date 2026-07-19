@@ -3,7 +3,7 @@
  * E62: Compare the synced single-pass prompt against multiWave mode on the
  * same skills, using the same OpenRouter model, so we can see whether the
  * single-pass coverage block (synced to coverage.prompt's recall posture in
- * v0.1.44) now tracks multiWave coverage findings.
+ * v0.1.45) now tracks multiWave coverage findings.
  *
  * Runs BOTH modes per skill (sequential, with a small gap) and reports:
  *   - per-skill total findings (single vs multiWave)

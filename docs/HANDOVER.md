@@ -158,3 +158,13 @@ This does: refresh bundled fixture (live OpenRouter fetch) → compile →
 test → lint → lint:md. The `vscode:prepublish` script runs the first
 two halves automatically, but `release:gate` adds the test/lint steps
 for a stronger pre-flight check. AGENTS.md has the canonical note.
+
+To publish after the gate passes, use:
+
+```bash
+VSCE_PAT=... npm run publish:vsce -- 0.1.45
+```
+
+The publish wrapper runs `release:gate` first and then calls `vsce publish`
+with an explicit token, which avoids the Linux secret-store failure we hit in
+this session.

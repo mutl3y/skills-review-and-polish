@@ -66,3 +66,6 @@ scripts/rebuild-ext.sh
 
 # Local recovery stash for deleted experiment scripts (see docs/plan/archive/releases/20260717-session-handover.md)
 .archive/
+
+# Local debug logs (issue reports, scratch)
+debug_me/
