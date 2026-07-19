@@ -1637,7 +1637,22 @@ export class Analyzer {
         fallbackTextLen: fallback.text.length,
       });
     }
-    
+
+    // Same-tier retry for transient transport errors (e.g. mid-stream network
+    // aborts). Provider-level retries cover 429/5xx and sendRequest throws, but
+    // a stream that dies mid-iteration surfaces as response.error on any tier —
+    // previously the wave failed with no retry at all. One attempt only; rate
+    // limits are excluded (they follow the RateLimitError path).
+    if (response.error && !response.isRateLimit && tier !== 'deep') {
+      this.log.info('callLLM: retrying same tier after provider error', { tier, error: response.error });
+      const retry = await this.provider.complete({ prompt, systemPrompt, modelTier: tier, token, disableStructuredOutput, maxTokensMultiplier });
+      if (!retry.error && retry.text) {
+        this.log.info('callLLM: same-tier retry recovered', { tier, textLen: retry.text.length });
+        return retry;
+      }
+      this.log.info('callLLM: same-tier retry did not recover', { tier, retryError: retry.error });
+    }
+
     if (response.error) {
       this.log.info('callLLM: provider error', { tier, isRateLimit: response.isRateLimit, error: response.error });
       if (response.isRateLimit) {

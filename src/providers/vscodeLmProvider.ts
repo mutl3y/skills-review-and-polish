@@ -312,8 +312,37 @@ export class VsCodeLmProvider implements LlmProvider {
 
       const streamed = await this.collectStreamText(response as { stream: AsyncIterable<unknown>; text?: unknown });
       if (streamed.error) {
-        this.log.info('complete: stream error', { error: streamed.error });
-        return { text: streamed.text, error: streamed.error };
+        this.log.info('complete: stream error — retrying once with fresh stream', { error: streamed.error });
+        // Stream-iteration failures (e.g. "network request aborted" mid-stream)
+        // are transient transport errors, not model errors — the request itself
+        // succeeded. Retry once against the same model before giving up. This
+        // path previously returned the error directly, so a single network hiccup
+        // failed the whole analysis wave with no retry (rate limits, by contrast,
+        // get a full retry chain).
+        const retryCts = new vscode.CancellationTokenSource();
+        if (request.token) {
+          request.token.onCancellationRequested(() => retryCts.cancel());
+        }
+        const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
+        try {
+          const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: 16384 } }, retryCts.token);
+          if (!retryResponse.text) {
+            return { text: streamed.text, error: streamed.error };
+          }
+          const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
+          if (retryStreamed.error) {
+            return { text: retryStreamed.text, error: `Stream failed twice: ${retryStreamed.error}` };
+          }
+          this.log.debug('complete: stream retry success', { textLen: retryStreamed.text.length });
+          return { text: retryStreamed.text };
+        } catch (retryErr) {
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          this.log.info('complete: stream retry also failed', { error: retryMsg });
+          return { text: streamed.text, error: streamed.error, isRateLimit: isRateLimitError(retryMsg) };
+        } finally {
+          clearTimeout(retryTimeout);
+          retryCts.dispose();
+        }
       }
 
       this.log.debug('complete: success', { textLen: streamed.text.length });

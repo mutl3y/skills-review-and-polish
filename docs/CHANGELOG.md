@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.49] — 2026-07-19 (marketplace publish)
+
+### Fixed
+
+- **Misleading letter grade on partially-failed analysis.** A run with real findings plus a failed wave (e.g. coverage wave dying on a mid-stream network abort) reported a confident letter grade — 5 findings + 1 dead wave graded A-. `scoreSkill` now marks analysis incomplete whenever ANY infra code is present (not only when every result is infra) and withholds the letter grade (`Ungraded`); the numeric score is still computed and shown.
+- **Failed analysis waves got no retry.** Two gaps aligned: `vscodeLmProvider.complete` only retried *thrown* `sendRequest` errors, while a mid-stream abort ("network request aborted") is *returned* from stream iteration; and `callLLM` only retried degraded-but-successful responses or deep-tier failures. Stream-iteration errors now retry once with a fresh stream in the provider, and `callLLM` retries once on the same tier for any non-rate-limit provider error. A transient transport failure now gets multiple chances before a wave fails.
+- **Silent wave failures in the UI.** `analyzeDocument` only warned about rate limits; failed waves now produce a warning naming the failed wave(s) (e.g. "1 analysis wave(s) failed (coverage) after retry…").
+
 ## [0.1.48] — 2026-07-19 (marketplace publish)
 
 ### Fixed

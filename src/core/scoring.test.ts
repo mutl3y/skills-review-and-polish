@@ -176,12 +176,18 @@ describe('scoreSkill', () => {
     expect(errored.incomplete).toBe(true);
     expect(errored.grade).toBe('Ungraded');
 
-    // Mixed results (one real finding + one infra code) = real grade, no cap
+    // Mixed results (one real finding + one infra code) = partial failure →
+    // still Ungraded. A failed wave means unknown findings; a letter grade
+    // would assert completeness we can't vouch for (changed 2026-07-19: was
+    // "real grade, no cap", which let a 5-findings-plus-one-dead-wave run
+    // report A-).
     const mixed = scoreSkill([
       makeResult('llm-error', 'warning'),
       makeResult('ambiguity-llm', 'warning'),
     ], 40, 'standard');
-    expect(mixed.incomplete).toBe(false);
-    expect(mixed.grade).not.toBe('Ungraded');
+    expect(mixed.incomplete).toBe(true);
+    expect(mixed.grade).toBe('Ungraded');
+    // Score is still computed from real findings — only the grade is withheld.
+    expect(mixed.score).toBeGreaterThan(0);
   });
 });

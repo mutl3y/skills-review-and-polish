@@ -568,7 +568,46 @@ describe('VsCodeLmProvider.selectModel()', () => {
       expect(result.text).not.toContain('CORRUPTED');
     });
 
-    it('returns an error when response.stream iteration fails', async () => {
+    it('retries once when response.stream iteration fails, and succeeds', async () => {
+      const mockModel = { ...safeTierModels[2] } as any;
+      let call = 0;
+      mockModel.sendRequest = vi.fn().mockImplementation(() => {
+        call++;
+        if (call === 1) {
+          // First attempt: stream dies mid-iteration (transient transport error)
+          return Promise.resolve({
+            text: 'ignored',
+            stream: (async function* () {
+              yield 'partial';
+              throw new Error('network request aborted');
+            })(),
+          });
+        }
+        // Retry: clean stream
+        return Promise.resolve({
+          text: 'ignored',
+          stream: (async function* () {
+            yield '{"recovered": true}';
+          })(),
+        });
+      });
+
+      selectChatModels.mockImplementation((opts) => {
+        if (!opts) return Promise.resolve(allModels);
+        if (opts?.family === 'claude-sonnet-4.5') return Promise.resolve([mockModel]);
+        if (opts?.id === 'claude-sonnet-4.5') return Promise.resolve([mockModel]);
+        return Promise.resolve([]);
+      });
+
+      const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5');
+      const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
+
+      expect(result.error).toBeUndefined();
+      expect(result.text).toBe('{"recovered": true}');
+      expect(mockModel.sendRequest).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns an error when stream iteration fails twice', async () => {
       const mockModel = { ...safeTierModels[2] } as any;
       mockModel.sendRequest = vi.fn().mockResolvedValue({
         text: 'ignored',
@@ -588,7 +627,11 @@ describe('VsCodeLmProvider.selectModel()', () => {
       const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5');
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
-      expect(result.error).toContain('Failed to iterate response: stream boom');
+      // Both attempts fail; the retry's error surfaces with the twice-failed marker.
+      // (collectStreamText reports the second failure as empty-text because the
+      // thrown iteration error left no salvageable partial output.)
+      expect(result.error).toContain('Stream failed twice');
+      expect(mockModel.sendRequest).toHaveBeenCalledTimes(2);
     });
 
     it('returns an error when the streamed text is empty', async () => {
@@ -610,7 +653,9 @@ describe('VsCodeLmProvider.selectModel()', () => {
       const testProvider = new VsCodeLmProvider('gpt-5-mini', 'gpt-5-mini');
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
-      expect(result.error).toBe('Model returned empty text response');
+      // Empty-stream errors also go through the retry path; both attempts
+      // return empty, so the error is preserved.
+      expect(result.error).toContain('Model returned empty text response');
     });
 
     it('returns an error when the model response object is empty', async () => {

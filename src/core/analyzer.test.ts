@@ -503,6 +503,41 @@ describe('analyze with mock provider', () => {
     expect(results.some(r => /\[\w[\w-]*\]/.test(r.message))).toBe(true);
   });
 
+  it('retries once on the same tier after a transient provider error, and recovers', async () => {
+    // Fail the FIRST request per wave (transient transport error), succeed on retry.
+    // Waves run concurrently, so track failure state per system-prompt (per wave)
+    // rather than alternating a global counter.
+    const failed = new Set<string>();
+    const complete = vi.fn(async (req: any) => {
+      const key = req.systemPrompt.slice(0, 60);
+      if (!failed.has(key)) {
+        failed.add(key);
+        return { text: '{}', error: 'Failed to iterate response: network request aborted' };
+      }
+      return {
+        text: JSON.stringify({
+          contradictions: [], ambiguity_issues: [], persona_issues: [],
+          cognitive_load: { issues: [], overall_complexity: 'low' }, coverage_analysis: {}, hygiene_issues: [],
+        }),
+      };
+    });
+    const analyzer = new Analyzer({ complete, getContextLength: () => undefined });
+    const results = await analyzer.analyze({ text: 'Simple prompt.' });
+    // Every wave recovered via retry — no llm-error diagnostics.
+    expect(results.some(r => r.code === 'llm-error')).toBe(false);
+    // 6 waves × 2 attempts (initial failure + successful retry)
+    expect(complete.mock.calls.length).toBe(12);
+  });
+
+  it('does NOT retry rate-limit errors on the same tier (rate limits follow RateLimitError path)', async () => {
+    const complete = vi.fn(async () => ({ text: '{}', error: '429 too many requests', isRateLimit: true }));
+    const analyzer = new Analyzer({ complete, getContextLength: () => undefined });
+    const results = await analyzer.analyze({ text: 'Simple prompt.' });
+    expect(results.some(r => r.code === 'llm-rate-limited')).toBe(true);
+    // 6 waves + no same-tier retries (deep-tier fallback also skipped for rate limits)
+    expect(complete.mock.calls.length).toBe(6);
+  });
+
   it('handles provider rejection gracefully', async () => {
     const analyzer = makeAnalyzer(async () => { throw new Error('Network error'); });
     const results = await analyzer.analyze({ text: 'Simple prompt.' });

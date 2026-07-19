@@ -138,13 +138,16 @@ export function scoreSkill(
   const THRESHOLD_OFFSETS: Record<SkillType, number> = { simple: 0, standard: 0, workflow: 10, meta: 15 };
   const thresholdOffset = THRESHOLD_OFFSETS[skillType];
 
-  // Detect incomplete analysis — wave failures, parse errors, disabled LLM
-  // Empty results WITHOUT any infra codes means the skill is clean (analyzer
-  // found no issues), not that analysis failed. A clean skill deserves a real
-  // grade based on length penalty alone, not "Ungraded".
+  // Detect incomplete analysis — wave failures, parse errors, disabled LLM.
+  // Any infra code means at least one wave failed or was rate-limited, so the
+  // finding set is partial and the grade would assert a completeness we can't
+  // vouch for — even when real findings ARE present (partial failure is more
+  // misleading than total failure, because the findings make the grade look
+  // trustworthy). Empty results WITHOUT infra codes means the skill is clean
+  // and deserves a real grade based on length penalty alone.
   const hasInfraCode = results.some(r => INFRA_SKIP.has(r.code)) ||
                         results.some(r => r.code === 'llm-rate-limited');
-  const incomplete = hasInfraCode && results.filter(r => !INFRA_SKIP.has(r.code) && r.code !== 'llm-rate-limited').length === 0;
+  const incomplete = hasInfraCode;
   const infraErrorCount = results.filter(r => INCOMPLETE_ANALYSIS_CODES.has(r.code)).length;
   // Count rate-limited waves (llm-rate-limited = summary code from analyzer)
   const rateLimitedWaveCount = results.filter(r => r.code === 'llm-rate-limited').length;

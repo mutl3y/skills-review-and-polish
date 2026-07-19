@@ -880,7 +880,10 @@ async function analyzeDocument(
               : `${results.length} issue${results.length === 1 ? '' : 's'} found (grade ${score.grade}).`;
           log('info', `analyzeDocument: DONE — ${issueLabel}`);
 
-          // Check for rate limits — notify user and offer single-prompt fallback
+          // Check for incomplete analysis — rate limits or failed waves.
+          // Both mean the finding set is partial; the grade is Ungraded and
+          // the user should know results may be missing.
+          const failedWaveCount = score.infraErrorCount;
           if (score.rateLimitedWaveCount > 0) {
             const choice = await vscode.window.showWarningMessage(
               `Skills Review: Hit rate limits on ${score.rateLimitedWaveCount} wave(s). Some results may be incomplete (grade: ${score.grade}).`,
@@ -895,6 +898,15 @@ async function analyzeDocument(
                 'Skills Review: Switched to single-prompt mode. Re-analyze to use fewer API calls (results may be less accurate).',
               );
             }
+          } else if (failedWaveCount > 0) {
+            const failedWaves = results
+              .filter(r => r.code === 'llm-error')
+              .map(r => r.message.match(/\[(.+?)\]/)?.[1])
+              .filter(Boolean)
+              .join(', ');
+            vscode.window.showWarningMessage(
+              `Skills Review: ${failedWaveCount} analysis wave(s) failed${failedWaves ? ` (${failedWaves})` : ''} after retry. Results are incomplete — re-analyze to retry (grade: ${score.grade}).`,
+            );
           } else {
             vscode.window.showInformationMessage(`Skills Review: ${issueLabel}`);
           }
