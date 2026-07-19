@@ -99,9 +99,19 @@ function collectBareSpecifiers(entry) {
   return [...bare];
 }
 
-/** Get the list of files `vsce` would package (source of truth for the VSIX). */
+/**
+ * Get the list of files vsce would package.
+ *
+ * IMPORTANT: this must invoke the SAME vsce major version used to publish
+ * (@vscode/vsce 3.x via `npm exec`), not whatever `npx vsce` happens to
+ * resolve to. v0.1.47 shipped broken because this check ran the globally
+ * installed vsce 2.15.0 (which honours the !node_modules/picomatch/
+ * re-inclusion) while publish ran @vscode/vsce 3.9.2 with
+ * --no-dependencies (which strips node_modules entirely). Different
+ * packager, different file list → false PASS.
+ */
 function vsceFileList() {
-  const out = execFileSync('npx', ['vsce', 'ls'], {
+  const out = execFileSync('npm', ['exec', '--yes', '--', '@vscode/vsce', 'ls'], {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],

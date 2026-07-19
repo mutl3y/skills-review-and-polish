@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.48] — 2026-07-19 (marketplace publish)
+
+### Fixed
+
+- **Extension failed to activate: `Cannot find module 'picomatch'`.** The v0.1.47 VSIX shipped without any `node_modules`. Root cause: `scripts/publish-vsce.mjs` passed `--no-dependencies` to `@vscode/vsce` 3.x, which strips *all* `node_modules` from the package — including the `!node_modules/picomatch/` re-inclusion in `.vscodeignore` (in vsce 2.x the flag only skipped dependency pruning, so the wrapper's flags were stale after the vsce 3.x upgrade). The flag is removed; vsce 3.x prunes devDependencies by default.
+- **`verify:vsix` false PASS.** The guard listed files via `npx vsce ls`, which resolved to a globally installed vsce 2.15.0 — a different packager than the `@vscode/vsce` 3.9.2 used for publishing, with different `node_modules` handling. The guard now invokes the same `@vscode/vsce` 3.x via `npm exec --yes -- @vscode/vsce ls`.
+- **Publish wrapper hang in headless shells.** `npm exec` prompted `Ok to proceed? (y)` to install `@vscode/vsce` with no visible output when stdout was redirected. The wrapper now passes `--yes`.
+
 ## [0.1.47] — 2026-07-19 (marketplace publish)
 
 ### Fixed

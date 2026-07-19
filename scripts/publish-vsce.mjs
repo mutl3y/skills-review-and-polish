@@ -16,11 +16,17 @@ if (gate.status !== 0) {
   process.exit(gate.status ?? 1);
 }
 
-const args = ['exec', '--', '@vscode/vsce', 'publish'];
+// NOTE: do NOT pass --no-dependencies. In vsce 3.x that flag strips ALL
+// node_modules from the package — including the !node_modules/picomatch/
+// re-inclusion in .vscodeignore — which shipped a broken VSIX in v0.1.47
+// ("Cannot find module 'picomatch'" on activation). vsce 3.x already prunes
+// devDependencies by default, so the flag is unnecessary. --yes avoids the
+// interactive "Ok to proceed?" npm-exec install prompt in headless shells.
+const args = ['exec', '--yes', '--', '@vscode/vsce', 'publish'];
 if (version) {
   args.push(version);
 }
-args.push('--no-dependencies', '--no-yarn', '--allow-missing-repository', '--pat', pat);
+args.push('--no-yarn', '--allow-missing-repository', '--pat', pat);
 
 const publish = spawnSync('npm', args, { stdio: 'inherit' });
 process.exit(publish.status ?? 1);
