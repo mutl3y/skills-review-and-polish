@@ -34,8 +34,7 @@ Ready to stop guessing? 𝗦𝗸𝗶𝗹𝗹𝘀 𝗿𝗲𝘃𝗶𝗲𝘄 𝗮�
 #PromptEngineering #VSCode #AIOps
 
 𝗤𝘂𝗲𝘀𝘁𝗶𝗼𝗻: What's the most frustrating inconsistency you've seen from an AI prompt?
-
-𝗤𝘂𝗲𝘀𝘁𝗶𝗼𝗻: What's the most frustrating inconsistency you've seen from an AI prompt?
 ```
 
 **Marketplace Link:** https://marketplace.visualstudio.com/items?itemName=mutl3y.skills-review-and-polish
+**Full Details:** https://github.com/mutl3y/skills-review-and-polish/blob/main/docs/linkedin-full-details.md

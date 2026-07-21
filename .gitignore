@@ -69,3 +69,12 @@ scripts/rebuild-ext.sh
 
 # Local debug logs (issue reports, scratch)
 debug_me/
+.github/agents/linkedin-post-writer.agent.md
+.github/skills/linkedin-post-formatter/SKILL.md
+.github/skills/linkedin-post-formatter/references/unicode-charmap.md
+linkedin-post-carousel.md
+linkedin-post-draft.md
+linkedin-post-short.md
+linkedin-post-teaser.md
+assets/openrouter-catalog.json
+tests/fixtures/openrouter-catalog.json
