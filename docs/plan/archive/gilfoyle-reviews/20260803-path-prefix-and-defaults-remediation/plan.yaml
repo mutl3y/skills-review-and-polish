@@ -1,0 +1,233 @@
+# Remediation Plan — Gilfoyle Harsh Review (2026-08-03)
+# Source: docs/reviews/Gilfoyl_harsh_review.md
+# Status: Implemented + reviewed (2026-08-03) — all 6 waves complete; Gilfoyle
+#   review findings addressed (C1 batch charge, H1 setting wiring, M1 config-0
+#   disable, M3 fix guard). Remaining: only the provider-token-dependent
+#   integration test fails (environmental, pre-existing).
+# Plan ID: 20260803-path-prefix-and-defaults-remediation
+
+# ---------------------------------------------------------------------------
+# Verification summary
+# All 7 review claims verified against source code:
+#
+# 1. Path prefix bug in fixer.ts:223 — CONFIRMED.
+#    fixer.ts uses startsWith(path.resolve(refDir)) without path.sep guard.
+#    analyzer.ts:1350 already has the correct docDir + path.sep pattern.
+#    Same class of bug the project already learned from and fixed elsewhere.
+#
+# 2. Expensive default — CONFIRMED.
+#    package.json defaults: analysisMode=multiWave (6 waves), scoreSamples=3.
+#    Multi-wave × median-3 is the most token-heavy configuration.
+#
+# 3. Fix safety gates off — CONFIRMED.
+#    fix.semanticCheck=false and fix.selfCritique=false are the defaults.
+#    Only fixMode='diff' (mechanical guard) is on by default.
+#
+# 4. Docs disagree on determinism — CONFIRMED.
+#    ARCHITECTURE.md has two competing narratives: ±6 noise floor (lines 36-100)
+#    AND "range 3 / mostly identical" deterministic retry fix (lines 90-120).
+#    LEARNINGS.md leads with ±6 as the canonical noise-floor statement.
+#
+# 5. Always-on activation — CONFIRMED.
+#    package.json activationEvents: ["onStartupFinished"] — no language/pattern filter.
+#
+# 6. MCP trust boundary — CONFIRMED.
+#    src/mcp/server.ts:42 MAX_TEXT_LENGTH=100_000, reads .skills-review.json,
+#    OPENROUTER_API_KEY/GITHUB_TOKEN from env. Cost controls are soft (no budget cap).
+#
+# 7. Variance is structural — CONFIRMED.
+#    The architecture uses median-of-N, finding filters, retry/merge to paper
+#    over LLM jitter. The core sensor is inherently nondeterministic (hosted MoE).
+# ---------------------------------------------------------------------------
+
+waves:
+  - wave: 1
+    title: "Fix path prefix bug in fixer.ts"
+    severity: High
+    issues: [1]
+    tasks:
+      - id: 1.1
+        title: "Fix path boundary check in loadReferenceGrounding"
+        file: src/core/fixer.ts
+        line: 223
+        description: >
+          Change `resolved.startsWith(path.resolve(refDir))` to
+          `resolved.startsWith(path.resolve(refDir) + path.sep) || resolved === path.resolve(refDir)`
+          to match the pattern already used in analyzer.ts:1350.
+          This prevents `/tmp/refs` from prefix-matching `/tmp/refs-evil/secret.md`.
+        acceptance: >
+          Unit test confirms that a file named "evil-secret.md" inside a directory
+          named "refs-evil" is NOT loaded when refDir is "refs".
+          Existing tests for valid reference files still pass.
+
+  - wave: 2
+    title: "Lower default cost and enable safety gates"
+    severity: High
+    issues: [2, 3]
+    tasks:
+      - id: 2.1
+        title: "Change default analysisMode to 'focused'"
+        file: package.json
+        line: 151
+        description: >
+          Change default from "multiWave" to "focused" (2 waves: contradictions + ambiguities).
+          Multi-wave remains available for users who want maximum quality.
+          Update package.json description to explain the trade-off.
+        acceptance: >
+          Default config produces focused analysis (2 waves) unless user explicitly sets multiWave.
+          No breaking change — existing user settings override the default.
+
+      - id: 2.2
+        title: "Change default scoreSamples to 1"
+        file: package.json
+        line: 188
+        description: >
+          Change default from 3 to 1. Median-of-3 is for fix keep/revert decisions,
+          not for analysis scoring. Users who want tighter scores can set it themselves.
+          The noise-floor ±6 margin already makes single-sample scores unreliable for
+          small changes; focused mode with scoreSamples=1 is the right default for
+          authoring-time linting.
+        acceptance: >
+          Default scoreSamples is 1. Users can still set 3-5 for fix decisions.
+          Documentation updated to reflect the change.
+
+      - id: 2.3
+        title: "Enable fix.semanticCheck and fix.selfCritique by default"
+        file: package.json
+        lines: [259, 264]
+        description: >
+          Change fix.semanticCheck default from false to true, and fix.selfCritique
+          default from false to true. These are the layers that catch meaning erosion
+          (concept swaps, obligation drops, fabricated facts). LEARNINGS.md explicitly
+          states autonomous apply is not production-safe without these gates.
+          The fixMode=diff default already prevents auto-apply; enabling semantic
+          checks adds safety without changing the UX flow.
+        acceptance: >
+          Both semanticCheck and selfCritique default to true.
+          Users can opt out by setting them to false.
+          The extra API call cost is documented in the setting description.
+
+  - wave: 3
+    title: "Resolve determinism documentation contradiction"
+    severity: Medium
+    issues: [4]
+    tasks:
+      - id: 3.1
+        title: "Unify ARCHITECTURE.md determinism narrative"
+        file: docs/ARCHITECTURE.md
+        description: >
+          ARCHITECTURE.md has two competing narratives: the ±6 noise floor section
+          (lines 36-100) and the "range 3 / mostly identical" deterministic retry
+          section (lines 90-120). The deterministic retry/merge fix is a real
+          improvement (range 89 → 3), but it does not eliminate the ±6 noise floor.
+          The noise floor is per-sample variance; the retry/merge fix reduces
+          the range of that variance. Both are true but the current presentation
+          makes them sound contradictory.
+          Rewrite the "Noise Floor" section to clearly distinguish:
+          - Per-sample variance: ±6 (irreducible, MoE routing)
+          - Retry/merge effect: collapses range from ±6 to ±3
+          - Median-of-N: further stabilizes scores
+          Update the table and example to reflect the post-retry/merge numbers.
+        acceptance: >
+          A reader unfamiliar with the codebase can understand both the noise floor
+          and the retry/merge improvement without seeing them as contradictory.
+          The ±6 figure is presented as the pre-fix baseline; range 3 is the current
+          post-fix measurement.
+
+      - id: 3.2
+        title: "Update LEARNINGS.md noise floor framing"
+        file: docs/plan/LEARNINGS.md
+        description: >
+          LEARNINGS.md leads with "the noise floor is ±6" as the canonical statement.
+          Add a note that the deterministic retry/merge fix (v0.1.39) reduced the
+          observable range to ±3, but the per-sample ±6 floor still applies.
+          Clarify that median-of-N scoring is the durable fix for the noise floor,
+          not the retry/merge path.
+        acceptance: >
+          The ±6 figure is contextualized as the per-sample floor.
+          The retry/merge improvement is documented as a separate reduction in range.
+          No reader would cite ±6 without understanding it applies to individual samples.
+
+  - wave: 4
+    title: "Fix always-on activation"
+    severity: Medium
+    issues: [5]
+    tasks:
+      - id: 4.1
+        title: "Add language/pattern activation event"
+        file: package.json
+        line: 30
+        description: >
+          Add activationEvents for the file patterns the extension monitors
+          (e.g., "onLanguage:markdown" when files matching the include patterns
+          are opened). Keep onStartupFinished for workspace-level initialization
+          (model catalog, pricing cache) but add pattern-based activation so
+          the analyzer only loads when relevant files are present.
+          The include patterns (SKILL.md, *.prompt.md, *.agent.md, *.instructions.md,
+          AGENTS.md) should drive the activation event patterns.
+        acceptance: >
+          Extension activates onStartupFinished for workspace init, but the
+          analyzer commands and diagnostics only activate when a relevant file
+          is opened or the workspace contains matching files.
+          No regression in startup behavior for workspaces with SKILL.md files.
+
+  - wave: 5
+    title: "Strengthen MCP trust boundary and cost controls"
+    severity: Medium
+    issues: [6]
+    tasks:
+      - id: 5.1
+        title: "Add cost budget cap to MCP server"
+        file: src/mcp/server.ts
+        description: >
+          Add a configurable cost budget (e.g., maxCostPerSession or maxTokensPerSession)
+          to the MCP server. When the budget is exceeded, the server refuses new analysis
+          requests until the next session. This is the missing cost control the review
+          identifies — error redaction exists but there is no spending guard.
+          Default: 50k output tokens per session (roughly $0.01-0.03 at current rates).
+        acceptance: >
+          MCP server tracks cumulative output tokens per session.
+          When the budget is exceeded, subsequent analyze calls return an error
+          with a clear message about the budget limit.
+          Budget is configurable via environment variable or .skills-review.json.
+
+      - id: 5.2
+        title: "Document MCP trust boundary in README"
+        file: README.md
+        description: >
+          Add a section documenting the MCP server's trust boundary: what data it
+          reads, what env vars it accesses, and what cost controls are in place.
+          Users running the MCP server in CI/CD should understand the blast radius.
+        acceptance: >
+          README has a clear "MCP Server Security" section covering env vars,
+          config file access, input limits, and cost controls.
+
+  - wave: 6
+    title: "Document variance architecture honestly"
+    severity: Low
+    issues: [7]
+    tasks:
+      - id: 6.1
+        title: "Add variance disclosure to ARCHITECTURE.md"
+        file: docs/ARCHITECTURE.md
+        description: >
+          Add an explicit "Variance Architecture" section that acknowledges:
+          - The core sensor (LLM at temperature 0 on hosted MoE) is nondeterministic
+          - Median-of-N, finding filters, and retry/merge are damage control, not elimination
+          - Every keep/revert decision is a statistical judgment, not a deterministic one
+          - The system is designed for authoring-time guidance, not production-grade verification
+          This is not a code change — it is a documentation fix so the product's
+          confidence claims match its actual capabilities.
+        acceptance: >
+          A new reader understands that the analyzer provides guidance with
+          quantified uncertainty, not deterministic truth.
+          The documentation does not oversell the reliability of scores.
+
+# ---------------------------------------------------------------------------
+# Non-goals (explicitly out of scope for this remediation)
+# ---------------------------------------------------------------------------
+# - Rewriting the analyzer prompts (separate experiment track)
+# - Changing the provider architecture (vscode.lm vs OpenRouter vs GitHub Models)
+# - Removing multiWave mode (keep it as an opt-in choice)
+# - Changing the surgical fixer's code (the fixer itself is well-architected)
+# - E2E test changes (separate plan)
