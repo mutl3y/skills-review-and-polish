@@ -26,6 +26,22 @@ function isRateLimitError(msg: string): boolean {
 }
 
 /**
+ * Number of fresh-stream retries for a mid-stream transport failure (e.g.
+ * "Server error. Stream terminated"). The Copilot stream is flaky enough that
+ * a single retry is often insufficient, so we allow a few attempts with
+ * backoff before surfacing the error to the analyzer's retry chain.
+ */
+const STREAM_RETRY_ATTEMPTS = 3;
+
+/** Backoff between stream retries, scaled by attempt number (attempt * this). */
+const STREAM_RETRY_BACKOFF_MS = 500;
+
+/** Minimal promise-based sleep used for stream-retry backoff. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * Default provider — wraps VS Code's Language Model API (`vscode.lm`).
  * No API keys: uses the user's Copilot subscription.
  *
@@ -312,37 +328,45 @@ export class VsCodeLmProvider implements LlmProvider {
 
       const streamed = await this.collectStreamText(response as { stream: AsyncIterable<unknown>; text?: unknown });
       if (streamed.error) {
-        this.log.info('complete: stream error — retrying once with fresh stream', { error: streamed.error });
-        // Stream-iteration failures (e.g. "network request aborted" mid-stream)
-        // are transient transport errors, not model errors — the request itself
-        // succeeded. Retry once against the same model before giving up. This
-        // path previously returned the error directly, so a single network hiccup
-        // failed the whole analysis wave with no retry (rate limits, by contrast,
-        // get a full retry chain).
-        const retryCts = new vscode.CancellationTokenSource();
-        if (request.token) {
-          request.token.onCancellationRequested(() => retryCts.cancel());
-        }
-        const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
-        try {
-          const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: 16384 } }, retryCts.token);
-          if (!retryResponse.text) {
-            return { text: streamed.text, error: streamed.error };
+        // Stream-iteration failures (e.g. "network request aborted" /
+        // "Server error. Stream terminated" mid-stream) are transient transport
+        // errors, not model errors — the request itself succeeded. Retry with a
+        // fresh stream up to STREAM_RETRY_ATTEMPTS times with a short backoff.
+        // This path previously returned the error directly, so a single network
+        // hiccup failed the whole analysis wave with no retry (rate limits, by
+        // contrast, get a full retry chain). The Copilot stream is flaky enough
+        // that one retry is often not enough, so we allow a few attempts.
+        let lastStreamed = streamed;
+        for (let attempt = 1; attempt <= STREAM_RETRY_ATTEMPTS; attempt++) {
+          this.log.info('complete: stream error — retrying with fresh stream', { attempt, error: lastStreamed.error });
+          const retryCts = new vscode.CancellationTokenSource();
+          if (request.token) {
+            request.token.onCancellationRequested(() => retryCts.cancel());
           }
-          const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
-          if (retryStreamed.error) {
-            return { text: retryStreamed.text, error: `Stream failed twice: ${retryStreamed.error}` };
+          const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
+          try {
+            await sleep(STREAM_RETRY_BACKOFF_MS * attempt);
+            const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: 16384 } }, retryCts.token);
+            if (!retryResponse.text) {
+              return { text: lastStreamed.text, error: lastStreamed.error };
+            }
+            const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
+            if (retryStreamed.error) {
+              lastStreamed = retryStreamed;
+              continue;
+            }
+            this.log.debug('complete: stream retry success', { attempt, textLen: retryStreamed.text.length });
+            return { text: retryStreamed.text };
+          } catch (retryErr) {
+            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            this.log.info('complete: stream retry also failed', { attempt, error: retryMsg });
+            return { text: lastStreamed.text, error: lastStreamed.error, isRateLimit: isRateLimitError(retryMsg) };
+          } finally {
+            clearTimeout(retryTimeout);
+            retryCts.dispose();
           }
-          this.log.debug('complete: stream retry success', { textLen: retryStreamed.text.length });
-          return { text: retryStreamed.text };
-        } catch (retryErr) {
-          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          this.log.info('complete: stream retry also failed', { error: retryMsg });
-          return { text: streamed.text, error: streamed.error, isRateLimit: isRateLimitError(retryMsg) };
-        } finally {
-          clearTimeout(retryTimeout);
-          retryCts.dispose();
         }
+        return { text: lastStreamed.text, error: `Stream failed ${STREAM_RETRY_ATTEMPTS + 1} times: ${lastStreamed.error}` };
       }
 
       this.log.debug('complete: success', { textLen: streamed.text.length });

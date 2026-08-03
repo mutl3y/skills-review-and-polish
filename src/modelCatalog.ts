@@ -228,6 +228,55 @@ export async function resolveContextLength(
   return undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Batch API capability
+// ---------------------------------------------------------------------------
+
+/** Lazy-loaded batch-capability Set. Undefined until first access. */
+let batchCapabilityCache: Set<string> | undefined;
+
+/**
+ * Load the set of model IDs that support the OpenRouter Batch API from the
+ * committed fixture. The fixture's `batchSupported` array is an allowlist of
+ * model IDs known to accept `/api/beta/batches` submissions. Models absent
+ * from the list fall back to single-request transport (see plan step 6).
+ *
+ * @internal Reset the cache (for tests).
+ */
+export function _resetBatchCapabilityCache(): void {
+  batchCapabilityCache = undefined;
+}
+
+function loadBatchCapability(): Set<string> {
+  if (batchCapabilityCache !== undefined) return batchCapabilityCache;
+  try {
+    const raw = fs.readFileSync(getFixturePath(), 'utf8');
+    const parsed = JSON.parse(raw) as { batchSupported?: string[] };
+    batchCapabilityCache = new Set(parsed.batchSupported ?? []);
+  } catch {
+    batchCapabilityCache = new Set();
+  }
+  return batchCapabilityCache;
+}
+
+/**
+ * Whether a model ID supports the OpenRouter Batch API.
+ *
+ * Used by the analyzer's batch transport to decide between `submitBatch`/
+ * `pollBatch` (batch-capable) and concurrent single-request `complete`
+ * (fallback). Returns `false` for unknown models so the caller defaults to
+ * the safe single-request path.
+ *
+ * @param modelId The OpenRouter model identifier.
+ */
+export function isBatchSupported(modelId: string): boolean {
+  if (!modelId) return false;
+  // OpenRouter ":batch" suffix models are Batch-API-only by definition.
+  if (modelId.endsWith(':batch')) return true;
+  const cap = loadBatchCapability();
+  return cap.has(modelId) || cap.has(normalizeModelId(modelId));
+}
+
 export interface ResolvedContextLength {
   /** Input context length in tokens. */
   contextLength: number;

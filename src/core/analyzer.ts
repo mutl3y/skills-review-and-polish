@@ -1669,8 +1669,20 @@ export class Analyzer {
       });
     }
     if (response.error && tier === 'deep' && !response.isRateLimit) {
-      this.log.info('callLLM: deep tier failed; retrying with standard tier', {
+      // Retry the deep tier directly once before falling back to standard. When
+      // the deep model is the same as the standard model (common config), a
+      // stream-terminated transport error would otherwise fail immediately with
+      // no recovery — the standard fallback hits the identical flaky stream.
+      this.log.info('callLLM: deep tier failed; retrying deep tier directly', {
         error: response.error,
+      });
+      const deepRetry = await this.provider.complete({ prompt, systemPrompt, modelTier: 'deep', token, disableStructuredOutput, maxTokensMultiplier });
+      if (!deepRetry.error && deepRetry.text) {
+        this.log.info('callLLM: deep-tier direct retry recovered', { textLen: deepRetry.text.length });
+        return deepRetry;
+      }
+      this.log.info('callLLM: deep tier direct retry failed; falling back to standard tier', {
+        error: deepRetry.error,
       });
       const fallback = await this.provider.complete({ prompt, systemPrompt, modelTier: 'standard', token, disableStructuredOutput });
       this.log.trace('callLLM: standard fallback response received', {

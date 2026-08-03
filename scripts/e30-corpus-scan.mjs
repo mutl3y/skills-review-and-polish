@@ -20,12 +20,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const { Engine } = await import('../out/core/index.js');
 const { OpenRouterProvider } = await import('../out/providers/externalProvider.js');
+const { BatchAwareOpenRouterProvider } = await import('../out/providers/batchAwareProvider.js');
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey) {
   console.error('OPENROUTER_API_KEY is not set');
   process.exit(1);
 }
+
+// When BATCH_API=1, the 6 waves of each skill are submitted as a single
+// OpenRouter Batch API job (plan step 5) instead of 6 sequential chat
+// completions. Falls back to single-request automatically for models that
+// don't support batch mode.
+const USE_BATCH_API = process.env.BATCH_API === '1';
 
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const LOG_DIR = path.join(__dirname, '..', '.github', 'experiments', 'documentation-review', 'logs');
@@ -64,7 +71,10 @@ function withTimeout(promise, ms, label) {
 }
 
 async function runOne(skillId, skillText, skillPath) {
-  const provider = new OpenRouterProvider({ apiKey, model: MODEL });
+  const baseProvider = new OpenRouterProvider({ apiKey, model: MODEL });
+  const provider = USE_BATCH_API
+    ? new BatchAwareOpenRouterProvider({ provider: baseProvider, modelId: MODEL, flushSize: ALL_WAVES.length })
+    : baseProvider;
   const engine = new Engine(provider, {
     analysisMode: 'multiWave',
     analysisWaves: ALL_WAVES,
@@ -78,7 +88,13 @@ async function runOne(skillId, skillText, skillPath) {
       PER_CALL_TIMEOUT_MS,
       skillId,
     );
+    if (USE_BATCH_API && provider instanceof BatchAwareOpenRouterProvider) {
+      await provider.flush();
+    }
   } catch (err) {
+    if (USE_BATCH_API && provider instanceof BatchAwareOpenRouterProvider) {
+      try { await provider.flush(); } catch { /* ignore flush error on failure path */ }
+    }
     return { skillId, error: err.message, elapsedMs: Date.now() - t0 };
   }
   const elapsedMs = Date.now() - t0;

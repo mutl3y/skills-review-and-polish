@@ -1,5 +1,5 @@
 {
-  "fetchedAt": "2026-07-19T19:35:08.295Z",
+  "fetchedAt": "2026-08-03T14:44:33.656Z",
   "count": 75,
   "bundledSize": 75,
   "entries": [
@@ -44,6 +44,14 @@
       1000000
     ],
     [
+      "anthropic/claude-opus-5",
+      1000000
+    ],
+    [
+      "anthropic/claude-opus-5-fast",
+      1000000
+    ],
+    [
       "anthropic/claude-sonnet-4",
       1000000
     ],
@@ -73,7 +81,7 @@
     ],
     [
       "deepseek/deepseek-chat",
-      131072
+      163840
     ],
     [
       "deepseek/deepseek-chat-v3.1",
@@ -84,7 +92,7 @@
       163840
     ],
     [
-      "deepseek/deepseek-v4-pro",
+      "deepseek/deepseek-v4-flash-0731",
       1048576
     ],
     [
@@ -101,7 +109,7 @@
     ],
     [
       "google/gemini-3-pro-image",
-      65536
+      131072
     ],
     [
       "google/gemini-3.1-flash-image",
@@ -120,8 +128,16 @@
       1048576
     ],
     [
+      "google/gemini-3.5-flash-lite",
+      1048576
+    ],
+    [
+      "google/gemini-3.6-flash",
+      1048576
+    ],
+    [
       "google/gemma-3-27b-it",
-      131072
+      262144
     ],
     [
       "meta-llama/llama-3.1-8b-instruct",
@@ -137,7 +153,7 @@
     ],
     [
       "meta-llama/llama-4-scout",
-      10000000
+      1310720
     ],
     [
       "mistralai/ministral-3b-2512",
@@ -161,7 +177,7 @@
     ],
     [
       "nvidia/nemotron-3-ultra-550b-a55b",
-      1000000
+      512288
     ],
     [
       "openai/gpt-4.1",
@@ -194,14 +210,6 @@
     [
       "openai/gpt-5-nano",
       400000
-    ],
-    [
-      "openai/gpt-5.5",
-      1050000
-    ],
-    [
-      "openai/gpt-5.5-pro",
-      1050000
     ],
     [
       "openai/gpt-5.6-luna",
@@ -253,11 +261,11 @@
     ],
     [
       "qwen/qwen-2.5-72b-instruct",
-      131072
+      32768
     ],
     [
       "qwen/qwen-2.5-coder-32b-instruct",
-      128000
+      32768
     ],
     [
       "qwen/qwen3-235b-a22b",
@@ -265,14 +273,6 @@
     ],
     [
       "qwen/qwen3-coder-30b-a3b-instruct",
-      160000
-    ],
-    [
-      "qwen/qwen3.6-27b",
-      262144
-    ],
-    [
-      "qwen/qwen3.6-35b-a3b",
       262144
     ],
     [
@@ -280,8 +280,8 @@
       1000000
     ],
     [
-      "qwen/qwen3.6-max-preview",
-      262144
+      "qwen/qwen3.7-flash",
+      1000000
     ],
     [
       "qwen/qwen3.7-max",
@@ -303,5 +303,76 @@
       "x-ai/grok-build-0.1",
       256000
     ]
+  ],
+  "batchSupported": [
+    "anthropic/claude-fable-5",
+    "anthropic/claude-haiku-4.5",
+    "anthropic/claude-opus-4",
+    "anthropic/claude-opus-4.1",
+    "anthropic/claude-opus-4.5",
+    "anthropic/claude-opus-4.6",
+    "anthropic/claude-opus-4.7",
+    "anthropic/claude-opus-4.7-fast",
+    "anthropic/claude-opus-4.8",
+    "anthropic/claude-opus-4.8-fast",
+    "anthropic/claude-opus-5",
+    "anthropic/claude-opus-5-fast",
+    "anthropic/claude-sonnet-4",
+    "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-sonnet-4.6",
+    "anthropic/claude-sonnet-5",
+    "bytedance-seed/seed-1.6-flash",
+    "cohere/command-r-plus-08-2024",
+    "cohere/command-r7b-12-2024",
+    "deepseek/deepseek-chat",
+    "deepseek/deepseek-chat-v3.1",
+    "deepseek/deepseek-r1",
+    "google/gemini-2.5-flash",
+    "google/gemini-2.5-flash-lite",
+    "google/gemini-2.5-pro",
+    "google/gemini-3-pro-image",
+    "google/gemini-3.1-flash-image",
+    "google/gemini-3.1-flash-lite-image",
+    "google/gemini-3.5-flash",
+    "google/gemini-3.5-flash-lite",
+    "google/gemini-3.6-flash",
+    "google/gemma-3-27b-it",
+    "meta-llama/llama-3.1-8b-instruct",
+    "meta-llama/llama-3.3-70b-instruct",
+    "meta-llama/llama-4-maverick",
+    "meta-llama/llama-4-scout",
+    "mistralai/ministral-3b-2512",
+    "mistralai/mistral-large-2407",
+    "mistralai/mistral-nemo",
+    "nvidia/nemotron-3-nano-30b-a3b",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "openai/gpt-4.1",
+    "openai/gpt-4.1-mini",
+    "openai/gpt-4.1-nano",
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "openai/gpt-5",
+    "openai/gpt-5-mini",
+    "openai/gpt-5-nano",
+    "openai/gpt-5.6-luna",
+    "openai/gpt-5.6-luna-pro",
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-sol-pro",
+    "openai/gpt-5.6-terra",
+    "openai/gpt-5.6-terra-pro",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "openai/o1",
+    "openai/o3-mini",
+    "openai/o4-mini",
+    "qwen/qwen-2.5-72b-instruct",
+    "qwen/qwen-2.5-coder-32b-instruct",
+    "qwen/qwen3-235b-a22b",
+    "qwen/qwen3-coder-30b-a3b-instruct",
+    "qwen/qwen3.7-flash",
+    "qwen/qwen3.7-max",
+    "qwen/qwen3.7-plus",
+    "x-ai/grok-4.5",
+    "x-ai/grok-build-0.1"
   ]
 }

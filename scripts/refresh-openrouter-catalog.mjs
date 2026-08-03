@@ -138,6 +138,21 @@ for (const [k, v] of catalog) {
 
 const sorted = Array.from(picked.entries()).sort(([a], [b]) => a.localeCompare(b));
 
+// Preserve the existing `batchSupported` allowlist across refreshes. The
+// live /models response does not expose batch capability, so we keep the
+// hand-maintained list and intersect it with the refreshed model set so
+// stale IDs are dropped and newly-added models default to unsupported
+// (safe single-request fallback). See docs/plan/batch-api-plan.md.
+let batchSupported = [];
+try {
+  const prev = JSON.parse(fs.readFileSync(BUNDLED_FIXTURE, 'utf8'));
+  if (Array.isArray(prev.batchSupported)) batchSupported = prev.batchSupported;
+} catch {
+  // No previous fixture — start empty; batch capability can be added later.
+}
+const pickedIds = new Set(sorted.map(([id]) => id));
+batchSupported = batchSupported.filter((id) => pickedIds.has(id));
+
 // Write the bundled subset (runtime asset)
 fs.mkdirSync(path.dirname(BUNDLED_FIXTURE), { recursive: true });
 const bundled = {
@@ -145,6 +160,7 @@ const bundled = {
   count: picked.size,
   bundledSize: BUNDLE_SIZE,
   entries: sorted,
+  batchSupported,
 };
 fs.writeFileSync(BUNDLED_FIXTURE, JSON.stringify(bundled, null, 2));
 const bundledBytes = fs.statSync(BUNDLED_FIXTURE).size;
