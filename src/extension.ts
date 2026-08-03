@@ -8,7 +8,7 @@ import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
-import { OpenRouterProvider, GitHubModelsProvider } from './providers/externalProvider';
+import { OpenRouterProvider } from './providers/externalProvider';
 import { BatchAwareOpenRouterProvider } from './providers/batchAwareProvider';
 import { isBatchSupported } from './modelCatalog';
 import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
@@ -32,7 +32,7 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
  * Checks the vendor of the first matching vscode.lm model.
  * Returns 'vscode-lm' as fallback for Copilot/free-tier models.
  */
-async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'openrouter' | 'githubModels'> {
+async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'openrouter'> {
   // Batch-API-only models (OpenRouter ":batch" suffix) are NOT available through
   // VS Code LM — they must be routed to the OpenRouter provider's Batch API
   // transport. vscode.lm may still return the model object (vendor "openrouter")
@@ -450,7 +450,7 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
 
   log('info', `buildEngine: provider=${cfg.provider} standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'}`);
 
-  if (cfg.provider === 'openrouter' || cfg.provider === 'githubModels') {
+  if (cfg.provider === 'openrouter') {
     if (!apiKey) {
       log('warn', `buildEngine: ${cfg.provider} selected but no API key — aborting`);
       vscode.window.showErrorMessage(
@@ -464,47 +464,29 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     const resolvedCtx = await resolveContextLength(cfg.model || '');
     const contextLength = resolvedCtx?.contextLength;
 
-    const provider =
-      cfg.provider === 'openrouter'
-        ? (() => {
-            const base = new OpenRouterProvider({
-              apiKey,
-              model: cfg.model || '',
-              deepModel: cfg.deepModel || undefined,
-              fixModel: cfg.fixModel || undefined,
-              maxTokens: cfg.externalMaxResponseTokens,
-              adaptiveMaxTokens: cfg.externalAdaptiveResponseTokens,
-              adaptiveMaxTokensCap: cfg.externalAdaptiveMaxResponseTokens,
-              minAdaptiveTokens: cfg.externalMinAdaptiveResponseTokens,
-              adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
-              structuredOutput: cfg.externalStructuredOutput,
-              requestTimeoutMs: cfg.externalRequestTimeoutMs,
-              contextLength,
-            });
-            // Wrap in a batch-aware provider when batch mode is enabled AND the
-            // model supports the OpenRouter Batch API. The wrapper buffers wave
-            // requests and submits them as a single batch job; non-batch models
-            // fall through to single-request transparently. Batch is OFF by
-            // default (cfg.batchEnabled) because the Batch API endpoint is
-            // currently unreliable.
-            return cfg.batchEnabled && isBatchSupportedForProvider(cfg.model)
-              ? new BatchAwareOpenRouterProvider({ provider: base, modelId: cfg.model, flushSize: 6 })
-              : base;
-          })()
-        : new GitHubModelsProvider({
-            apiKey,
-            model: cfg.model || '',
-            deepModel: cfg.deepModel || undefined,
-            fixModel: cfg.fixModel || undefined,
-            maxTokens: cfg.externalMaxResponseTokens,
-            adaptiveMaxTokens: cfg.externalAdaptiveResponseTokens,
-            adaptiveMaxTokensCap: cfg.externalAdaptiveMaxResponseTokens,
-            minAdaptiveTokens: cfg.externalMinAdaptiveResponseTokens,
-            adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
-            structuredOutput: cfg.externalStructuredOutput,
-            requestTimeoutMs: cfg.externalRequestTimeoutMs,
-            contextLength,
-          });
+    const base = new OpenRouterProvider({
+      apiKey,
+      model: cfg.model || '',
+      deepModel: cfg.deepModel || undefined,
+      fixModel: cfg.fixModel || undefined,
+      maxTokens: cfg.externalMaxResponseTokens,
+      adaptiveMaxTokens: cfg.externalAdaptiveResponseTokens,
+      adaptiveMaxTokensCap: cfg.externalAdaptiveMaxResponseTokens,
+      minAdaptiveTokens: cfg.externalMinAdaptiveResponseTokens,
+      adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
+      structuredOutput: cfg.externalStructuredOutput,
+      requestTimeoutMs: cfg.externalRequestTimeoutMs,
+      contextLength,
+    });
+    // Wrap in a batch-aware provider when batch mode is enabled AND the
+    // model supports the OpenRouter Batch API. The wrapper buffers wave
+    // requests and submits them as a single batch job; non-batch models
+    // fall through to single-request transparently. Batch is OFF by
+    // default (cfg.batchEnabled) because the Batch API endpoint is
+    // currently unreliable.
+    const provider = cfg.batchEnabled && isBatchSupportedForProvider(cfg.model)
+      ? new BatchAwareOpenRouterProvider({ provider: base, modelId: cfg.model, flushSize: 6 })
+      : base;
     log('info', `buildEngine: using external provider ${cfg.provider} model=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(same as model)'} fixModel=${cfg.fixModel || '(same as model)'}`);
     state!.currentVsCodeLmProvider = undefined;
     state!.cachedEngine = new Engine(provider, cfg);
@@ -729,12 +711,6 @@ async function selectProvider(): Promise<void> {
       description: 'Requires API key — wide model selection',
       value: 'openrouter',
       picked: current === 'openrouter',
-    },
-    {
-      label: '🔵 GitHub Models',
-      description: 'Requires GitHub token — free preview models',
-      value: 'githubModels',
-      picked: current === 'githubModels',
     },
   ];
 
@@ -1462,7 +1438,7 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
   let externalModels: Array<{ id: string; name: string }> = [];
   if (lmModels.length === 0 && state?.extensionContext?.secrets) {
     const apiKey = await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey');
-    if (apiKey && (cfg.provider === 'openrouter' || cfg.provider === 'githubModels')) {
+    if (apiKey && cfg.provider === 'openrouter') {
       try {
         const models = await fetchExternalModels(cfg.provider, apiKey);
         // Hide Batch-API-only models (":batch" suffix) — the Batch API endpoint
@@ -1820,20 +1796,12 @@ async function testModelSimplePrompt(): Promise<void> {
       return;
     }
     const model = cfg.model || '';
-    const provider =
-      cfg.provider === 'openrouter'
-        ? new OpenRouterProvider({
-            apiKey,
-            model,
-            structuredOutput: cfg.externalStructuredOutput,
-            requestTimeoutMs: cfg.externalRequestTimeoutMs,
-          })
-        : new GitHubModelsProvider({
-            apiKey,
-            model,
-            structuredOutput: cfg.externalStructuredOutput,
-            requestTimeoutMs: cfg.externalRequestTimeoutMs,
-          });
+    const provider = new OpenRouterProvider({
+      apiKey,
+      model,
+      structuredOutput: cfg.externalStructuredOutput,
+      requestTimeoutMs: cfg.externalRequestTimeoutMs,
+    });
 
     vscode.window.showInformationMessage(`Testing ${cfg.provider} model "${model}" with simple JSON prompt…`);
     try {
@@ -1942,7 +1910,7 @@ interface FixToolInput {
  * Returns model entries that can be displayed in the quick-pick.
  */
 async function fetchExternalModels(
-  provider: 'openrouter' | 'githubModels',
+  provider: 'openrouter',
   apiKey: string,
 ): Promise<Array<{ id: string; name: string }>> {
   if (provider === 'openrouter') {
@@ -1953,7 +1921,6 @@ async function fetchExternalModels(
     const json = (await resp.json()) as { data?: Array<{ id: string; name?: string }> };
     return (json.data ?? []).map(m => ({ id: m.id, name: m.name ?? m.id }));
   }
-  // GitHub Models — placeholder until we have a models list endpoint
   return [];
 }
 

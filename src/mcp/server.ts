@@ -9,7 +9,7 @@ import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
 import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
-import { GitHubModelsProvider, OpenRouterProvider } from '../providers/externalProvider';
+import { OpenRouterProvider } from '../providers/externalProvider';
 import { BatchAwareOpenRouterProvider } from '../providers/batchAwareProvider';
 import { resolveContextLength } from '../modelCatalog';
 import { batchModeWarning } from '../core/batchTransport';
@@ -721,7 +721,7 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       // Apply the session cost budget from config (env var takes precedence).
       _maxOutputTokensPerSession = resolveMaxOutputTokens(cfg.maxOutputTokensPerSession);
       const engineConfig = buildEngineConfig(cfg as Record<string, unknown>);
-      const provider = cfg.provider || 'githubModels';
+      const provider = cfg.provider || 'openrouter';
       const model = cfg.model || 'gpt-4o-mini';
       const deepModel = cfg.deepModel || undefined;
       const fixModel = cfg.fixModel || undefined;
@@ -746,43 +746,13 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
           };
         }
       }
-      // Default: use GitHub Models (works for both vscode-lm and githubModels)
-      // Prefer GITHUB_MODELS_TOKEN (fine-grained PAT) over GITHUB_TOKEN (Codespaces OAuth)
-      const apiKey = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
-      if (apiKey) {
-        return {
-          engine: new Engine(new GitHubModelsProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
-          config: { provider: 'githubModels', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
-        };
-      }
     }
   } catch {
     // File doesn't exist or is malformed — fall through to env vars
   }
 
   // Priority 2: env vars (existing logic)
-  // Prefer GITHUB_MODELS_TOKEN (fine-grained PAT) over GITHUB_TOKEN (Codespaces OAuth)
   _maxOutputTokensPerSession = resolveMaxOutputTokens(undefined);
-  const githubToken = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
-  if (githubToken) {
-    const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
-    const deepModel = process.env.DEEP_MODEL ?? undefined;
-    const fixModel = process.env.FIX_MODEL ?? undefined;
-    const structuredOutput = structuredOutputValue(process.env.STRUCTURED_OUTPUT);
-    const requestTimeoutMs = optionalPositiveNumber(process.env.REQUEST_TIMEOUT_MS);
-    const engineConfig = buildEngineConfig({
-      analysisMode: process.env.ANALYSIS_MODE,
-      scoreSamples: process.env.SCORE_SAMPLES ? Number(process.env.SCORE_SAMPLES) : undefined,
-    });
-    const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
-    const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
-    const provider = new GitHubModelsProvider({ apiKey: githubToken, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
-    return {
-      engine: new Engine(provider, engineConfig),
-      config: { provider: 'githubModels', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: process.env.GITHUB_MODELS_TOKEN ? 'env:GITHUB_MODELS_TOKEN' : 'env:GITHUB_TOKEN', engineConfig } as McpEngineConfig,
-    };
-  }
-
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openRouterKey) {
     const model = process.env.ANALYSIS_MODEL ?? 'openai/gpt-4o-mini';
@@ -806,7 +776,7 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
   }
 
   throw new Error(
-    'MCP provider configuration missing. Set GITHUB_TOKEN for GitHub Models, or OPENROUTER_API_KEY for the fallback provider.',
+    'MCP provider configuration missing. Set OPENROUTER_API_KEY to use the OpenRouter provider.',
   );
 }
 

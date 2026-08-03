@@ -50,8 +50,7 @@
           "type": "string",
           "enum": [
             "vscode-lm",
-            "openrouter",
-            "githubModels"
+            "openrouter"
           ],
           "default": "vscode-lm",
           "description": "LLM provider. 'vscode-lm' uses your Copilot subscription (no API key). External providers require a key set via the 'Set API Key' command (stored in SecretStorage)."

@@ -16,7 +16,6 @@ Quick answers to the most common questions about **Skills Review and Polish**.
 
 - **vscode-lm** (default): Uses GitHub Copilot. No API keys needed. ✅ **Recommended**
 - **openrouter**: Allows many different AI models. Requires an OpenRouter API key.
-- **githubModels**: Uses GitHub's models. Requires a GitHub personal access token.
 
 **Best for beginners:** Use **vscode-lm** (Copilot). It's the easiest to set up.
 
@@ -26,7 +25,6 @@ Quick answers to the most common questions about **Skills Review and Polish**.
 
 - **Copilot**: ~$20/month if you don't have a subscription already
 - **OpenRouter**: Pay per request (~$0.001–$0.01 per analysis). See "Which OpenRouter model should I use?" below for cost-optimized choices.
-- **GitHub Models**: Currently free during preview
 
 ### Q: Which OpenRouter model should I use?
 
@@ -183,14 +181,14 @@ Try analyzing again. Results can vary.
 
 ### Q: I got an "LLM error" message. What's wrong?
 
-**A:** Your LLM provider (Copilot, OpenRouter, GitHub Models) is unavailable.
+**A:** Your LLM provider (Copilot, OpenRouter) is unavailable.
 
 **What to do:**
 
 1. Try again in a few minutes
 2. Check your internet connection
 3. Check that your provider is working
-4. If using OpenRouter or GitHub Models, check your API key/token
+4. If using OpenRouter, check your API key
 5. Check the Output panel (View → Output → "Skills Review") for details
 
 ### Q: Why is analysis taking longer than usual?
@@ -281,7 +279,7 @@ Try analyzing again. Results can vary.
 
 ### Q: How is my code analyzed? Is it private?
 
-**A:** Your code is sent to your LLM provider (Copilot, OpenRouter, GitHub Models). Check their privacy policies.
+**A:** Your code is sent to your LLM provider (Copilot, OpenRouter). Check their privacy policies.
 
 **If you have sensitive code:** Consider analyzing anonymized versions of your files.
 

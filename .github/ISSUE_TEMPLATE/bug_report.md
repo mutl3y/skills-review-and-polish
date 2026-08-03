@@ -29,7 +29,7 @@ What actually happens?
 - OS: [e.g., macOS, Windows, Linux]
 - VS Code version: [e.g., 1.90.0]
 - Extension version: [e.g., 0.0.1]
-- LLM Provider: [vscode-lm / openrouter / githubModels]
+- LLM Provider: [vscode-lm / openrouter]
 
 ## Additional Context
 

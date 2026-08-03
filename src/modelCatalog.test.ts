@@ -67,15 +67,13 @@ describe('static context-length table', () => {
   it('covers the niche model IDs not in the OpenRouter catalog', () => {
     // The static table exists for model IDs that aren't in OpenRouter
     // (live or fixture). As of 2026-07-17 those are: Copilot display
-    // names with spaces, older Gemini, future Gemini, and a few GitHub
-    // Models IDs. If the OpenRouter catalog grows to cover these, the
-    // static table can shrink further.
+    // names with spaces, older Gemini, and future Gemini. If the
+    // OpenRouter catalog grows to cover these, the static table can
+    // shrink further.
     const expected = [
       'gpt-4o mini',                    // Copilot display name (space, not hyphen)
       'gemini 2.0 flash',               // deprecated Gemini
       'gemini 3.0 pro',                 // future Gemini
-      'mistral-small-2503',            // GitHub Models ID
-      'phi-3.5-mini-instruct',          // GitHub Models ID
     ];
     for (const id of expected) {
       expect(_STATIC_CONTEXT_LENGTHS.has(id), `static table missing '${id}'`).toBe(true);

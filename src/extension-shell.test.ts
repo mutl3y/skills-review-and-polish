@@ -188,10 +188,6 @@ vi.mock('./providers/externalProvider', () => ({
     complete = mocks2.mockExternalProvider.complete;
     constructor(_opts?: any) {}
   },
-  GitHubModelsProvider: class {
-    complete = mocks2.mockExternalProvider.complete;
-    constructor(_opts?: any) {}
-  },
 }));
 vi.mock('./pricing', () => ({
   fetchPricing: vi.fn().mockResolvedValue(new Map()),
@@ -651,7 +647,7 @@ describe('testModelSimplePrompt', () => {
   });
 
   it('reports error when external provider has no API key', async () => {
-    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'githubModels', model: 'gpt-4o' });
+    mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'openrouter', model: 'gpt-4o' });
 
     activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue(undefined) } } as any);
 

@@ -16,11 +16,11 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const { Engine } = await import('../out/core/index.js');
-const { GitHubModelsProvider } = await import('../out/providers/externalProvider.js');
+const { OpenRouterProvider } = await import('../out/providers/externalProvider.js');
 
-const apiKey = process.env.GITHUB_TOKEN;
+const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey) {
-  console.error('GITHUB_TOKEN is not set');
+  console.error('OPENROUTER_API_KEY is not set');
   process.exit(1);
 }
 
@@ -60,7 +60,7 @@ const INFRA_CODES = new Set([
 ]);
 const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, warning: 3, low: 4, info: 5 };
 
-const provider = new GitHubModelsProvider({ apiKey, model: 'gpt-4o-mini' });
+const provider = new OpenRouterProvider({ apiKey, model: 'gpt-4o-mini' });
 const engine = new Engine(provider, {
   analysisMode: 'single',
   enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],

@@ -16,8 +16,8 @@
  *      last-known-good snapshot of the OpenRouter catalog. Works offline.
  *      Refreshed by `node scripts/refresh-openrouter-catalog.mjs`. Stops us from
  *      hand-maintaining a model table in source code.
- *   4. Static fallback table — known vscode.lm (Copilot) / GitHub Models
- *      IDs that don't appear in either OpenRouter catalog.
+ *   4. Static fallback table — known vscode.lm (Copilot) IDs that don't
+ *      appear in either OpenRouter catalog.
  *   5. `undefined` — caller falls back to `Analyzer.DEFAULT_MAX_DOCUMENT_CHARS`
  *      (200K chars, ~50K tokens, fits every supported model).
  *
@@ -174,7 +174,7 @@ export async function fetchContextLengths(): Promise<Map<string, number>> {
  *   3. Committed fixture (`tests/fixtures/openrouter-catalog.json`) —
  *      last-known-good catalog, works offline. Refreshed by running
  *      `node scripts/refresh-openrouter-catalog.mjs`.
- *   4. Static fallback table for known Copilot / GitHub Models IDs
+ *   4. Static fallback table for known Copilot IDs
  *      (vscode.lm paths where neither OpenRouter nor the fixture applies)
  *   5. `undefined`
  *
@@ -291,7 +291,7 @@ export interface ResolvedContextLength {
 /**
  * Slim fallback for model IDs that don't appear in the OpenRouter catalog
  * (live or fixture). As of 2026-07-17 the OpenRouter catalog covers ~1,215
- * models including every major Copilot/GitHub Models ID we care about.
+ * models including every major Copilot ID we care about.
  * The entries below cover the remaining edge cases:
  *
  *   - `gpt-4o mini` (with space) — Copilot picker display name. The
@@ -300,9 +300,6 @@ export interface ResolvedContextLength {
  *   - `gemini 2.0 flash` — older Gemini, deprecated but still selectable
  *     in some Copilot deployments.
  *   - `gemini 3.0 pro` — future Gemini, not yet in OpenRouter catalog.
- *   - `mistral-small-2503`, `phi-3.5-mini-instruct` — GitHub Models IDs
- *     that users may put in `.skills-review.json` when the provider is
- *     `githubModels`.
  *
  * To add a new model: prefer the live OpenRouter catalog. Only add a
  * static entry if the model is genuinely not available there.
@@ -311,8 +308,6 @@ const STATIC_CONTEXT_LENGTHS = new Map<string, number>([
   ['gpt-4o mini',                   128_000],
   ['gemini 2.0 flash',             1_000_000],
   ['gemini 3.0 pro',               1_000_000],
-  ['mistral-small-2503',           128_000],
-  ['phi-3.5-mini-instruct',         16_000],
 ]);
 
 /**

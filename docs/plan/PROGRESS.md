@@ -9,7 +9,7 @@
 
 - **Core Engine**: 6-wave analyzer, surgical fixer, penalty scoring (all passing tests)
 - **VS Code Integration**: Diagnostics, code actions, CodeLens, hovers, status bar
-- **LLM Providers**: vscode.lm (Copilot), OpenRouter, GitHub Models
+- **LLM Providers**: vscode.lm (Copilot), OpenRouter
 - **Agentic Tools**: Analyze/fix callable from Copilot agent mode
 - **MCP Server**: 7-tool headless seam (analyze, fix, score, verify_fix, accept_finding, list_accepted_findings, health) with `.skills-review.json` config sync, unit + integration tests
 - **Testing**: 168+ unit tests, 11 E2E Playwright tests, fixture regression suite

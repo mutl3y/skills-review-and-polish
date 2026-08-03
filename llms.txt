@@ -66,7 +66,7 @@ When orienting to the project, read these first:
 - [src/extension.ts](src/extension.ts): VS Code activation and commands.
 - [src/pricing.ts](src/pricing.ts): Live model pricing fetcher with static fallback.
 - [src/providers/vscodeLmProvider.ts](src/providers/vscodeLmProvider.ts): Copilot-backed provider path.
-- [src/providers/externalProvider.ts](src/providers/externalProvider.ts): OpenRouter and GitHub Models providers.
+- [src/providers/externalProvider.ts](src/providers/externalProvider.ts): OpenRouter provider.
 - [src/ui/diagnostics.ts](src/ui/diagnostics.ts): Diagnostic publishing.
 - [src/ui/codeActions.ts](src/ui/codeActions.ts): Quick fix code actions.
 - [src/ui/hover.ts](src/ui/hover.ts): Hover explanations for diagnostics.

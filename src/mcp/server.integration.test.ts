@@ -3,12 +3,12 @@
  * MCP Client ↔ Server pair using InMemoryTransport (no child process).
  *
  * Tools that require an LLM (analyze, score, fix, verify_fix) are gated
- * on GITHUB_TOKEN being set.  Health, accept_finding, and
+ * on OPENROUTER_API_KEY being set.  Health, accept_finding, and
  * list_accepted_findings always run.
  *
  * This is also the primary home for LLM smoke tests — replacing Playwright
  * tests that previously needed Copilot auth.  All analysis is done via MCP
- * using GITHUB_TOKEN, which is always available in the dev container.
+ * using OPENROUTER_API_KEY, which is always available in the dev container.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -17,7 +17,7 @@ import { createMcpServer } from './server';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const hasToken = !!process.env.GITHUB_TOKEN?.trim() || !!process.env.OPENROUTER_API_KEY?.trim();
+const hasToken = !!process.env.OPENROUTER_API_KEY?.trim();
 
 describe('MCP server integration', () => {
   let client: Client;
@@ -98,7 +98,7 @@ describe('MCP server integration', () => {
 
   // ── Non-LLM tools re-validated against a real provider ───────────────
   // Verifies the same 4 tools work correctly when the server has a live
-  // engine (real GitHub Models / OpenRouter endpoint, not mocked).
+  // engine (real OpenRouter endpoint, not mocked).
 
   describe.skipIf(!hasToken).sequential('Non-LLM tools with live provider', () => {
     it('listTools still returns all 8 tools with a live provider', async () => {
@@ -120,7 +120,7 @@ describe('MCP server integration', () => {
       const parsed = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
       expect(parsed.status).toBe('ok');
       // With a live token, the provider should be one of the known names
-      expect(parsed.provider).toMatch(/githubModels|openrouter/);
+      expect(parsed.provider).toMatch(/openrouter/);
       // Config source should reflect a real source, not 'default'
       expect(parsed.configSource).not.toBe('default');
     });

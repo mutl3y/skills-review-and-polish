@@ -14,7 +14,7 @@
  * The --input argument can be a file or a directory; if a directory is given,
  * every *.md / *.SKILL.md file inside is analyzed.
  *
- * Provider: GitHub Models via GITHUB_TOKEN.
+ * Provider: OpenRouter via OPENROUTER_API_KEY.
  * Analysis mode: single (1 LLM call per file).
  * Cooldown: 5s between calls (matches MCP ANALYZE_COOLDOWN_MS).
  */
@@ -42,17 +42,17 @@ if (!INPUT || !OUTPUT) {
 }
 
 // ── Env ──────────────────────────────────────────────────────────────────────
-const apiKey = process.env.GITHUB_TOKEN;
+const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey) {
-  console.error('GITHUB_TOKEN is not set');
+  console.error('OPENROUTER_API_KEY is not set');
   process.exit(1);
 }
 
 // ── Provider / engine ────────────────────────────────────────────────────────
 const { Engine } = await import('../out/core/index.js');
-const { GitHubModelsProvider } = await import('../out/providers/externalProvider.js');
+const { OpenRouterProvider } = await import('../out/providers/externalProvider.js');
 
-const provider = new GitHubModelsProvider({ apiKey, model: MODEL });
+const provider = new OpenRouterProvider({ apiKey, model: MODEL });
 const engine = new Engine(provider, {
   analysisMode: 'single',          // 1 LLM call per file — cheapest mode
   enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],

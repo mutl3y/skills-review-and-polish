@@ -35,7 +35,7 @@ The `src/core/` module is **extension-agnostic by design** — `src/core/types.t
 2. An `LlmProvider` implementation that calls an external API (already done in `src/providers/externalProvider.ts`)
 3. MCP tools mirroring the VS Code `languageModelTools`
 
-The headless MCP seam now prefers GitHub Models via `GITHUB_TOKEN`, matching the CLI analyzer path. OpenRouter remains available as a fallback when that token is not set.
+The headless MCP seam uses OpenRouter via `OPENROUTER_API_KEY`.
 
 ## Setup and runtime requirements
 
@@ -61,7 +61,7 @@ The headless MCP seam now prefers GitHub Models via `GITHUB_TOKEN`, matching the
 
 ### Provider selection
 
-The MCP seam prefers GitHub Models via `GITHUB_TOKEN` because that matches the CLI analyzer path in the companion repo. If `GITHUB_TOKEN` is not set, it falls back to `OPENROUTER_API_KEY`.
+The MCP seam uses OpenRouter via `OPENROUTER_API_KEY`.
 
 ### `.skills-review.json` configuration
 
@@ -69,7 +69,7 @@ The MCP server reads a `.skills-review.json` file from the workspace root on sta
 
 ```json
 {
-  "provider": "githubModels",
+  "provider": "openrouter",
   "model": "gpt-4o-mini",
   "deepModel": "gpt-4o",
   "fixModel": "gpt-4o-mini",
@@ -123,38 +123,18 @@ The MCP server reads a `.skills-review.json` file from the workspace root on sta
 **Config priority at startup:**
 
 1. `.skills-review.json` in workspace root (if exists)
-2. `GITHUB_TOKEN` + `ANALYSIS_MODEL` env vars (legacy)
-3. `OPENROUTER_API_KEY` + `ANALYSIS_MODEL` env vars (legacy fallback)
-4. Error: no configuration found
+2. `OPENROUTER_API_KEY` + `ANALYSIS_MODEL` env vars (legacy)
+3. Error: no configuration found
 
 ### Provider mapping
 
 | VS Code Provider | MCP Config | API Used | Auth |
 | --- | --- | --- | --- |
-| `vscode-lm` (any model) | `githubModels` | `models.inference.ai.azure.com` | `GITHUB_TOKEN` |
 | `openrouter` | `openrouter` | `openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
-| `githubModels` | `githubModels` | `models.inference.ai.azure.com` | `GITHUB_TOKEN` |
 
 ### Env-only setup (no VS Code extension)
 
 For headless/CI usage without the extension, set env vars directly:
-
-```json
-{
-  "env": {
-    "GITHUB_TOKEN": "<your-github-token>",
-    "ANALYSIS_MODEL": "gpt-4o-mini",
-    "DEEP_MODEL": "gpt-4o",
-    "FIX_MODEL": "gpt-4o-mini",
-    "STRUCTURED_OUTPUT": "0",
-    "REQUEST_TIMEOUT_MS": "120000",
-    "ANALYSIS_MODE": "multiWave",
-    "SCORE_SAMPLES": "3"
-  }
-}
-```
-
-Or for OpenRouter:
 
 ```json
 {
@@ -180,7 +160,7 @@ Or for OpenRouter:
       "command": "node",
       "args": ["/workspace/skills-review-and-polish/out/mcp/server.js"],
       "env": {
-        "GITHUB_TOKEN": "<your-github-token>",
+        "OPENROUTER_API_KEY": "<your-openrouter-key>",
         "ANALYSIS_MODEL": "gpt-4o-mini"
       }
     }
@@ -215,7 +195,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMcpServer } from './out/mcp/server.js';
 import { Engine } from './out/core/index.js';
-import { GitHubModelsProvider } from './out/providers/externalProvider.js';
+import { OpenRouterProvider } from './out/providers/externalProvider.js';
 import { DEFAULT_ENGINE_CONFIG } from './out/core/types.js';
 
 const skillPath = path.resolve('tests/fixtures/primary/test-ambiguities/SKILL.md');
@@ -223,8 +203,8 @@ const text = fs.readFileSync(skillPath, 'utf8');
 
 const buildEngine = async () =>
   new Engine(
-    new GitHubModelsProvider({
-      apiKey: process.env.GITHUB_TOKEN ?? '',
+    new OpenRouterProvider({
+      apiKey: process.env.OPENROUTER_API_KEY ?? '',
       model: process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini',
     }),
     { ...DEFAULT_ENGINE_CONFIG, analysisMode: 'single' },

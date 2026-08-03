@@ -39,7 +39,7 @@ src/
 │
 ├── providers/               # LLM provider implementations
 │   ├── vscodeLmProvider.ts  # VS Code LM API (Copilot)
-│   └── externalProvider.ts  # OpenRouter, GitHub Models
+│   └── externalProvider.ts  # OpenRouter
 │
 ├── ui/                      # VS Code integration
 │   ├── diagnostics.ts       # Issue publishing

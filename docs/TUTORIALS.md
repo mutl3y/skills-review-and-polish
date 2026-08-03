@@ -393,7 +393,7 @@ Learn what to do when something goes wrong.
 **What to try:**
 
 1. Wait a bit longer (sometimes it just takes time)
-2. Check your internet connection (the analyzer needs to talk to Copilot/OpenRouter/GitHub Models)
+2. Check your internet connection (the analyzer needs to talk to Copilot/OpenRouter)
 3. Open the **Output** panel (View → Output) and select "Skills Review"
 4. Look for error messages
 5. If you see errors, try again in a few minutes
@@ -435,7 +435,7 @@ Learn what to do when something goes wrong.
 2. Check your LLM provider:
    - Settings → search "Skills Review Provider"
    - Make sure your provider is working (e.g., Copilot is available)
-   - If using OpenRouter or GitHub Models, check your API key/token
+   - If using OpenRouter, check your API key
 
 3. Try restarting VS Code:
    - Close VS Code completely

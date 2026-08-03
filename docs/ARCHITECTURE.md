@@ -175,7 +175,6 @@ You can override the provider in VS Code Settings:
 3. Pick from:
    - **vscode-lm** (Copilot, default) ← Recommended
    - **openrouter** (requires API key)
-   - **githubModels** (requires token)
 
 ### Cost Implications
 
@@ -183,7 +182,6 @@ You can override the provider in VS Code Settings:
 | --- | --- | --- | --- |
 | **vscode-lm** (Copilot) | Subscription | ~$20/month* | Fast |
 | **openrouter** | API key | ~$0.001–0.01 per analysis | Medium |
-| **githubModels** | Personal token | Free (preview) | Varies |
 
 *If you already have Copilot for your subscription, no additional cost.
 
@@ -432,7 +430,7 @@ resolved via a three-tier lookup at `src/modelCatalog.ts`. As of
 | --- | --- | --- |
 | 1 | Live OpenRouter `/models` catalog (~1,215 entries) | When OpenRouter is reachable. Cached 1h in-memory. |
 | 2 | Bundled `assets/openrouter-catalog.json` (top-75 popular models, ~4.5KB) | Cold start, offline, or any time tier 1 fails. Ships inside the .vsix. |
-| 3 | Static table (5 entries: `gpt-4o mini`, `gemini 2.0 flash`, `gemini 3.0 pro`, `mistral-small-2503`, `phi-3.5-mini-instruct`) | Niche Copilot display names and GitHub Models IDs not in the OpenRouter catalog. |
+| 3 | Static table (3 entries: `gpt-4o mini`, `gemini 2.0 flash`, `gemini 3.0 pro`) | Niche Copilot display names not in the OpenRouter catalog. |
 | Fallback | `undefined` → analyzer 200K-char fallback with `info`-level warning | When all lookups miss. |
 
 Refresh maintenance: `npm run refresh-fixtures` re-pulls the live catalog
@@ -442,8 +440,8 @@ catalog for test drift detection at `src/modelCatalog.test.ts`).
 
 Provider interface: `LlmProvider.getContextLength()` is a **required**
 method. `VsCodeLmProvider` reads `maxInputTokens` from the cached
-`vscode.LanguageModelChat`. `OpenRouterProvider` /
-`GitHubModelsProvider` accept a `contextLength` constructor opt. The
+`vscode.LanguageModelChat`. `OpenRouterProvider` accepts a
+`contextLength` constructor opt. The
 picker UI surfaces `· ctx=200K` on each model's detail line via the
 same lookup.
 

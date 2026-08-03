@@ -51,8 +51,7 @@ export interface BatchRunOptions {
 
 /**
  * A provider that can submit and poll batches. `OpenRouterProvider` satisfies
- * this; `vscodeLmProvider` and `GitHubModelsProvider` do not, so they always
- * take the fallback path.
+ * this; `vscodeLmProvider` does not, so it always takes the fallback path.
  */
 export interface OpenRouterBatchCapableProvider extends LlmProvider {
   submitBatch?(requests: BatchRequestItem[], opts?: { model?: string; endpoint?: string }): Promise<string>;

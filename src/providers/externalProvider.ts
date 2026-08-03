@@ -1,9 +1,9 @@
 /**
- * External LLM provider implementations for OpenRouter and GitHub Models.
+ * External LLM provider implementations for OpenRouter.
  *
  * These are used when `skillsReviewAndPolish.provider` is set to
- * `"openrouter"` or `"githubModels"` (requires an API key stored in VS Code
- * SecretStorage via the `setApiKey` command).
+ * `"openrouter"` (requires an API key stored in VS Code SecretStorage via
+ * the `setApiKey` command).
  */
 
 import { LlmProvider, LlmRequest, LlmResponse, BatchRequestItem, BatchResult, BatchResultItem, BatchStatus } from '../core/types';
@@ -75,8 +75,7 @@ export interface ExternalProviderOptions {
    * back to a 200K-char budget and logs a warning.
    *
    * For OpenRouter, resolve via `modelCatalog.resolveContextLength(model)`
-   * at construction time. For GitHub Models, the static table in
-   * `modelCatalog.ts` covers the common cases.
+   * at construction time.
    */
   contextLength?: number;
   /** Sampling controls. Defaults favor determinism for analyzer use. */
@@ -96,7 +95,7 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 // Shared retry / fetch logic
 // --------------------------------------------------------------------------
 
-/** API error shape returned by OpenRouter / GitHub Models / Azure. */
+/** API error shape returned by OpenRouter. */
 type ApiError = { message?: string; code?: number | string; status?: number | string };
 
 /** Shared request body built by each provider's `complete()` method. */
@@ -114,8 +113,8 @@ interface ChatBody {
 /**
  * POST a JSON request with exponential back-off retry on 429 / 5xx.
  *
- * Both `OpenRouterProvider` and `GitHubModelsProvider` delegate to this
- * function so the retry loop is defined in exactly one place.
+ * `OpenRouterProvider` delegates to this function so the retry loop is
+ * defined in exactly one place.
  */
 async function fetchWithRetry(
   url: string,
@@ -392,117 +391,6 @@ export class OpenRouterProvider implements LlmProvider {
     // the max of (input-derived estimate, the model's adaptive cap) — the
     // model stops early when the document is small, but large documents get
     // the full generation budget instead of being silently truncated.
-    const desired = Math.max(
-      Math.ceil(prompt.length / this.adaptiveCharsPerToken) * multiplier,
-      scaledCap,
-    );
-    // Scale the floor by the multiplier too, otherwise the fixed
-    // minAdaptiveTokens floor (16384) overrides the per-wave multiplier for
-    // small-prompt waves and silently caps output at 16K tokens (the
-    // ambiguities/contradiction waves then truncate at ~17K regardless of
-    // model). See plan item 4 follow-up / e61 deep-model investigation.
-    const floor = Math.min(this.minAdaptiveTokens * multiplier, scaledCap);
-    const cap = Math.max(this.maxTokens * multiplier, scaledCap);
-    return clamp(desired, floor, cap);
-  }
-}
-
-// --------------------------------------------------------------------------
-// GitHub Models
-// --------------------------------------------------------------------------
-
-/**
- * Calls the GitHub Models inference API (Azure AI endpoint).
- * https://github.com/marketplace/models
- */
-export class GitHubModelsProvider implements LlmProvider {
-  private readonly apiKey: string;
-  private readonly model: string;
-  private readonly deepModel?: string;
-  private readonly fixModel?: string;
-  private readonly maxTokens: number;
-  private readonly adaptiveMaxTokens: boolean;
-  private readonly adaptiveMaxTokensCap: number;
-  private readonly minAdaptiveTokens: number;
-  private readonly adaptiveCharsPerToken: number;
-  private readonly maxRetries: number;
-  private readonly requestTimeoutMs: number;
-  private readonly structuredOutput: boolean | 'schema';
-  private readonly contextLength?: number;
-  private readonly temperature: number;
-  private readonly topP: number;
-  private static readonly BASE_URL =
-    'https://models.inference.ai.azure.com/chat/completions';
-
-  constructor(opts: ExternalProviderOptions) {
-    this.apiKey = opts.apiKey;
-    this.model = opts.model || 'gpt-4o-mini';
-    this.deepModel = opts.deepModel;
-    this.fixModel = opts.fixModel;
-    this.maxTokens = opts.maxTokens ?? DEFAULT_MAX_RESPONSE_TOKENS;
-    this.adaptiveMaxTokens = opts.adaptiveMaxTokens ?? false;
-    this.adaptiveMaxTokensCap = opts.adaptiveMaxTokensCap ?? DEFAULT_ADAPTIVE_MAX_RESPONSE_TOKENS;
-    this.minAdaptiveTokens = opts.minAdaptiveTokens ?? DEFAULT_MIN_ADAPTIVE_RESPONSE_TOKENS;
-    this.adaptiveCharsPerToken = Math.max(1, opts.adaptiveCharsPerToken ?? DEFAULT_ADAPTIVE_CHARS_PER_TOKEN);
-    this.maxRetries = opts.maxRetries ?? 2;
-    this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-    // Default to schema mode: GitHub Models (Azure AI) is OpenAI-compatible
-    // and supports strict JSON schema response_format.
-    this.structuredOutput = opts.structuredOutput ?? 'schema';
-    this.contextLength = opts.contextLength;
-    this.temperature = opts.temperature ?? 0;
-    this.topP = opts.topP ?? 0;
-  }
-
-  getContextLength(): number | undefined {
-    return this.contextLength;
-  }
-
-  async complete(req: LlmRequest): Promise<LlmResponse> {
-    // Tier routing: fix → fixModel, deep → deepModel, else → model
-    const modelToUse = req.modelId
-      || (req.modelTier === 'fix' && this.fixModel ? this.fixModel
-        : req.modelTier === 'deep' && this.deepModel ? this.deepModel
-        : this.model);
-    return fetchWithRetry(
-      GitHubModelsProvider.BASE_URL,
-      this.buildBody(modelToUse, req),
-      { Authorization: `Bearer ${this.apiKey}` },
-      this.maxRetries,
-      this.requestTimeoutMs,
-      req.token,
-    );
-  }
-
-  private buildBody(model: string, req: LlmRequest): ChatBody {
-    // GitHub Models uses the OpenAI-compatible Azure AI chat-completions API,
-    // which supports both json_object and json_schema response_format. Default
-    // to schema mode for strict adherence.
-    // A per-request `disableStructuredOutput` override (set by the analyzer
-    // after a non-stop finish reason on a wave) drops response_format even in
-    // schema mode — see plan item 3a.
-    const mode: boolean | 'schema' = req.disableStructuredOutput ? false : this.structuredOutput;
-    return {
-      model,
-      messages: [
-        { role: 'system', content: req.systemPrompt },
-        { role: 'user', content: req.prompt },
-      ],
-      max_tokens: this.resolveMaxTokens(req.prompt, req.maxTokensMultiplier ?? 1),
-      temperature: this.temperature,
-      top_p: this.topP,
-      ...buildResponseFormat(mode),
-    };
-  }
-
-  private resolveMaxTokens(prompt: string, multiplier = 1): number {
-    const scaledCap = Math.round(this.adaptiveMaxTokensCap * multiplier);
-    if (!this.adaptiveMaxTokens) return Math.round(this.maxTokens * multiplier);
-    // Output budget must reach the model's real generation cap for large
-    // documents. Deriving `desired` purely from input length under-sizes the
-    // budget: a 293K-char skill yields only ~73K output tokens, but models
-    // like deepseek-v4-flash can emit up to 384K output tokens. So we take
-    // the max of (input-derived estimate, the model's adaptive cap).
     const desired = Math.max(
       Math.ceil(prompt.length / this.adaptiveCharsPerToken) * multiplier,
       scaledCap,

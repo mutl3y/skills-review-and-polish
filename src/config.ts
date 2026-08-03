@@ -40,7 +40,7 @@ export function setupConfigWatcher(): { dispose(): void } {
 
 export interface ExtensionConfig extends EngineConfig {
   enable: boolean;
-  provider: 'vscode-lm' | 'openrouter' | 'githubModels';
+  provider: 'vscode-lm' | 'openrouter';
   model: string;
   deepModel: string;
   fixModel: string;

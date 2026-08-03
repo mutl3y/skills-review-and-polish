@@ -665,7 +665,7 @@ describe('handleFix — duplicate anchor guard', () => {
     const registry = createMcpToolRegistry({
       buildEngine: () => ({
         engine: { analyze: vi.fn().mockResolvedValue([]), score: vi.fn(), provider: {} } as any,
-        config: { provider: 'githubModels', model: 'test', configSource: 'test' },
+        config: { provider: 'openrouter', model: 'test', configSource: 'test' },
       }),
     });
 
@@ -685,7 +685,7 @@ describe('handleFix — duplicate anchor guard', () => {
     const registry = createMcpToolRegistry({
       buildEngine: () => ({
         engine: { analyze: vi.fn().mockResolvedValue([]), score: vi.fn(), provider: { complete: vi.fn().mockResolvedValue({ text: JSON.stringify({ accepted: true, fixed: 'Be accurate.' }) }) } } as any,
-        config: { provider: 'githubModels', model: 'test', configSource: 'test' },
+        config: { provider: 'openrouter', model: 'test', configSource: 'test' },
       }),
     });
 
@@ -704,7 +704,7 @@ describe('handleFix — duplicate anchor guard', () => {
     const registry = createMcpToolRegistry({
       buildEngine: () => ({
         engine: { analyze: vi.fn().mockResolvedValue([]), score: vi.fn(), provider: { complete: vi.fn().mockResolvedValue({ text: JSON.stringify({ accepted: false, fixed: '' }) }) } } as any,
-        config: { provider: 'githubModels', model: 'test', configSource: 'test' },
+        config: { provider: 'openrouter', model: 'test', configSource: 'test' },
       }),
     });
 
@@ -730,7 +730,7 @@ describe('handleAnalyze — cooldown', () => {
     const registry = createMcpToolRegistry({
       buildEngine: () => ({
         engine: { analyze: vi.fn().mockResolvedValue([]), score: vi.fn(), provider: {} } as any,
-        config: { provider: 'githubModels', model: 'test', configSource: 'test' },
+        config: { provider: 'openrouter', model: 'test', configSource: 'test' },
       }),
     });
 
