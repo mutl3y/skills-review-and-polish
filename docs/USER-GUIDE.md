@@ -31,6 +31,7 @@ You can also use other providers:
 3. You'll see a `Provider` dropdown with options:
    - **vscode-lm** (Copilot, recommended)
    - **openrouter** (need API key)
+   - **copilot** (uses the Copilot API via `GITHUB_TOKEN` — no separate API key)
 
 Leave it as **vscode-lm** if you have Copilot. Otherwise, pick your provider.
 

@@ -35,7 +35,9 @@ The `src/core/` module is **extension-agnostic by design** — `src/core/types.t
 2. An `LlmProvider` implementation that calls an external API (already done in `src/providers/externalProvider.ts`)
 3. MCP tools mirroring the VS Code `languageModelTools`
 
-The headless MCP seam uses OpenRouter via `OPENROUTER_API_KEY`.
+The headless MCP seam uses OpenRouter via `OPENROUTER_API_KEY`, or the GitHub
+Copilot API via `GITHUB_TOKEN` (uses your Copilot subscription — no separate
+API key).
 
 ## Setup and runtime requirements
 
@@ -61,7 +63,10 @@ The headless MCP seam uses OpenRouter via `OPENROUTER_API_KEY`.
 
 ### Provider selection
 
-The MCP seam uses OpenRouter via `OPENROUTER_API_KEY`.
+The MCP seam supports two providers:
+
+- **OpenRouter** — set `OPENROUTER_API_KEY` (or `"provider": "openrouter"` in `.skills-review.json`).
+- **Copilot** — set `GITHUB_TOKEN` (or `"provider": "copilot"` in `.skills-review.json`). Uses the GitHub Copilot API (`api.githubcopilot.com`) with your Copilot subscription — no separate API key. Model IDs are Copilot IDs (e.g. `gpt-4o-mini`, `gpt-4.1`, `gpt-5-mini`, `claude-sonnet-4.5`).
 
 ### `.skills-review.json` configuration
 
@@ -123,7 +128,7 @@ The MCP server reads a `.skills-review.json` file from the workspace root on sta
 **Config priority at startup:**
 
 1. `.skills-review.json` in workspace root (if exists)
-2. `OPENROUTER_API_KEY` + `ANALYSIS_MODEL` env vars (legacy)
+2. `OPENROUTER_API_KEY` or `GITHUB_TOKEN` + `ANALYSIS_MODEL` env vars (legacy)
 3. Error: no configuration found
 
 ### Provider mapping
@@ -131,10 +136,13 @@ The MCP server reads a `.skills-review.json` file from the workspace root on sta
 | VS Code Provider | MCP Config | API Used | Auth |
 | --- | --- | --- | --- |
 | `openrouter` | `openrouter` | `openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `copilot` | `copilot` | `api.githubcopilot.com` | `GITHUB_TOKEN` |
 
 ### Env-only setup (no VS Code extension)
 
-For headless/CI usage without the extension, set env vars directly:
+For headless/CI usage without the extension, set env vars directly.
+
+**OpenRouter:**
 
 ```json
 {
@@ -143,6 +151,23 @@ For headless/CI usage without the extension, set env vars directly:
     "ANALYSIS_MODEL": "google/gemini-2.5-flash-lite",
     "DEEP_MODEL": "deepseek/deepseek-chat-v3",
     "FIX_MODEL": "google/gemini-2.5-flash-lite",
+    "STRUCTURED_OUTPUT": "0",
+    "REQUEST_TIMEOUT_MS": "120000",
+    "ANALYSIS_MODE": "multiWave",
+    "SCORE_SAMPLES": "3"
+  }
+}
+```
+
+**Copilot (uses your Copilot subscription — no separate API key):**
+
+```json
+{
+  "env": {
+    "GITHUB_TOKEN": "<your-github-token>",
+    "ANALYSIS_MODEL": "gpt-5-mini",
+    "DEEP_MODEL": "gpt-5.4",
+    "FIX_MODEL": "gpt-5-mini",
     "STRUCTURED_OUTPUT": "0",
     "REQUEST_TIMEOUT_MS": "120000",
     "ANALYSIS_MODE": "multiWave",
@@ -160,8 +185,8 @@ For headless/CI usage without the extension, set env vars directly:
       "command": "node",
       "args": ["/workspace/skills-review-and-polish/out/mcp/server.js"],
       "env": {
-        "OPENROUTER_API_KEY": "<your-openrouter-key>",
-        "ANALYSIS_MODEL": "gpt-4o-mini"
+        "GITHUB_TOKEN": "<your-github-token>",
+        "ANALYSIS_MODEL": "gpt-5-mini"
       }
     }
   }

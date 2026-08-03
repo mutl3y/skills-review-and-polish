@@ -32,7 +32,7 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
  * Checks the vendor of the first matching vscode.lm model.
  * Returns 'vscode-lm' as fallback for Copilot/free-tier models.
  */
-async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'openrouter'> {
+async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'openrouter' | 'copilot'> {
   // Batch-API-only models (OpenRouter ":batch" suffix) are NOT available through
   // VS Code LM — they must be routed to the OpenRouter provider's Batch API
   // transport. vscode.lm may still return the model object (vendor "openrouter")

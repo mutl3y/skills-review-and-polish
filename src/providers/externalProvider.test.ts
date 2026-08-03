@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OpenRouterProvider } from './externalProvider';
+import { OpenRouterProvider, CopilotProvider } from './externalProvider';
 
 async function callBody(fetchMock: ReturnType<typeof vi.fn>, callIndex = 0): Promise<any> {
   return JSON.parse(fetchMock.mock.calls[callIndex][1].body);
@@ -408,5 +408,62 @@ describe('OpenRouterProvider', () => {
       isRateLimit: false,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('CopilotProvider', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('returns the provider text from the Copilot API response', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'hello from copilot' }, finish_reason: 'stop' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new CopilotProvider({ apiKey: 'token', model: 'gpt-5-mini' });
+    const result = await provider.complete({ prompt: 'p', systemPrompt: 's' });
+
+    expect(result).toEqual({ text: 'hello from copilot', finishReason: 'stop' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('posts to api.githubcopilot.com with Copilot headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new CopilotProvider({ apiKey: 'token', model: 'gpt-5-mini' });
+    await provider.complete({ prompt: 'p', systemPrompt: 's' });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.githubcopilot.com/chat/completions');
+    expect(init.headers['Authorization']).toBe('Bearer token');
+    expect(init.headers['Copilot-Integration-Id']).toBe('vscode-chat');
+    expect(init.headers['Editor-Version']).toBe('vscode/1.90.0');
+  });
+
+  it('routes deep tier to deepModel', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'deep' }, finish_reason: 'stop' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new CopilotProvider({ apiKey: 'token', model: 'gpt-5-mini', deepModel: 'gpt-5.4' });
+    await provider.complete({ prompt: 'p', systemPrompt: 's', modelTier: 'deep' });
+
+    const body = await callBody(fetchMock);
+    expect(body.model).toBe('gpt-5.4');
   });
 });

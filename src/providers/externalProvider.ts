@@ -1,9 +1,10 @@
 /**
- * External LLM provider implementations for OpenRouter.
+ * External LLM provider implementations for OpenRouter and GitHub Copilot.
  *
  * These are used when `skillsReviewAndPolish.provider` is set to
  * `"openrouter"` (requires an API key stored in VS Code SecretStorage via
- * the `setApiKey` command).
+ * the `setApiKey` command) or `"copilot"` (uses a GitHub token via the
+ * Copilot API).
  */
 
 import { LlmProvider, LlmRequest, LlmResponse, BatchRequestItem, BatchResult, BatchResultItem, BatchStatus } from '../core/types';
@@ -400,6 +401,109 @@ export class OpenRouterProvider implements LlmProvider {
     // small-prompt waves and silently caps output at 16K tokens (the
     // ambiguities/contradiction waves then truncate at ~17K regardless of
     // model). See plan item 4 follow-up / e61 deep-model investigation.
+    const floor = Math.min(this.minAdaptiveTokens * multiplier, scaledCap);
+    const cap = Math.max(this.maxTokens * multiplier, scaledCap);
+    return clamp(desired, floor, cap);
+  }
+}
+
+// --------------------------------------------------------------------------
+// GitHub Copilot API
+// --------------------------------------------------------------------------
+
+/**
+ * Calls the GitHub Copilot API (`api.githubcopilot.com`).
+ *
+ * This is the OpenAI-compatible endpoint that backs Copilot chat. It uses the
+ * user's Copilot subscription — no separate API key or per-token billing. Auth
+ * is a GitHub token (`GITHUB_TOKEN` env or `gh auth token`) sent as a Bearer
+ * token, plus the `Copilot-Integration-Id` / `Editor-Version` headers Copilot
+ * expects.
+ *
+ * Distinct from the discontinued GitHub Models endpoint
+ * (`models.inference.ai.azure.com`). Model IDs are Copilot IDs (e.g.
+ * `gpt-4o-mini`, `gpt-4.1`, `gpt-5-mini`, `claude-sonnet-4.5`).
+ */
+export class CopilotProvider implements LlmProvider {
+  private readonly apiKey: string;
+  private readonly model: string;
+  private readonly deepModel?: string;
+  private readonly fixModel?: string;
+  private readonly maxTokens: number;
+  private readonly adaptiveMaxTokens: boolean;
+  private readonly adaptiveMaxTokensCap: number;
+  private readonly minAdaptiveTokens: number;
+  private readonly adaptiveCharsPerToken: number;
+  private readonly maxRetries: number;
+  private readonly requestTimeoutMs: number;
+  private readonly structuredOutput: boolean | 'schema';
+  private readonly contextLength?: number;
+  private readonly temperature: number;
+  private readonly topP: number;
+  private static readonly BASE_URL = 'https://api.githubcopilot.com/chat/completions';
+
+  constructor(opts: ExternalProviderOptions) {
+    this.apiKey = opts.apiKey;
+    this.model = opts.model || 'gpt-4o-mini';
+    this.deepModel = opts.deepModel;
+    this.fixModel = opts.fixModel;
+    this.maxTokens = opts.maxTokens ?? DEFAULT_MAX_RESPONSE_TOKENS;
+    this.adaptiveMaxTokens = opts.adaptiveMaxTokens ?? false;
+    this.adaptiveMaxTokensCap = opts.adaptiveMaxTokensCap ?? DEFAULT_ADAPTIVE_MAX_RESPONSE_TOKENS;
+    this.minAdaptiveTokens = opts.minAdaptiveTokens ?? DEFAULT_MIN_ADAPTIVE_RESPONSE_TOKENS;
+    this.adaptiveCharsPerToken = Math.max(1, opts.adaptiveCharsPerToken ?? DEFAULT_ADAPTIVE_CHARS_PER_TOKEN);
+    this.maxRetries = opts.maxRetries ?? 2;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.structuredOutput = opts.structuredOutput ?? 'schema';
+    this.contextLength = opts.contextLength;
+    this.temperature = opts.temperature ?? 0;
+    this.topP = opts.topP ?? 0;
+  }
+
+  getContextLength(): number | undefined {
+    return this.contextLength;
+  }
+
+  async complete(req: LlmRequest): Promise<LlmResponse> {
+    // Tier routing: fix → fixModel, deep → deepModel, else → model
+    const modelToUse = req.modelId
+      || (req.modelTier === 'fix' && this.fixModel ? this.fixModel
+        : req.modelTier === 'deep' && this.deepModel ? this.deepModel
+        : this.model);
+    return fetchWithRetry(
+      CopilotProvider.BASE_URL,
+      this.buildBody(modelToUse, req),
+      {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'Copilot-Integration-Id': 'vscode-chat',
+        'Editor-Version': 'vscode/1.90.0',
+      },
+      this.maxRetries,
+      this.requestTimeoutMs,
+      req.token,
+    );
+  }
+
+  private buildBody(model: string, req: LlmRequest): ChatBody {
+    const mode: boolean | 'schema' = req.disableStructuredOutput ? false : this.structuredOutput;
+    return {
+      model,
+      messages: [
+        { role: 'system', content: req.systemPrompt },
+        { role: 'user', content: req.prompt },
+      ],
+      max_tokens: this.resolveMaxTokens(req.prompt, req.maxTokensMultiplier ?? 1),
+      temperature: this.temperature,
+      top_p: this.topP,
+      ...buildResponseFormat(mode),
+    };
+  }
+
+  private resolveMaxTokens(prompt: string, multiplier = 1): number {
+    const scaledCap = Math.round(this.adaptiveMaxTokensCap * multiplier);
+    if (!this.adaptiveMaxTokens) return Math.round(this.maxTokens * multiplier);
+    const desired = Math.ceil(prompt.length / this.adaptiveCharsPerToken) * multiplier;
     const floor = Math.min(this.minAdaptiveTokens * multiplier, scaledCap);
     const cap = Math.max(this.maxTokens * multiplier, scaledCap);
     return clamp(desired, floor, cap);

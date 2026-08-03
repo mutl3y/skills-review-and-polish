@@ -9,7 +9,7 @@ import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
 import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
-import { OpenRouterProvider } from '../providers/externalProvider';
+import { OpenRouterProvider, CopilotProvider } from '../providers/externalProvider';
 import { BatchAwareOpenRouterProvider } from '../providers/batchAwareProvider';
 import { resolveContextLength } from '../modelCatalog';
 import { batchModeWarning } from '../core/batchTransport';
@@ -746,6 +746,15 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
           };
         }
       }
+      if (provider === 'copilot') {
+        const apiKey = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
+        if (apiKey) {
+          return {
+            engine: new Engine(new CopilotProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
+            config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
+          };
+        }
+      }
     }
   } catch {
     // File doesn't exist or is malformed — fall through to env vars
@@ -775,8 +784,28 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
     };
   }
 
+  // Copilot via env var (GITHUB_TOKEN / COPILOT_TOKEN).
+  const copilotToken = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
+  if (copilotToken) {
+    const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
+    const deepModel = process.env.DEEP_MODEL ?? undefined;
+    const fixModel = process.env.FIX_MODEL ?? undefined;
+    const structuredOutput = structuredOutputValue(process.env.STRUCTURED_OUTPUT);
+    const requestTimeoutMs = optionalPositiveNumber(process.env.REQUEST_TIMEOUT_MS);
+    const engineConfig = buildEngineConfig({
+      analysisMode: process.env.ANALYSIS_MODE,
+      scoreSamples: process.env.SCORE_SAMPLES ? Number(process.env.SCORE_SAMPLES) : undefined,
+    });
+    const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
+    const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
+    return {
+      engine: new Engine(new CopilotProvider({ apiKey: copilotToken, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
+      config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: 'env:GITHUB_TOKEN', engineConfig } as McpEngineConfig,
+    };
+  }
+
   throw new Error(
-    'MCP provider configuration missing. Set OPENROUTER_API_KEY to use the OpenRouter provider.',
+    'MCP provider configuration missing. Set OPENROUTER_API_KEY for OpenRouter, or GITHUB_TOKEN for the Copilot provider.',
   );
 }
 

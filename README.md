@@ -77,8 +77,8 @@ production-skill counts as coverage evidence, not validated precision/recall.
 Open VS Code Settings and search "Skills Review":
 
 - `enable` — Turn on/off
-- `provider` — Which LLM to use (Copilot by default, or OpenRouter)
-- `model` — Model id (use the **Select Analysis Model** command). For OpenRouter, the recommended configuration is `google/gemini-2.5-flash-lite` for `model` + `deepseek/deepseek-chat-v3` for `deepModel` (see [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models))
+- `provider` — Which LLM to use (Copilot by default, OpenRouter, or Copilot API via `GITHUB_TOKEN`)
+- `model` — Model id (use the **Select Analysis Model** command). For OpenRouter, the recommended configuration is `google/gemini-2.5-flash-lite` for `model` + `deepseek/deepseek-chat-v3` for `deepModel` (see [Recommended OpenRouter Models](docs/USER-GUIDE.md#recommended-openrouter-models)). For the Copilot API provider, use Copilot model IDs (e.g. `gpt-5-mini`, `gpt-4.1`).
 - `external.structuredOutput` — Optional OpenAI-compatible JSON mode for external providers. Keep off unless you have validated the selected model path.
 - `external.requestTimeoutMs` — Per-request timeout for external provider calls
 - `analysisMode` — `multiWave` (recommended), `focused` (contradictions + ambiguities), or `single` combined pass
@@ -116,7 +116,7 @@ npm run compile
 npm run mcp   # starts stdio server
 ```
 
-The server reads `.skills-review.json` from the workspace root (written by the **Sync MCP Config** command) or falls back to `OPENROUTER_API_KEY` env vars.
+The server reads `.skills-review.json` from the workspace root (written by the **Sync MCP Config** command) or falls back to `OPENROUTER_API_KEY` / `GITHUB_TOKEN` env vars.
 
 See [`src/mcp/README.md`](src/mcp/README.md) for full setup, client config examples, and the recommended agent workflow.
 
@@ -125,7 +125,7 @@ See [`src/mcp/README.md`](src/mcp/README.md) for full setup, client config examp
 The MCP server is a headless interface intended for CI/CD and automation. Understand its trust boundary before running it against untrusted input:
 
 - **What it reads:** `.skills-review.json` from the workspace root (or `MCP_SERVER_WORKSPACE`), and the accepted-findings store.
-- **What env vars it accesses:** `OPENROUTER_API_KEY`, `MCP_BATCH_API`, `MCP_MAX_OUTPUT_TOKENS`, and the `ANALYSIS_MODEL` / `DEEP_MODEL` / `FIX_MODEL` / `STRUCTURED_OUTPUT` / `REQUEST_TIMEOUT_MS` overrides.
+- **What env vars it accesses:** `OPENROUTER_API_KEY`, `GITHUB_TOKEN` (Copilot provider), `MCP_BATCH_API`, `MCP_MAX_OUTPUT_TOKENS`, and the `ANALYSIS_MODEL` / `DEEP_MODEL` / `FIX_MODEL` / `STRUCTURED_OUTPUT` / `REQUEST_TIMEOUT_MS` overrides.
 - **Input limits:** `analyze`/`score`/`verify_fix` reject text longer than 100,000 chars (~25k tokens) to prevent runaway LLM costs.
 - **Cost controls:** the server tracks cumulative output tokens per session and refuses new analysis requests once the budget is exhausted. Default cap is 50,000 output tokens per session (~$0.01–0.03 at current rates). Configure via `MCP_MAX_OUTPUT_TOKENS` env var, `maxOutputTokensPerSession` in `.skills-review.json`, or the `skillsReviewAndPolish.mcpMaxOutputTokensPerSession` setting. Set to `0` to disable. Check current usage with the `health` tool.
 - **Error redaction:** error messages are sanitized to strip Bearer tokens and API keys before being returned to MCP clients.
@@ -149,7 +149,7 @@ npm run watch          # Watch mode
 #### Core Modules
 
 - `src/core/` — Analysis engine (6-wave analyzer, scoring, surgical fixer)
-- `src/providers/` — LLM provider implementations (vscode.lm, OpenRouter)
+- `src/providers/` — LLM provider implementations (vscode.lm, OpenRouter, Copilot API)
 - `src/ui/` — VS Code integration (diagnostics, code actions, hovers)
 - `src/extension.ts` — Main activation and command wiring
 - `tests/` — Unit and E2E test suites
