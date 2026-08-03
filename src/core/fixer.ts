@@ -219,8 +219,12 @@ export async function loadReferenceGrounding(
     }
     if (!fileStat.isFile()) continue;
     // Path traversal guard: resolved path must remain inside refDir
+    // Use path.sep to prevent traversal via same-prefix directory names
+    // (e.g., refDir="/a/b" should not allow "/a/bad/file")
     const resolved = path.resolve(full);
-    if (!resolved.startsWith(path.resolve(refDir))) continue;
+    const refDirResolved = path.resolve(refDir);
+    const sep = path.sep;
+    if (!resolved.startsWith(refDirResolved + sep) && resolved !== refDirResolved) continue;
     let text: string;
     try {
       text = (await fsPromises.readFile(full, 'utf8')).trim();

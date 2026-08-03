@@ -10,7 +10,10 @@ import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
 import { GitHubModelsProvider, OpenRouterProvider } from '../providers/externalProvider';
+import { BatchAwareOpenRouterProvider } from '../providers/batchAwareProvider';
 import { resolveContextLength } from '../modelCatalog';
+import { batchModeWarning } from '../core/batchTransport';
+import type { AnalysisJob } from '../core/analysisJob';
 import type { AnalysisResult, EngineConfig, LlmProvider, Severity, WaveName } from '../core/types';
 
 export interface McpEngineConfig {
@@ -22,10 +25,104 @@ export interface McpEngineConfig {
   requestTimeoutMs?: number;
   configSource: string;
   engineConfig?: EngineConfig;
+  /** When true, the OpenRouter provider batches wave requests via the Batch API. */
+  batch?: boolean;
+  /** The batch-aware provider instance (when batch mode is on) so handlers can flush it. */
+  batchProvider?: BatchAwareOpenRouterProvider;
 }
+
+/**
+ * In-memory registry of deferred analysis jobs (B1 batch design). Keyed by
+ * jobId. Lives for the server process lifetime — sufficient for MCP, where the
+ * client polls within the same session. Jobs are not persisted across restarts.
+ */
+const analysisJobs = new Map<string, AnalysisJob>();
 
 /** Maximum text length accepted by tools. Prevents runaway LLM costs. */
 const MAX_TEXT_LENGTH = 100_000; // ~25k tokens
+
+// ---------------------------------------------------------------------------
+// Cost budget guard
+// ---------------------------------------------------------------------------
+// The MCP server has no spending cap by default — error redaction exists, but
+// there is no guard against a runaway loop of analyze/score/verify_fix calls
+// burning through a provider quota. This budget tracks cumulative *output*
+// tokens per server session and refuses new analysis requests once exceeded.
+// It is a soft, configurable guard (not a hard wall): operators can raise or
+// disable it via env var or `.skills-review.json`.
+//
+// Default: 50k output tokens per session (~$0.01-0.03 at current rates).
+const DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION = 50_000;
+/** Rough chars-per-token heuristic used when the provider reports no usage. */
+const CHARS_PER_TOKEN = 4;
+
+/** Cumulative output-token budget state for the current server session. */
+let _sessionOutputTokens = 0;
+/** Configured cap for the current session (0 disables the guard). */
+let _maxOutputTokensPerSession = DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION;
+
+/** Reset the session budget (for tests). */
+export function _resetSessionBudget(): void {
+  _sessionOutputTokens = 0;
+  _maxOutputTokensPerSession = DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION;
+}
+
+/** Set the session budget cap directly (for tests). 0 disables the guard. */
+export function _setSessionBudgetCap(cap: number): void {
+  _maxOutputTokensPerSession = cap > 0 ? Math.floor(cap) : 0;
+}
+
+/** Read the budget cap from env var or config value. Returns 0 to disable. */
+function resolveMaxOutputTokens(value: unknown): number {
+  const env = process.env.MCP_MAX_OUTPUT_TOKENS;
+  // Env var takes precedence; an explicit "0" disables the guard.
+  if (env !== undefined && env.trim() !== '') {
+    const n = Number(env);
+    if (Number.isFinite(n)) return n > 0 ? Math.floor(n) : 0;
+  }
+  // Config-file value: accept a positive number, or an explicit 0 to disable.
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 0 ? Math.floor(value) : 0;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n > 0 ? Math.floor(n) : 0;
+  }
+  return DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION;
+}
+
+/** Estimate output tokens for a response body (chars / CHARS_PER_TOKEN). */
+function estimateOutputTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
+/**
+ * Charge the session budget for an LLM response. Returns true if the charge
+ * was accepted (within budget). When the charge would exceed the cap, the
+ * budget is still incremented (so `usedOutputTokens` stays honest) and false
+ * is returned — the caller may still return the result, but subsequent
+ * analysis requests will be refused until the next session.
+ */
+function chargeOutputTokens(text: string): boolean {
+  if (_maxOutputTokensPerSession <= 0) return true; // guard disabled
+  const cost = estimateOutputTokens(text);
+  _sessionOutputTokens += cost;
+  return _sessionOutputTokens <= _maxOutputTokensPerSession;
+}
+
+/** True when the session budget is exhausted (guard enabled and over cap). */
+function budgetExhausted(): boolean {
+  return _maxOutputTokensPerSession > 0 && _sessionOutputTokens >= _maxOutputTokensPerSession;
+}
+
+/** Error message returned when the budget is exhausted. */
+function budgetExhaustedError(): Error {
+  return new Error(
+    `MCP session output-token budget exhausted (${_sessionOutputTokens} / ${_maxOutputTokensPerSession} tokens). ` +
+    `Refusing new analysis requests until the next session. Raise the cap via ` +
+    `MCP_MAX_OUTPUT_TOKENS or the "maxOutputTokensPerSession" config, or set it to 0 to disable.`,
+  );
+}
 
 /** Maximum length for relevantText in accept_finding. */
 const MAX_RELEVANT_TEXT_LENGTH = 200;
@@ -209,6 +306,11 @@ export function _resetAnalyzeCooldown(): void { _lastAnalyzeTimestamp = 0; }
 async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
   const text = requireText(args);
 
+  // Cost guard: refuse new analysis once the session budget is exhausted.
+  if (budgetExhausted()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
+  }
+
   // Rate limit: enforce minimum interval between analyze calls
   const now = Date.now();
   if (now - _lastAnalyzeTimestamp < ANALYZE_COOLDOWN_MS) {
@@ -232,16 +334,109 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
     ? { analysisWaves: analysisWaves as any, analysisMode: 'multiWave' as const }
     : undefined;
 
-  const results = await engine.analyze({
-    text,
-    filePath: optionalString(args, 'filePath'),
-    acceptedFindingsPath: resolveAcceptedFindingsPath(),
-  }, undefined, undefined, configOverride);
-  return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+  // Explicit `batch` arg overrides the server's batch config. When batch mode
+  // is on, analysis runs as a deferred job (B1 design) so the tool returns
+  // immediately instead of blocking ~5 min on the OpenRouter Batch API.
+  const batchArg = optionalBoolean(args['batch']);
+  const batch = batchArg ?? ctx.resolvedConfig?.batch ?? false;
+
+  if (!batch) {
+    // Synchronous single-request path — instant, blocks only on normal latency.
+    const results = await engine.analyze({
+      text,
+      filePath: optionalString(args, 'filePath'),
+      acceptedFindingsPath: resolveAcceptedFindingsPath(),
+    }, undefined, undefined, configOverride);
+    const body = JSON.stringify(results, null, 2);
+    // Charge the budget. If this call pushes us over the cap, we still return
+    // its result (the work is done) but mark the budget exhausted so the next
+    // analysis request is refused.
+    chargeOutputTokens(body);
+    return { content: [{ type: 'text', text: body }] };
+  }
+
+  // Batch (slow) mode: submit as a deferred job and return a handle immediately.
+  const job = engine.analyzeDeferred(
+    {
+      text,
+      filePath: optionalString(args, 'filePath'),
+      acceptedFindingsPath: resolveAcceptedFindingsPath(),
+    },
+    { batch: true },
+  );
+  // Flush the batch provider so buffered waves are submitted as one batch job.
+  if (ctx.resolvedConfig?.batchProvider) {
+    void ctx.resolvedConfig.batchProvider.flush();
+  }
+  analysisJobs.set(job.jobId, job);
+
+  return {
+    content: [{
+      type: 'text',
+      text: JSON.stringify({
+        status: 'processing',
+        jobId: job.jobId,
+        estimatedWaitSeconds: Math.round((job.estimatedWaitMs ?? 300_000) / 1000),
+        warning: batchModeWarning(ctx.resolvedConfig?.model ?? '', Math.round((job.estimatedWaitMs ?? 300_000) / 1000)),
+        nextStep: `Poll get_analysis_result with jobId "${job.jobId}". Do NOT re-call analyze — that submits a duplicate batch.`,
+      }, null, 2),
+    }],
+  };
+}
+
+async function handleGetAnalysisResult(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
+  const jobId = requireString(args, 'jobId');
+  const job = analysisJobs.get(jobId);
+  if (!job) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: `Unknown jobId: ${jobId}` }, null, 2) }],
+      isError: true,
+    };
+  }
+  if (job.status === 'processing') {
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          status: 'processing',
+          jobId,
+          estimatedWaitSeconds: Math.round((job.estimatedWaitMs ?? 300_000) / 1000),
+          warning: batchModeWarning(_ctx.resolvedConfig?.model ?? '', Math.round((job.estimatedWaitMs ?? 300_000) / 1000)),
+          nextStep: `Still running. Poll get_analysis_result with jobId "${jobId}" again. Do NOT re-call analyze.`,
+        }, null, 2),
+      }],
+    };
+  }
+  if (job.status === 'failed' || job.status === 'cancelled') {
+    let message = job.status === 'cancelled' ? 'Analysis job was cancelled.' : 'Analysis job failed.';
+    try {
+      await job.getResults();
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ status: job.status, error: message }, null, 2) }],
+      isError: true,
+    };
+  }
+  // completed
+  // completed
+  const results = await job.getResults();
+  analysisJobs.delete(jobId);
+  const body = JSON.stringify(results, null, 2);
+  // Charge the batch results against the session budget too — otherwise the
+  // batch path would bypass the cost guard entirely.
+  chargeOutputTokens(body);
+  return { content: [{ type: 'text', text: body }] };
 }
 
 async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
   const text = requireText(args);
+  // Cost guard: fix invokes the LLM (and can loop), so it is a paid operation
+  // that must respect the session budget too.
+  if (budgetExhausted()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
+  }
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const relevantText = requireString(args, 'relevantText');
   const line = typeof args['line'] === 'number' ? args['line'] : (typeof args['line'] === 'string' ? parseInt(args['line'], 10) : undefined);
@@ -282,7 +477,9 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
     referenceGrounding: true,
   });
 
-  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  const body = JSON.stringify(result, null, 2);
+  chargeOutputTokens(body);
+  return { content: [{ type: 'text', text: body }] };
 }
 
 async function handleAcceptFinding(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
@@ -339,6 +536,15 @@ async function handleHealth(_args: Record<string, unknown>, ctx: ToolHandlerCont
           structuredOutput: ctx.resolvedConfig?.structuredOutput ?? false,
           requestTimeoutMs: ctx.resolvedConfig?.requestTimeoutMs,
           configSource: ctx.resolvedConfig?.configSource ?? 'unknown',
+          costBudget: {
+            maxOutputTokensPerSession: _maxOutputTokensPerSession,
+            usedOutputTokens: _sessionOutputTokens,
+            exhausted: budgetExhausted(),
+            // The token count is an estimate (response chars / 4), not the
+            // provider's reported usage — the provider interface does not
+            // expose per-call token usage.
+            estimate: 'responseChars/4',
+          },
         }, null, 2),
       }],
     };
@@ -357,16 +563,24 @@ async function handleHealth(_args: Record<string, unknown>, ctx: ToolHandlerCont
 
 async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
   const text = requireText(args);
+  if (budgetExhausted()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
+  }
   const engine = await ctx.getEngine();
   const result = await engine.score({
     text,
     filePath: optionalString(args, 'filePath'),
   });
-  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  const body = JSON.stringify(result, null, 2);
+  chargeOutputTokens(body);
+  return { content: [{ type: 'text', text: body }] };
 }
 
 async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
   const text = requireText(args);
+  if (budgetExhausted()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
+  }
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const relevantText = requireString(args, 'relevantText');
 
@@ -385,17 +599,14 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
   const newIssues = results.filter((r) => !isFindingAccepted(r, targetAccepted));
 
   // 3. Return result WITHOUT the expensive score call
-  return {
-    content: [{
-      type: 'text',
-      text: JSON.stringify({
-        fixed: matchingIssue === null,
-        matchingIssue,
-        newIssues,
-        issueCount: results.length,
-      }, null, 2),
-    }],
-  };
+  const body = JSON.stringify({
+    fixed: matchingIssue === null,
+    matchingIssue,
+    newIssues,
+    issueCount: results.length,
+  }, null, 2);
+  chargeOutputTokens(body);
+  return { content: [{ type: 'text', text: body }] };
 }
 
 async function handleListAcceptedFindings(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
@@ -422,6 +633,7 @@ async function handleListAcceptedFindings(args: Record<string, unknown>, _ctx: T
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   analyze: handleAnalyze,
+  get_analysis_result: handleGetAnalysisResult,
   fix: handleFix,
   accept_finding: handleAcceptFinding,
   health: handleHealth,
@@ -479,7 +691,24 @@ async function pickSmallestContextLength(
   return values.length > 0 ? Math.min(...values) : undefined;
 }
 
-async function createDefaultEngine(): Promise<{ engine: Engine; config: McpEngineConfig }> {
+/**
+ * Wrap an OpenRouter provider in a batch-aware provider when batch mode is
+ * enabled. Batch mode submits the analyzer's wave requests as a single
+ * OpenRouter Batch API job instead of sequential chat completions. When the
+ * model is not batch-capable, the wrapper falls back to single requests
+ * transparently, so callers always get correct results.
+ */
+function maybeBatchProvider(
+  base: OpenRouterProvider,
+  model: string,
+  batch: boolean,
+): { provider: LlmProvider; batching: boolean; batchProvider?: BatchAwareOpenRouterProvider } {
+  if (!batch) return { provider: base, batching: false };
+  const wrapped = new BatchAwareOpenRouterProvider({ provider: base, modelId: model, flushSize: 6 });
+  return { provider: wrapped, batching: wrapped.batchingEnabled, batchProvider: wrapped };
+}
+
+export async function createDefaultEngine(): Promise<{ engine: Engine; config: McpEngineConfig }> {
   // Priority 1: .skills-review.json in workspace root
   // MCP_SERVER_WORKSPACE env var takes precedence for config discovery,
   // falling back to process.cwd() for CLI usage.
@@ -489,6 +718,8 @@ async function createDefaultEngine(): Promise<{ engine: Engine; config: McpEngin
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
     if (cfg && typeof cfg === 'object') {
+      // Apply the session cost budget from config (env var takes precedence).
+      _maxOutputTokensPerSession = resolveMaxOutputTokens(cfg.maxOutputTokensPerSession);
       const engineConfig = buildEngineConfig(cfg as Record<string, unknown>);
       const provider = cfg.provider || 'githubModels';
       const model = cfg.model || 'gpt-4o-mini';
@@ -506,9 +737,12 @@ async function createDefaultEngine(): Promise<{ engine: Engine; config: McpEngin
       if (provider === 'openrouter') {
         const apiKey = process.env.OPENROUTER_API_KEY?.trim();
         if (apiKey) {
+          const batch = cfg.batch === true || process.env.MCP_BATCH_API === '1';
+          const base = new OpenRouterProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
+          const { provider: wrapped, batching } = maybeBatchProvider(base, model, batch);
           return {
-            engine: new Engine(new OpenRouterProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
-            config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
+            engine: new Engine(wrapped, engineConfig),
+            config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig, batch: batch && batching } as McpEngineConfig,
           };
         }
       }
@@ -528,6 +762,7 @@ async function createDefaultEngine(): Promise<{ engine: Engine; config: McpEngin
 
   // Priority 2: env vars (existing logic)
   // Prefer GITHUB_MODELS_TOKEN (fine-grained PAT) over GITHUB_TOKEN (Codespaces OAuth)
+  _maxOutputTokensPerSession = resolveMaxOutputTokens(undefined);
   const githubToken = (process.env.GITHUB_MODELS_TOKEN ?? process.env.GITHUB_TOKEN)?.trim();
   if (githubToken) {
     const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
@@ -561,10 +796,12 @@ async function createDefaultEngine(): Promise<{ engine: Engine; config: McpEngin
     });
     const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
     const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
-    const provider = new OpenRouterProvider({ apiKey: openRouterKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
+    const batch = process.env.MCP_BATCH_API === '1';
+    const base = new OpenRouterProvider({ apiKey: openRouterKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
+    const { provider, batching, batchProvider } = maybeBatchProvider(base, model, batch);
     return {
       engine: new Engine(provider, engineConfig),
-      config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: 'env:OPENROUTER_API_KEY', engineConfig } as McpEngineConfig,
+      config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig, batch: batch && batching, batchProvider } as McpEngineConfig,
     };
   }
 
@@ -645,8 +882,24 @@ export function createMcpToolRegistry({
                 items: { type: 'string', enum: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'] },
                 description: 'Optional: which analysis waves to run. If omitted, all 6 waves run in multi-wave mode.',
               },
+              batch: {
+                type: 'boolean',
+                description: 'Optional: force batch (slow) mode. When true, analyze returns a jobId immediately and you must poll get_analysis_result (~5 min). Defaults to the server batch config.',
+              },
             },
             required: ['text'],
+          },
+        },
+        {
+          name: 'get_analysis_result',
+          description:
+            'Poll the result of a deferred (batch/slow-mode) analysis job started by `analyze`. Returns the diagnostics once the OpenRouter Batch API job completes (~5 min). While the job is still processing, returns status "processing" with a warning — do NOT re-call analyze (that submits a duplicate batch). Use this only when `analyze` returned a jobId (batch mode); for synchronous single-request analysis, `analyze` already returns the results directly.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              jobId: { type: 'string', description: 'Job id returned by analyze in batch mode.' },
+            },
+            required: ['jobId'],
           },
         },
         {

@@ -16,6 +16,7 @@ import { Analyzer, CustomDiagnosticConfig } from './analyzer';
 import { scoreSkill, parseSkillType, ScoreResult } from './scoring';
 import { SurgicalFixer, SurgicalFixOptions } from './fixer';
 import { createLogger } from './logger';
+import { AnalysisJob, createAnalysisJob } from './analysisJob';
 
 export * from './types';
 export * from './analyzer';
@@ -24,6 +25,7 @@ export * from './fixer';
 export * from './logger';
 export * from './prompts';
 export * from './acceptedFindings';
+export * from './analysisJob';
 
 export interface AnalyzeInput {
   /** Full document text. */
@@ -119,6 +121,26 @@ export class Engine {
       customDiagnostics,
       waves,
       effectiveConfig,
+    );
+  }
+
+  /**
+   * Deferred analysis (B1 batch design). Returns an {@link AnalysisJob} handle
+   * immediately while the real `analyze()` runs in the background. Use this for
+   * batch (slow) mode so the caller never blocks on the ~5-minute batch
+   * duration. For synchronous single-request analysis, call `analyze()`
+   * directly.
+   *
+   * @param opts.batch  Whether this job uses batch (slow) mode — controls the
+   *   `estimatedWaitMs` default and the job's `batch` flag.
+   */
+  analyzeDeferred(
+    input: AnalyzeInput,
+    opts: { batch?: boolean; estimatedWaitMs?: number } = {},
+  ): AnalysisJob {
+    return createAnalysisJob(
+      () => this.analyze(input),
+      { batch: opts.batch, estimatedWaitMs: opts.estimatedWaitMs },
     );
   }
 

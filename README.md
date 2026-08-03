@@ -120,6 +120,18 @@ The server reads `.skills-review.json` from the workspace root (written by the *
 
 See [`src/mcp/README.md`](src/mcp/README.md) for full setup, client config examples, and the recommended agent workflow.
 
+#### MCP Server Security
+
+The MCP server is a headless interface intended for CI/CD and automation. Understand its trust boundary before running it against untrusted input:
+
+- **What it reads:** `.skills-review.json` from the workspace root (or `MCP_SERVER_WORKSPACE`), and the accepted-findings store.
+- **What env vars it accesses:** `OPENROUTER_API_KEY`, `GITHUB_TOKEN` / `GITHUB_MODELS_TOKEN`, `MCP_BATCH_API`, `MCP_MAX_OUTPUT_TOKENS`, and the `ANALYSIS_MODEL` / `DEEP_MODEL` / `FIX_MODEL` / `STRUCTURED_OUTPUT` / `REQUEST_TIMEOUT_MS` overrides.
+- **Input limits:** `analyze`/`score`/`verify_fix` reject text longer than 100,000 chars (~25k tokens) to prevent runaway LLM costs.
+- **Cost controls:** the server tracks cumulative output tokens per session and refuses new analysis requests once the budget is exhausted. Default cap is 50,000 output tokens per session (~$0.01–0.03 at current rates). Configure via `MCP_MAX_OUTPUT_TOKENS` env var, `maxOutputTokensPerSession` in `.skills-review.json`, or the `skillsReviewAndPolish.mcpMaxOutputTokensPerSession` setting. Set to `0` to disable. Check current usage with the `health` tool.
+- **Error redaction:** error messages are sanitized to strip Bearer tokens and API keys before being returned to MCP clients.
+
+Treat the MCP server as a trusted, operator-controlled tool — do not expose it to untrusted clients, and keep provider API keys out of any shared config you commit.
+
 ### For Developers
 
 #### Scripts

@@ -52,6 +52,10 @@ export interface ExtensionConfig extends EngineConfig {
   externalMinAdaptiveResponseTokens: number;
   externalAdaptiveCharsPerToken: number;
   externalRequestTimeoutMs: number;
+  /** Experimental: submit folder scans as OpenRouter Batch API jobs. Off by default (Batch API is unreliable). */
+  batchEnabled: boolean;
+  /** Cumulative output-token budget for the MCP server per session. 0 disables the guard. */
+  mcpMaxOutputTokensPerSession: number;
   runOn: 'manual' | 'onSave' | 'onType';
   include: string[];
   exclude: string[];
@@ -87,6 +91,8 @@ export function readConfig(): ExtensionConfig {
     externalMinAdaptiveResponseTokens: c.get('external.minAdaptiveResponseTokens', 4_096),
     externalAdaptiveCharsPerToken: c.get('external.adaptiveCharsPerToken', 8),
     externalRequestTimeoutMs: c.get('external.requestTimeoutMs', 120_000),
+    batchEnabled: c.get('batchEnabled', false),
+    mcpMaxOutputTokensPerSession: c.get('mcpMaxOutputTokensPerSession', 50_000),
     analysisMode: c.get('analysisMode', DEFAULT_ENGINE_CONFIG.analysisMode),
     enabledWaves: waves.length ? waves : [...ALL_WAVES],
     scoreSamples: c.get('scoreSamples', 3),

@@ -2,7 +2,7 @@
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
   "description": "Authoring-time linter and fixer for AI customization files. Catches contradictions, ambiguities, coverage gaps, and structural issues. VS Code extension provides AI-suggested fixes with diff preview for human review.",
-  "version": "0.1.50",
+  "version": "0.1.57",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",
@@ -28,7 +28,13 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onLanguage:markdown",
+    "workspaceContains:**/SKILL.md",
+    "workspaceContains:**/*.prompt.md",
+    "workspaceContains:**/*.agent.md",
+    "workspaceContains:**/*.instructions.md",
+    "workspaceContains:**/AGENTS.md"
   ],
   "contributes": {
     "configuration": {
@@ -140,6 +146,17 @@
           "maximum": 128,
           "description": "Heuristic scale used by adaptive response-token sizing: desired tokens = ceil(promptChars / this value). Lower values request more output tokens."
         },
+        "skillsReviewAndPolish.batchEnabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**Experimental / off by default.** Submit folder scans as OpenRouter Batch API jobs instead of sequential requests. Batch mode is ~5min slower but cheaper for bulk work. **Disabled by default** because the OpenRouter Batch API endpoint (`/api/beta/batches`) is currently unreliable — when it is down, batch jobs fail and fall back to the standard chat endpoint (which 404s for `:batch`-only models). Leave this OFF unless you have confirmed the Batch API is working. When OFF, `:batch` models are hidden from the model picker and folder scans run synchronously."
+        },
+        "skillsReviewAndPolish.mcpMaxOutputTokensPerSession": {
+          "type": "number",
+          "default": 50000,
+          "minimum": 0,
+          "markdownDescription": "Cumulative output-token budget for the MCP server per session. When the MCP server's analyze/score/verify_fix calls exceed this cap, it refuses new analysis requests until the next session. Set to `0` to disable the guard. Default 50000 (~$0.01-0.03 at current rates). Also configurable via the `MCP_MAX_OUTPUT_TOKENS` env var or `maxOutputTokensPerSession` in `.skills-review.json`."
+        },
         "skillsReviewAndPolish.analysisMode": {
           "type": "string",
           "enum": [
@@ -147,8 +164,8 @@
             "focused",
             "multiWave"
           ],
-          "default": "multiWave",
-          "description": "'multiWave' runs 6 focused passes (best quality). 'focused' runs 2 high-signal passes — contradictions + ambiguities (faster, good quality). 'single' runs one combined prompt (cheapest/fastest, lower recall)."
+          "default": "focused",
+          "description": "'focused' runs 2 high-signal passes — contradictions + ambiguities (faster, good quality, recommended). 'multiWave' runs 6 focused passes (best quality, higher cost). 'single' runs one combined prompt (cheapest/fastest, lower recall)."
         },
         "skillsReviewAndPolish.filterFindings": {
           "type": "boolean",
@@ -180,10 +197,10 @@
         },
         "skillsReviewAndPolish.scoreSamples": {
           "type": "number",
-          "default": 3,
+          "default": 1,
           "minimum": 1,
           "maximum": 5,
-          "description": "Number of analyzer scans to median for keep/revert fix decisions. Collapses the ~±6 penalty noise floor. Use 1 for cheap scans, 3 for fixing."
+          "description": "Number of analyzer scans to median for keep/revert fix decisions. Collapses the residual noise floor. Use 1 for cheap scans (recommended), 3 for fixing."
         },
         "skillsReviewAndPolish.runOn": {
           "type": "string",
@@ -253,13 +270,13 @@
         },
         "skillsReviewAndPolish.fix.semanticCheck": {
           "type": "boolean",
-          "default": false,
-          "description": "Run an extra semantic-equivalence judge on each fix (extra API call)."
+          "default": true,
+          "description": "Run an extra semantic-equivalence judge on each fix (extra API call). Recommended: true."
         },
         "skillsReviewAndPolish.fix.selfCritique": {
           "type": "boolean",
-          "default": false,
-          "description": "Audit each content-adding fix for fabricated facts (extra API call). Forced on for additive fixes."
+          "default": true,
+          "description": "Audit each content-adding fix for fabricated facts (extra API call). Forced on for additive fixes. Recommended: true."
         },
         "skillsReviewAndPolish.fix.referenceGrounding": {
           "type": "boolean",

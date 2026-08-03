@@ -228,6 +228,63 @@ describe('createMcpToolRegistry', () => {
     expect(parsed.error).toBe('No provider');
   });
 
+  it('refuses analyze once the session output-token budget is exhausted', async () => {
+    // Import the budget reset helper (added for testability).
+    const { _resetSessionBudget, _setSessionBudgetCap } = await import('./server.js');
+    _resetSessionBudget();
+    // Set a tiny cap so a single analyze call exhausts it.
+    _setSessionBudgetCap(1);
+    const analyze = vi.fn(async () => [{ code: 'ambiguity-llm', message: 'x'.repeat(200) }]);
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => ({ engine: { analyze }, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
+    });
+
+    // First call runs and returns its result (the charge exhausts the budget).
+    const first = await registry.callTool('analyze', { text: 'Use explicit wording.' });
+    expect(JSON.parse(first.content[0].text)).toEqual([{ code: 'ambiguity-llm', message: 'x'.repeat(200) }]);
+    expect(analyze).toHaveBeenCalledTimes(1);
+
+    // Second call is refused because the budget is now exhausted.
+    const second = await registry.callTool('analyze', { text: 'Use explicit wording.' });
+    const parsed = JSON.parse(second.content[0].text);
+    expect(parsed.status).toBe('error');
+    expect(parsed.error).toContain('budget exhausted');
+    expect(analyze).toHaveBeenCalledTimes(1);
+    _resetSessionBudget();
+  });
+
+  it('disables the budget guard when the cap is set to 0', async () => {
+    const { _resetSessionBudget, _setSessionBudgetCap } = await import('./server.js');
+    _resetSessionBudget();
+    _resetAnalyzeCooldown();
+    _setSessionBudgetCap(0); // 0 disables the guard
+    const analyze = vi.fn(async () => [{ code: 'ambiguity-llm', message: 'x'.repeat(200) }]);
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => ({ engine: { analyze }, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
+    });
+
+    // With the guard disabled, the call is allowed and returns its result.
+    const result = await registry.callTool('analyze', { text: 'Use explicit wording.' });
+    expect(JSON.parse(result.content[0].text)).toEqual([{ code: 'ambiguity-llm', message: 'x'.repeat(200) }]);
+    expect(analyze).toHaveBeenCalledTimes(1);
+    _resetSessionBudget();
+  });
+
+  it('reports cost budget state in health output', async () => {
+    const { _resetSessionBudget } = await import('./server.js');
+    _resetSessionBudget();
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => ({ analyze: vi.fn(), provider: {} })) as any,
+    });
+
+    const result = await registry.callTool('health', {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.costBudget).toBeDefined();
+    expect(parsed.costBudget.maxOutputTokensPerSession).toBeGreaterThan(0);
+    expect(parsed.costBudget.exhausted).toBe(false);
+  });
+
   it('calls the score tool through the engine', async () => {
     const scoreResult = { score: 85, grade: 'B+', penalty: 15, pillarScores: {} };
     const score = vi.fn(async () => scoreResult);

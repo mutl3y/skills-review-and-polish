@@ -17,7 +17,7 @@ import { createMcpServer } from './server';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const hasToken = !!process.env.GITHUB_TOKEN?.trim();
+const hasToken = !!process.env.GITHUB_TOKEN?.trim() || !!process.env.OPENROUTER_API_KEY?.trim();
 
 describe('MCP server integration', () => {
   let client: Client;
@@ -57,6 +57,7 @@ describe('MCP server integration', () => {
       'accept_finding',
       'analyze',
       'fix',
+      'get_analysis_result',
       'health',
       'list_accepted_findings',
       'score',
@@ -100,9 +101,9 @@ describe('MCP server integration', () => {
   // engine (real GitHub Models / OpenRouter endpoint, not mocked).
 
   describe.skipIf(!hasToken).sequential('Non-LLM tools with live provider', () => {
-    it('listTools still returns all 7 tools with a live provider', async () => {
+    it('listTools still returns all 8 tools with a live provider', async () => {
       const { tools } = await client.listTools();
-      expect(tools.length).toBe(7);
+      expect(tools.length).toBe(8);
       const names = tools.map((t) => t.name).sort();
       expect(names).toContain('health');
       expect(names).toContain('analyze');
@@ -111,6 +112,7 @@ describe('MCP server integration', () => {
       expect(names).toContain('verify_fix');
       expect(names).toContain('accept_finding');
       expect(names).toContain('list_accepted_findings');
+      expect(names).toContain('get_analysis_result');
     });
 
     it('health reports a real provider name and config source', async () => {

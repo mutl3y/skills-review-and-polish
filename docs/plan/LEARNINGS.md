@@ -50,7 +50,7 @@ future prompt/analyzer work and the most common sources of regressions:
 - Scanning the SAME unchanged file 5× (gpt-4.1) gives penalties like 30/32/38/38/42. This is irreducible LLM variance even at temperature 0 / top_p 0.
 - **Consequence:** a single before/after scan cannot reliably detect a fix worth < ~12 points. Do **not** chase small score gains — that's chasing randomness.
 - Encoded as `PENALTY_NOISE_MARGIN = 6`. Keep/revert/converge only on changes beyond the margin.
-- **The durable fix is median-of-N at the SCORING layer** (`medianTotalPenalty`, `SCORE_SAMPLES` default 3), not changing the model or prompt. It's model/prompt-agnostic and doesn't suppress detection. Keep/revert MUST run `SCORE_SAMPLES >= 3` (N=1 is only for cheap bulk scans).
+- **The durable fix is median-of-N at the SCORING layer** (`medianTotalPenalty`, `SCORE_SAMPLES`), not changing the model or prompt. It's model/prompt-agnostic and doesn't suppress detection. Keep/revert SHOULD run `SCORE_SAMPLES >= 3` (N=1 is acceptable for cheap scans; default is 1 for efficiency, use 3+ for critical decisions). The deterministic retry/merge fix (v0.1.39) narrows the *observable range* of that variance to ±3 (10× probe: range 3 / 1 finding, 9 of 10 identical), but the per-sample ±6 floor still applies to each individual scan — median-of-N remains the durable fix, not the retry/merge path.
 
 ## Model choice: gpt-4.1 stays as the analyzer
 

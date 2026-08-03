@@ -30,7 +30,7 @@ describe('Engine', () => {
     expect(spy).toHaveBeenCalledWith(
       { text: 'Use this carefully.', filePath: '/tmp/test.md' },
       undefined,
-      ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+      ['contradictions', 'ambiguities'],
       expect.objectContaining({ filterFindings: true }),
     );
     expect(results).toHaveLength(1);

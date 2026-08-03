@@ -116,6 +116,7 @@ describe('MCP stdio transport', () => {
       'accept_finding',
       'analyze',
       'fix',
+      'get_analysis_result',
       'health',
       'list_accepted_findings',
       'score',

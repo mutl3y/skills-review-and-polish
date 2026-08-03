@@ -24,7 +24,7 @@ describe('readConfig', () => {
     expect(config.provider).toBe('vscode-lm');
     expect(config.include).toEqual(DEFAULT_INCLUDE);
     expect(config.exclude).toEqual(['**/node_modules/**']);
-    expect(config.analysisMode).toBe('multiWave');
+    expect(config.analysisMode).toBe('focused');
     expect(config.fixReferenceGrounding).toBe(true);
     expect(config.externalStructuredOutput).toBe('schema');
     expect(config.externalMaxResponseTokens).toBe(16_384);
