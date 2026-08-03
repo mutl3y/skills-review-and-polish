@@ -24,12 +24,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const { Engine } = await import('../out/core/index.js');
 const { OpenRouterProvider } = await import('../out/providers/externalProvider.js');
+const { BatchAwareOpenRouterProvider } = await import('../out/providers/batchAwareProvider.js');
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey) {
   console.error('OPENROUTER_API_KEY is not set');
   process.exit(1);
 }
+
+// When BATCH_API=1, the waves of each skill are submitted as a single
+// OpenRouter Batch API job (plan step 5) instead of sequential chat
+// completions. Falls back to single-request for non-batch-capable models.
+const USE_BATCH_API = process.env.BATCH_API === '1';
 
 const MODEL = 'qwen/qwen3-coder-30b-a3b-instruct';
 const SKILLS_ROOT = '/workspace/awesome-copilot-fork/skills';
@@ -45,7 +51,10 @@ const dataDir = path.join(__dirname, '..', '.github', 'experiments', 'documentat
 fs.mkdirSync(dataDir, { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 
-const provider = new OpenRouterProvider({ apiKey, model: MODEL });
+const baseProvider = new OpenRouterProvider({ apiKey, model: MODEL });
+const provider = USE_BATCH_API
+  ? new BatchAwareOpenRouterProvider({ provider: baseProvider, modelId: MODEL, flushSize: 6 })
+  : baseProvider;
 
 const summary = [];
 
@@ -65,6 +74,9 @@ for (const skillName of TARGETS) {
   const t0 = Date.now();
   try {
     const out = await engine.analyze({ text, filePath: skillPath });
+    if (USE_BATCH_API && provider instanceof BatchAwareOpenRouterProvider) {
+      await provider.flush();
+    }
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     const diags = Array.isArray(out) ? out : (out.diagnostics || []);
     const codeCounts = {};
