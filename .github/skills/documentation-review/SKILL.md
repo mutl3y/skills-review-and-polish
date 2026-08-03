@@ -56,7 +56,7 @@ A Factual Statement describing repository structure or relationships between rep
 
 ## D5 Ambiguous Statement
 
-A statement that permits more than one reasonable interpretation.
+A statement that permits more than one interpretation that a competent reader could plausibly hold given the surrounding context.
 
 ---
 
@@ -104,7 +104,7 @@ Precedence between Constraints (C1–C5) and Rule R1 is defined as follows:
 
 1. Constraints always apply. A Modification (D8) that violates any Constraint is forbidden.
 2. R1 is the decision procedure. R1 determines whether a Modification is required; the Constraints determine whether a proposed Modification is permitted.
-3. When R1 evaluates to TRUE, search for a permitted Modification (D8) that satisfies every Constraint. If at least one permitted Modification exists, apply the minimum one.
+3. When R1 evaluates to TRUE, search for a permitted Modification (D8) that satisfies every Constraint. If at least one permitted Modification exists, apply the Modification with the smallest scope of text changed.
 4. **Search-empty case:** If the search in step 3 finds no permitted Modification (every candidate would violate at least one Constraint), apply the formal fallback: leave the affected statement unchanged and report it as Unverifiable. Step 4 is reached ONLY when step 3's search space is empty — it is the formal completion of step 3, not a contradictory alternative.
 
 ---
@@ -153,13 +153,7 @@ Verification Decision (D7) evaluates to TRUE when one or more of the following c
 
 Verification Decision (D7) evaluates to FALSE otherwise.
 
-When Verification Decision (D7) evaluates to TRUE:
-
-- Apply a permitted Modification (D8) that satisfies Precedence (D9). If no permitted Modification exists (per D9.4, the vacuous-constraint case), leave the affected statement unchanged and report it as Unverifiable instead of producing a forbidden Modification.
-
-When Verification Decision (D7) evaluates to FALSE:
-
-- Leave the document unchanged.
+When Verification Decision (D7) evaluates to TRUE, apply a permitted Modification (D8) that satisfies Precedence (D9). When it evaluates to FALSE, leave the document unchanged. See D9 step 4 for the no-permitted-Modification fallback.
 
 ---
 
@@ -176,7 +170,7 @@ Identify every Factual Statement (D2).
 A Factual Statement (D2) is any contiguous span of text that satisfies ALL of the following:
 
 - It asserts something verifiable (a fact, a count, a command, a path, a behaviour, a structure, or a property of the repository).
-- It is not contained inside a code block (fenced or indented) UNLESS the code block is itself presented as a runnable example or build instruction that the user is expected to execute.
+- It is not contained inside a code block (fenced or indented) UNLESS the code block is a runnable example (introduced by text instructing the user to run it) or a build instruction (naming a build command the user is expected to execute).
 - It is not a procedural reference to a Definition in this document (e.g. "see D2", "per R1", "as defined in C4") — those are instructions, not facts.
 
 The following syntactic patterns are Factual Statements (D2):
@@ -215,6 +209,11 @@ Examples include:
 - Specification
 - Tutorial
 - API Documentation
+- CHANGELOG
+- CONTRIBUTING.md
+- LICENSE
+
+If the document type is not listed, classify by closest match and apply the most relevant Document-Specific Verification criteria, or report the type as unsupported.
 
 ---
 
@@ -242,6 +241,8 @@ If the document contains no Factual Statements (D2):
 
 Otherwise continue to Step 5.
 
+Note: Steps 7 (repository references) and 8 (terminology) are independent of Factual Statements and must still be executed even when Step 4 exits early.
+
 ---
 
 ## Step 5
@@ -262,6 +263,10 @@ Classify every Factual Statement (D2) as one of:
 ## Step 6
 
 Verify every Factual Statement (D2) using Repository Evidence (D1).
+
+If no repository evidence is accessible (private repo, missing access, empty repo), report all statements as Unverifiable with the reason "Repository evidence unavailable" and halt modifications.
+
+If repository evidence sources contradict each other, report the conflict as an Unverified Statement and cite both conflicting sources with their evidence types.
 
 ---
 
@@ -297,13 +302,7 @@ Verify every numeric statement using Repository Evidence (D1).
 
 ## Step 10
 
-Evaluate R1.
-
-If Verification Decision (D7) evaluates to TRUE:
-
-Apply a permitted Modification (D8) to the statements that satisfy R1, observing Precedence (D9).
-
-Otherwise leave the document unchanged.
+Evaluate R1 and apply the result. See R1 for the decision procedure and D9 step 4 for the no-permitted-Modification fallback.
 
 ---
 
@@ -406,7 +405,7 @@ For every unverified statement report:
 
 ## Verified Claims
 
-List significant Behavioural Claims (D3) and Architectural Claims (D4) that were verified.
+List all Behavioural Claims (D3) and Architectural Claims (D4) that were verified and have Repository Evidence confidence of High or Medium.
 
 ---
 
@@ -463,6 +462,8 @@ Verification is complete after every Applicable Criterion (D6) has been evaluate
 ---
 
 ## Completion
+
+After all Applicable Criteria (D6) have been evaluated, state whether all applicable criteria passed, list which criteria failed, and specify whether the document requires modifications before it can be considered verified.
 
 ---
 

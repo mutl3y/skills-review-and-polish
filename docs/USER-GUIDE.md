@@ -94,6 +94,37 @@ See [E2E tuning note](docs/plan/archive/releases/20260716-release-readiness-reme
 
 > **Methodology:** Historical model experiments used labeled fixtures, clean fixtures, and production-skill corpus scans. The current formal release baseline should use clean fixtures as the primary recall benchmark and a manual production sample for precision; total finding count alone is not an accuracy metric.
 
+## Batch Mode (Experimental — Off by Default)
+
+The extension can submit folder scans as OpenRouter Batch API jobs instead of
+sequential requests. This is cheaper for bulk work but has two current
+limitations:
+
+- The OpenRouter Batch API submission endpoint (`POST /api/beta/batches`) is
+  currently unreliable (returns an HTML 404 page as of 2026-07-30), so batch
+  jobs fail.
+- The Batch API uses a **24-hour completion window**, which is unsuitable for
+  interactive analysis.
+
+Because of this, batch mode is **disabled by default** and the Batch-API-only
+models (those with a `:batch` suffix, e.g. `google/gemini-3.5-flash-lite:batch`)
+are **hidden from the model picker** — they cannot run on the standard chat
+endpoint, so selecting them would just fail.
+
+If you want to experiment later (once the endpoint is healthy), enable it:
+
+```json
+{
+  "skillsReviewAndPolish.batchEnabled": true
+}
+```
+
+When enabled, folder scans against a batch-capable OpenRouter model submit as a
+single deferred batch job and populate results asynchronously (~minutes to
+hours later). Leave it `false` for normal use. See
+[ARCHITECTURE.md → Batch API Transport](docs/ARCHITECTURE.md#batch-api-transport-openrouter)
+for the internal flow.
+
 ## How to Analyze a File
 
 ### Step 1: Open a File

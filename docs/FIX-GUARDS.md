@@ -61,13 +61,15 @@ These are **closed grammatical classes** that must be preserved:
 
 ### Potential Settings
 
+The first three settings below are implemented in the repository. The last two are proposed future settings and are not currently available in code.
+
 | Setting | Current Value | Rationale for Exposure |
 | ------- | ------------- | -------------------- |
 | `fix.guard.upperBoundMultiplier` | 1.5 (1.1 for ambiguity) | Some users may want looser bounds for verbose fixes |
 | `fix.guard.lowerBoundMultiplier` | 0.5 | Rarely needs changing, but could be useful for very short fragments |
 | `fix.guard.maxAnchorChars` | 350 | Users with long paragraphs might want higher limits |
-| `fix.guard.preserveObligationWords` | true | Advanced users might want to disable for specific workflows |
-| `fix.guard.preserveScopeWords` | true | Same as above |
+| `fix.guard.preserveObligationWords` | (not implemented) | Advanced users might want to disable obligation-token preservation |
+| `fix.guard.preserveScopeWords` | (not implemented) | Advanced users might want to disable scope-word preservation |
 
 ### Why They Are Currently Hardcoded
 
