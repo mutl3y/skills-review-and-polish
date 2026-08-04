@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **GitHub Copilot API provider (`copilot`).** The MCP server can now use the
+  Copilot API (`api.githubcopilot.com`) with a `GITHUB_TOKEN` — no separate API
+  key, draws on your Copilot subscription. Model IDs are Copilot IDs (e.g.
+  `gpt-5-mini`, `gpt-4.1`, `claude-sonnet-4.5`). Configure via
+  `"provider": "copilot"` in `.skills-review.json` or `GITHUB_TOKEN` env.
+- **Live Copilot context-length resolution.** The Copilot provider resolves
+  `max_context_window_tokens` from `api.githubcopilot.com/models` (1h in-memory
+  + 15min disk cache) so new models are picked up automatically — no static
+  table. Large production skills (e.g. 292KB) now analyze correctly.
+- **Dynamic MCP text-length limit.** The MCP `analyze`/`score`/`fix`/
+  `verify_fix` text guard is now derived from the provider's context length
+  (mirroring the analyzer's budget math), so large-context models accept larger
+  documents. Fixed fallback raised from 100K to 200K chars.
+- **Progress notifications during long analysis.** The MCP server emits
+  `notifications/progress` every ~15s while a synchronous `analyze` runs, so
+  clients that set `resetTimeoutOnProgress` keep the request alive past the
+  default 60s timeout.
+
+### Fixed
+
+- **Copilot output truncation on large documents.** `resolveMaxTokens` is now a
+  shared helper used by both OpenRouter and Copilot providers — the Copilot
+  copy was missing the `Math.max(desired, scaledCap)` fix that prevents
+  mid-JSON truncation.
+- **Copilot context cache keyed by token** (no cross-token reuse) and **disk
+  cache** for offline resilience.
+- **Copilot config no longer depends on OpenRouter** — it resolves its own
+  context first and only falls back to the OpenRouter catalog if the Copilot
+  fetch fails.
+- **Copilot rejects batch mode loudly** instead of silently ignoring it.
+- **Budget guard off-by-one** — a charge landing exactly on the cap is now
+  accepted consistently.
+
 ## [0.1.50] — 2026-07-19 (marketplace publish)
 
 ### Fixed
