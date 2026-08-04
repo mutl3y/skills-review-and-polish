@@ -670,6 +670,13 @@ export interface SurgicalFixOptions {
   guardUpperBoundMultiplier?: number;
   guardLowerBoundMultiplier?: number;
   guardMaxAnchorChars?: number;
+  /**
+   * Optional 0-based line to disambiguate which occurrence of a duplicated
+   * anchor to fix. When provided, the anchor is resolved to the paragraph at
+   * that line (via extractParagraphAtLine) so the fix targets the correct
+   * occurrence instead of the first match.
+   */
+  line?: number;
 }
 
 // --------------------------------------------------------------------------
@@ -705,7 +712,7 @@ export class SurgicalFixer {
       };
     }
 
-    const resolved = this.resolveAnchorText(text, diagnostic, code, options.guardMaxAnchorChars);
+    const resolved = this.resolveAnchorText(text, diagnostic, code, options.guardMaxAnchorChars, options.line);
     if (resolved.rejectReason) {
       return { accepted: false, fixed: '', risks: [], rejectReason: resolved.rejectReason };
     }
@@ -792,14 +799,24 @@ export class SurgicalFixer {
     diagnostic: AnalysisResult,
     code: string,
     guardMaxAnchorChars?: number,
+    line?: number,
   ): { targetText: string | null; rejectReason: string | null } {
     const rawAnchor = diagnostic.relevantText ?? this.extractAnchorFromMessage(diagnostic.message, code);
     if (!rawAnchor || !rawAnchor.trim()) return { targetText: null, rejectReason: 'empty or whitespace-only anchor' };
 
-    let targetText = text.includes(rawAnchor) ? rawAnchor : expandToParagraph(text, rawAnchor);
+    // When a line is provided, resolve the anchor to the paragraph at that
+    // line FIRST — this disambiguates which occurrence of a duplicated anchor
+    // to fix, instead of always taking the first match.
+    let targetText: string | null = null;
+    if (line !== undefined && line >= 0) {
+      targetText = extractParagraphAtLine(text, line);
+    }
     if (!targetText) {
-      const line = diagnostic.range?.start?.line ?? -1;
-      if (line >= 0) targetText = extractParagraphAtLine(text, line);
+      targetText = text.includes(rawAnchor) ? rawAnchor : expandToParagraph(text, rawAnchor);
+    }
+    if (!targetText) {
+      const diagLine = diagnostic.range?.start?.line ?? -1;
+      if (diagLine >= 0) targetText = extractParagraphAtLine(text, diagLine);
     }
 
     if (!targetText) return { targetText: null, rejectReason: 'anchor not found' };

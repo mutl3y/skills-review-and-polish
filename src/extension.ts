@@ -828,6 +828,10 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `Skills Review: Analyzing ${files.length} file(s)…`, cancellable: true },
     async (progress, token) => {
+      // Build the engine ONCE (not per file) — buildEngine can do expensive
+      // provider/model/catalog setup, and doing it per file would defeat the
+      // concurrency limit with unbounded setup work.
+      const engine = await buildEngine(state?.extensionContext);
       let processed = 0;
       for (let i = 0; i < files.length; i += CONCURRENCY) {
         if (token.isCancellationRequested) break;
@@ -837,7 +841,6 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
             const doc = await vscode.workspace.openTextDocument(file);
             processed++;
             progress.report({ message: `${processed}/${files.length}: ${doc.fileName}`, increment: 100 / files.length });
-            const engine = await buildEngine(state?.extensionContext);
             const job = engine.analyze(
               { text: doc.getText(), filePath: doc.uri.fsPath, acceptedFindingsPath: getAcceptedFindingsPath(), token },
             );
@@ -1252,10 +1255,14 @@ async function runAcceptFinding(
   }
   // Validate the text pattern like the MCP path does: a too-long or empty
   // pattern would over-suppress unrelated findings via substring containment.
-  const rawPattern = (result.relevantText ?? result.message ?? '').trim();
-  const textPattern = rawPattern.length > 200 ? rawPattern.slice(0, 200) : rawPattern;
-  if (textPattern.length < 3) {
+  // Reject (not truncate) so the accept store isn't silently corrupted.
+  const textPattern = (result.relevantText ?? result.message ?? '').trim();
+  if (textPattern.length < 5) {
     vscode.window.showWarningMessage('Skills Review: Cannot accept this finding — its text is too short to match safely.');
+    return;
+  }
+  if (textPattern.length > 200) {
+    vscode.window.showWarningMessage('Skills Review: Cannot accept this finding — its text is too long to match safely. Use a shorter, more specific fragment.');
     return;
   }
   acceptFinding(acceptedFindingsPath, fileName, {

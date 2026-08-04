@@ -6,7 +6,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
-import { SurgicalFixer, expandToParagraph, extractParagraphAtLine } from '../core/fixer';
+import { SurgicalFixer, expandToParagraph } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { redactSecrets } from '../core/redact';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
@@ -134,12 +134,12 @@ function estimateWaveCount(
   engineConfig: EngineConfig | undefined,
   analysisWaves: string[] | undefined,
 ): number {
-  // The engine checks engineConfig.analysisWaves before analysisMode, so we
-  // must too — otherwise a config with analysisWaves:['hygiene'] + multiWave
-  // would be overcharged as 6 waves.
+  // The engine's precedence is: configOverride (the analysisWaves argument
+  // here) > engineConfig.analysisWaves > analysisMode. So check the argument
+  // FIRST — it represents the per-call override that wins in the engine.
+  if (analysisWaves && analysisWaves.length > 0) return analysisWaves.length;
   const configWaves = engineConfig?.analysisWaves;
   if (configWaves && configWaves.length > 0) return configWaves.length;
-  if (analysisWaves && analysisWaves.length > 0) return analysisWaves.length;
   const mode = engineConfig?.analysisMode ?? DEFAULT_ENGINE_CONFIG.analysisMode;
   if (mode === 'single') return 1;
   if (mode === 'focused') return 2;
@@ -163,8 +163,8 @@ function budgetExhaustedError(): Error {
 /** Maximum length for relevantText in accept_finding. */
 const MAX_RELEVANT_TEXT_LENGTH = 200;
 
-/** Minimum meaningful length for relevantText in accept_finding. */
-const MIN_RELEVANT_TEXT_LENGTH = 3;
+/** Minimum meaningful length for relevantText in accept_finding. Must match isFindingAccepted's 5-char floor. */
+const MIN_RELEVANT_TEXT_LENGTH = 5;
 
 /** Overly generic single-word patterns that should not be used as acceptance anchors. */
 const GENERIC_PATTERNS = new Set([
@@ -529,31 +529,27 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   }
 
   const resolvedLine = validLine ?? 0;
-  // When a line is provided, resolve the anchor to the paragraph at that line
-  // so the fix targets the CORRECT occurrence of a duplicated relevantText —
-  // otherwise the fixer would silently fix the first occurrence.
-  const anchorText = validLine !== undefined
-    ? (extractParagraphAtLine(text, validLine) ?? relevantText)
-    : relevantText;
   const syntheticDiag: AnalysisResult = {
     code: diagnosticCode,
-    message: anchorText,
+    message: relevantText,
     severity: 'warning',
     range: { start: { line: resolvedLine, character: 0 }, end: { line: resolvedLine, character: 0 } },
     analyzer: 'mcp',
-    relevantText: anchorText,
+    relevantText,
   };
 
   const fixer = new SurgicalFixer(engine.provider as LlmProvider);
   // Respect the configured safety gates (semantic check + self-critique) so
   // the MCP path gets the same protection as the interactive path — not
-  // weaker. additive is the safe default for ambiguity fixes.
+  // weaker. additive is the safe default for ambiguity fixes. Pass the line
+  // so the fixer resolves the anchor at that line (disambiguating duplicates).
   const fixCfg = ctx.resolvedConfig?.engineConfig ?? DEFAULT_ENGINE_CONFIG;
   const result = await fixer.fixIssue(text, requireSafeFilePath(args) ?? '', syntheticDiag, {
     additive: true,
     semanticCheck: fixCfg.fixSemanticCheck,
     selfCritique: fixCfg.fixSelfCritique,
     referenceGrounding: fixCfg.fixReferenceGrounding,
+    line: validLine,
   });
 
   const body = JSON.stringify(result, null, 2);

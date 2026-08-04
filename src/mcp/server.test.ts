@@ -53,6 +53,8 @@ describe('accept_finding input validation', () => {
       buildEngine: vi.fn(async () => ({ analyze: vi.fn(), provider: {} })) as any,
     });
 
+    // Generic single words are all < 5 chars, so they're rejected by the
+    // minimum-length guard (which also prevents over-suppression).
     const result = await registry.callTool('accept_finding', {
       filePath: '/test/file.md',
       diagnosticCode: 'ambiguity-llm',
@@ -61,7 +63,7 @@ describe('accept_finding input validation', () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(parsed.status).toBe('error');
-    expect(parsed.error).toContain('generic');
+    expect(parsed.error).toContain('too short');
   });
 
   it('rejects relevantText exceeding max length (200 chars)', async () => {

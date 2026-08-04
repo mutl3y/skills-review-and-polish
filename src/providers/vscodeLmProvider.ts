@@ -465,7 +465,7 @@ export class VsCodeLmProvider implements LlmProvider {
     this.log.debug('testSimplePrompt: starting', { modelId: model.id, vendor: model.vendor });
 
     const cts = new vscode.CancellationTokenSource();
-    const timeout = setTimeout(() => cts.cancel(), 30_000);
+    const timeout = setTimeout(() => cts.cancel(), REQUEST_TIMEOUT_MS);
     
     try {
       const response = await model.sendRequest(
