@@ -361,7 +361,7 @@ export class VsCodeLmProvider implements LlmProvider {
           const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
           try {
             await sleep(STREAM_RETRY_BACKOFF_MS * attempt);
-            const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: 16384 } }, retryCts.token);
+            const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } }, retryCts.token);
             if (!retryResponse.text) {
               return { text: lastStreamed.text, error: lastStreamed.error };
             }
@@ -416,7 +416,7 @@ export class VsCodeLmProvider implements LlmProvider {
         try {
           const retryResponse = await freshModel.sendRequest(
             messages,
-            { modelOptions: { max_tokens: 16384 } },
+            { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } },
             retryCts.token,
           );
           if (!retryResponse.text) {

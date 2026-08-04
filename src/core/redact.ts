@@ -28,9 +28,10 @@ export function redactSecrets(text: string): string {
   out = out.replace(/\b[0-9a-f]{32,}\b/gi, '[REDACTED]');
   // Strip OpenRouter API keys (sk-or-v1-...) even when unlabeled
   out = out.replace(/sk-or-v1-[A-Za-z0-9\-_]+/gi, '[REDACTED]');
-  // Strip generic OpenAI-style keys (sk-...) even when unlabeled
-  out = out.replace(/\bsk-[A-Za-z0-9\-_]{16,}\b/gi, '[REDACTED]');
-  // Strip JWT-shaped tokens (base64url segments separated by dots)
-  out = out.replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gi, '[REDACTED]');
+  // Strip generic OpenAI-style keys (sk-...) even when unlabeled (short keys too)
+  out = out.replace(/\bsk-[A-Za-z0-9\-_]{8,}\b/gi, '[REDACTED]');
+  // Strip JWT-shaped tokens (base64url segments separated by dots) — header
+  // may not start with eyJ, so match any 3-segment dotted base64url token.
+  out = out.replace(/\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gi, '[REDACTED]');
   return out;
 }

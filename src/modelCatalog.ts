@@ -33,6 +33,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createHash } from 'crypto';
 
 const OPENROUTER_CACHE_TTL_MS = 60 * 60 * 1000;   // 1 hour — matches pricing
 const OPENROUTER_DISK_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -49,11 +50,8 @@ const COPILOT_DISK_CACHE_TTL_MS = 15 * 60 * 1000;
 
 /** Copilot disk cache file, keyed by a token hash so different tokens don't share a cache. */
 function copilotCacheFile(apiKey: string): string {
-  let h = 0;
-  for (let i = 0; i < apiKey.length; i++) {
-    h = ((h << 5) - h + apiKey.charCodeAt(i)) | 0;
-  }
-  return path.join(os.tmpdir(), `skills-review-and-polish-copilot-context-cache-${(h >>> 0).toString(36)}.json`);
+  const digest = createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
+  return path.join(os.tmpdir(), `skills-review-and-polish-copilot-context-cache-${digest}.json`);
 }
 
 interface CatalogCache {

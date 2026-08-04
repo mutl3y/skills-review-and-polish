@@ -828,13 +828,15 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `Skills Review: Analyzing ${files.length} file(s)…`, cancellable: true },
     async (progress, token) => {
+      let processed = 0;
       for (let i = 0; i < files.length; i += CONCURRENCY) {
         if (token.isCancellationRequested) break;
         const batch = files.slice(i, i + CONCURRENCY);
         const batchJobs = await Promise.all(
           batch.map(async (file) => {
             const doc = await vscode.workspace.openTextDocument(file);
-            progress.report({ message: `${i + 1}/${files.length}: ${doc.fileName}`, increment: 100 / files.length });
+            processed++;
+            progress.report({ message: `${processed}/${files.length}: ${doc.fileName}`, increment: 100 / files.length });
             const engine = await buildEngine(state?.extensionContext);
             const job = engine.analyze(
               { text: doc.getText(), filePath: doc.uri.fsPath, acceptedFindingsPath: getAcceptedFindingsPath(), token },

@@ -127,12 +127,17 @@ function chargeTokens(inputChars: number, outputText: string, inputWaves = 1): b
  * Estimate how many LLM waves an analysis will run, so the cost budget
  * charges the input per wave (not a flat 6). Mirrors the engine's mode logic:
  * single=1, focused=2, multiWave=enabledWaves.length (default 6). A direct
- * `analysisWaves` list overrides the mode.
+ * `analysisWaves` list (argument or engine config) overrides the mode.
  */
 function estimateWaveCount(
   engineConfig: EngineConfig | undefined,
   analysisWaves: string[] | undefined,
 ): number {
+  // The engine checks engineConfig.analysisWaves before analysisMode, so we
+  // must too — otherwise a config with analysisWaves:['hygiene'] + multiWave
+  // would be overcharged as 6 waves.
+  const configWaves = engineConfig?.analysisWaves;
+  if (configWaves && configWaves.length > 0) return configWaves.length;
   if (analysisWaves && analysisWaves.length > 0) return analysisWaves.length;
   const mode = engineConfig?.analysisMode ?? DEFAULT_ENGINE_CONFIG.analysisMode;
   if (mode === 'single') return 1;
@@ -505,12 +510,17 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
       ? Number(rawLine)
       : undefined;
 
+  // Bounds-check the line against the document's actual line count so an
+  // out-of-range line can't anchor the fix to the wrong location.
+  const lineCount = text.split('\n').length;
+  const validLine = line !== undefined && line >= 0 && line < lineCount ? line : undefined;
+
   // Duplicate-anchor guard: the fixer may expand a short relevantText to its
   // surrounding paragraph (expandToParagraph), so count occurrences of the
   // RESOLVED anchor — not the raw fragment — to avoid replacing the wrong
   // instance. If no explicit line was provided and the anchor is ambiguous,
   // refuse to fix.
-  if (line === undefined) {
+  if (validLine === undefined) {
     const anchor = text.includes(relevantText) ? relevantText : expandToParagraph(text, relevantText);
     const occurrences = anchor ? text.split(anchor).length - 1 : 0;
     if (occurrences > 1) {
@@ -526,7 +536,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
     }
   }
 
-  const resolvedLine = line ?? 0;
+  const resolvedLine = validLine ?? 0;
   const syntheticDiag: AnalysisResult = {
     code: diagnosticCode,
     message: relevantText,
@@ -549,7 +559,11 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   });
 
   const body = JSON.stringify(result, null, 2);
-  chargeTokens(text.length, body);
+  // The fixer makes up to 3 LLM calls: the fix itself, plus the semantic
+  // check and self-critique gates when enabled. Charge the input per call so
+  // the budget reflects actual spend.
+  const fixWaves = 1 + (fixCfg.fixSemanticCheck ? 1 : 0) + (fixCfg.fixSelfCritique ? 1 : 0);
+  chargeTokens(text.length, body, fixWaves);
   return { content: [{ type: 'text', text: body }] };
 }
 
