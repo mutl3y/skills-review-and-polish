@@ -39,6 +39,32 @@ The headless MCP seam uses OpenRouter via `OPENROUTER_API_KEY`, or the GitHub
 Copilot API via `GITHUB_TOKEN` (uses your Copilot subscription — no separate
 API key).
 
+## Long-running analysis & timeouts
+
+Good analysis can take time — a full multi-wave scan of a large skill can run
+for minutes, which can exceed an MCP client's default request timeout (the SDK
+default is 60s). Two mechanisms address this:
+
+1. **Progress notifications (recommended).** The server emits
+   `notifications/progress` every ~15s while a synchronous `analyze` runs. If
+   your client sets `resetTimeoutOnProgress` on the request (and passes a
+   `_meta.progressToken`), the request stays alive as long as progress keeps
+   flowing — so long analyses complete instead of being aborted at 60s.
+
+   ```ts
+   // Client (SDK) example — keep the request alive during long analysis
+   const result = await client.callTool(
+     { name: 'analyze', arguments: { text } },
+     undefined,
+     { timeout: 300_000, resetTimeoutOnProgress: true }, // 5 min cap, reset on progress
+   );
+   ```
+
+2. **Raise the client timeout.** Set a generous `timeout` on the request (e.g.
+   300s) so the client waits for the full analysis. The server's own HTTP
+   request timeout to the LLM provider is configurable via `REQUEST_TIMEOUT_MS`
+   env or `requestTimeoutMs` in `.skills-review.json` (default 120s).
+
 ## Setup and runtime requirements
 
 1. Install dependencies in the repo root:

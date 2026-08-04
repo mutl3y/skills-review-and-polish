@@ -182,6 +182,32 @@ describe('createMcpToolRegistry', () => {
     });
   });
 
+  it('emits progress notifications during a long analyze when a progress token is provided', async () => {
+    // A slow analyze that stays pending until we advance fake timers, so the
+    // 15s progress interval fires before the analyze resolves.
+    vi.useFakeTimers();
+    let resolveAnalyze: (v: unknown) => void;
+    const analyze = vi.fn(() => new Promise((resolve) => { resolveAnalyze = resolve; }));
+    const engine = { analyze, provider: {} };
+    const registry = createMcpToolRegistry({
+      buildEngine: vi.fn(async () => engine) as any,
+    });
+
+    const sendProgress = vi.fn(async (_p: number, _t?: number, _m?: string) => {});
+    _resetAnalyzeCooldown();
+    const promise = registry.callTool('analyze', { text: 'doc' }, { sendProgress });
+
+    // Advance past the 15s progress interval to trigger a progress tick.
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(sendProgress).toHaveBeenCalled();
+    expect(sendProgress.mock.calls[0][2]).toBe('analyzing…');
+
+    // Resolve the analyze and let the handler finish.
+    resolveAnalyze!([{ code: 'ambiguity-llm' }]);
+    await promise;
+    vi.useRealTimers();
+  });
+
   it('calls the health tool and returns ok status', async () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ analyze: vi.fn(), provider: {} })) as any,

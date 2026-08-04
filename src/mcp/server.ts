@@ -292,6 +292,15 @@ function buildEngineConfig(raw: Record<string, unknown> = {}): EngineConfig {
 interface ToolHandlerContext {
   getEngine: () => Promise<Engine>;
   resolvedConfig: McpEngineConfig | undefined;
+  /**
+   * Optional callback to send an MCP `notifications/progress` notification.
+   * Clients that set `resetTimeoutOnProgress` on their request will keep the
+   * request alive as long as the server keeps sending progress — this lets
+   * long analyses (which can exceed the client's default 60s timeout) complete
+   * without the client aborting. No-op when the client did not request a
+   * progress token.
+   */
+  sendProgress?: (progress: number, total?: number, message?: string) => Promise<void>;
 }
 
 type ToolHandler = (args: Record<string, unknown>, ctx: ToolHandlerContext) => Promise<McpToolCallResult>;
@@ -342,17 +351,33 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
 
   if (!batch) {
     // Synchronous single-request path — instant, blocks only on normal latency.
-    const results = await engine.analyze({
-      text,
-      filePath: optionalString(args, 'filePath'),
-      acceptedFindingsPath: resolveAcceptedFindingsPath(),
-    }, undefined, undefined, configOverride);
-    const body = JSON.stringify(results, null, 2);
-    // Charge the budget. If this call pushes us over the cap, we still return
-    // its result (the work is done) but mark the budget exhausted so the next
-    // analysis request is refused.
-    chargeOutputTokens(body);
-    return { content: [{ type: 'text', text: body }] };
+    // If the client requested a progress token, emit periodic progress so the
+    // request stays alive past the client's default timeout (long analyses can
+    // take minutes). The progress interval is a heartbeat, not a real % — the
+    // analyzer doesn't expose per-wave progress, so we send a monotonic tick.
+    let progressTimer: ReturnType<typeof setInterval> | undefined;
+    if (ctx.sendProgress) {
+      let tick = 0;
+      progressTimer = setInterval(() => {
+        tick += 1;
+        void ctx.sendProgress?.(tick, undefined, 'analyzing…').catch(() => { /* client may have gone away */ });
+      }, 15_000);
+    }
+    try {
+      const results = await engine.analyze({
+        text,
+        filePath: optionalString(args, 'filePath'),
+        acceptedFindingsPath: resolveAcceptedFindingsPath(),
+      }, undefined, undefined, configOverride);
+      const body = JSON.stringify(results, null, 2);
+      // Charge the budget. If this call pushes us over the cap, we still return
+      // its result (the work is done) but mark the budget exhausted so the next
+      // analysis request is refused.
+      chargeOutputTokens(body);
+      return { content: [{ type: 'text', text: body }] };
+    } finally {
+      if (progressTimer) clearInterval(progressTimer);
+    }
   }
 
   // Batch (slow) mode: submit as a deferred job and return a handle immediately.
@@ -813,7 +838,7 @@ export function createMcpToolRegistry({
   buildEngine = createDefaultEngine,
 }: McpToolRegistryOptions = {}): {
   listTools(): Array<{ name: string; description: string; inputSchema: unknown }>;
-  callTool(name: string, args: Record<string, unknown>): Promise<McpToolCallResult>;
+  callTool(name: string, args: Record<string, unknown>, ctx?: Partial<ToolHandlerContext>): Promise<McpToolCallResult>;
 } {
   // Resolve engine + config once; handlers use the stored values.
   let resolvedEngine: Engine | undefined;
@@ -980,11 +1005,15 @@ export function createMcpToolRegistry({
       ];
     },
 
-    async callTool(name, args) {
+    async callTool(name, args, ctx) {
       try {
         const handler = TOOL_HANDLERS[name];
         if (!handler) throw new Error(`Unknown tool: ${name}`);
-        return await handler(args, { getEngine, get resolvedConfig() { return resolvedConfig; } });
+        return await handler(args, {
+          getEngine,
+          get resolvedConfig() { return resolvedConfig; },
+          sendProgress: ctx?.sendProgress,
+        });
       } catch (error) {
         // Catch ALL errors (validation, unknown tools, LLM failures, I/O)
         // and return a structured error instead of crashing the MCP server.
@@ -1017,7 +1046,27 @@ export function createMcpServer(options: McpServerOptions = {}) {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: registry.listTools() }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const result = await registry.callTool(String(request.params.name), (request.params.arguments ?? {}) as Record<string, unknown>);
+    // If the client requested a progress token (via `_meta.progressToken`),
+    // build a `sendProgress` callback so long-running tools (e.g. analyze)
+    // can emit `notifications/progress`. Clients that set
+    // `resetTimeoutOnProgress` keep the request alive as long as progress
+    // keeps flowing — this lets analyses that exceed the client's default
+    // 60s timeout complete without being aborted.
+    const progressToken = (request.params as { _meta?: { progressToken?: string | number } })._meta?.progressToken;
+    const sendProgress = progressToken !== undefined
+      ? async (progress: number, total?: number, message?: string) => {
+          await server.notification({
+            method: 'notifications/progress',
+            params: { progressToken, progress, total, message },
+          });
+        }
+      : undefined;
+
+    const result = await registry.callTool(
+      String(request.params.name),
+      (request.params.arguments ?? {}) as Record<string, unknown>,
+      { sendProgress },
+    );
     return result as CallToolResult;
   });
 
