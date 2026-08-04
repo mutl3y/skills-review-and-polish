@@ -383,27 +383,15 @@ export class OpenRouterProvider implements LlmProvider {
   }
 
   private resolveMaxTokens(prompt: string, multiplier = 1): number {
-    const scaledCap = Math.round(this.adaptiveMaxTokensCap * multiplier);
-    if (!this.adaptiveMaxTokens) return Math.round(this.maxTokens * multiplier);
-    // Output budget must reach the model's real generation cap for large
-    // documents. Deriving `desired` purely from input length under-sizes the
-    // budget: a 293K-char skill yields only ~73K output tokens, but models
-    // like deepseek-v4-flash can emit up to 384K output tokens. So we take
-    // the max of (input-derived estimate, the model's adaptive cap) — the
-    // model stops early when the document is small, but large documents get
-    // the full generation budget instead of being silently truncated.
-    const desired = Math.max(
-      Math.ceil(prompt.length / this.adaptiveCharsPerToken) * multiplier,
-      scaledCap,
-    );
-    // Scale the floor by the multiplier too, otherwise the fixed
-    // minAdaptiveTokens floor (16384) overrides the per-wave multiplier for
-    // small-prompt waves and silently caps output at 16K tokens (the
-    // ambiguities/contradiction waves then truncate at ~17K regardless of
-    // model). See plan item 4 follow-up / e61 deep-model investigation.
-    const floor = Math.min(this.minAdaptiveTokens * multiplier, scaledCap);
-    const cap = Math.max(this.maxTokens * multiplier, scaledCap);
-    return clamp(desired, floor, cap);
+    return resolveMaxTokens({
+      prompt,
+      multiplier,
+      adaptiveMaxTokens: this.adaptiveMaxTokens,
+      adaptiveMaxTokensCap: this.adaptiveMaxTokensCap,
+      adaptiveCharsPerToken: this.adaptiveCharsPerToken,
+      minAdaptiveTokens: this.minAdaptiveTokens,
+      maxTokens: this.maxTokens,
+    });
   }
 }
 
@@ -477,7 +465,10 @@ export class CopilotProvider implements LlmProvider {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
         'Copilot-Integration-Id': 'vscode-chat',
-        'Editor-Version': 'vscode/1.90.0',
+        // The Copilot API feature-gates on the editor version. Default to a
+        // current version; override via COPILOT_EDITOR_VERSION if the API
+        // starts rejecting it.
+        'Editor-Version': process.env.COPILOT_EDITOR_VERSION ?? 'vscode/1.90.0',
       },
       this.maxRetries,
       this.requestTimeoutMs,
@@ -501,12 +492,15 @@ export class CopilotProvider implements LlmProvider {
   }
 
   private resolveMaxTokens(prompt: string, multiplier = 1): number {
-    const scaledCap = Math.round(this.adaptiveMaxTokensCap * multiplier);
-    if (!this.adaptiveMaxTokens) return Math.round(this.maxTokens * multiplier);
-    const desired = Math.ceil(prompt.length / this.adaptiveCharsPerToken) * multiplier;
-    const floor = Math.min(this.minAdaptiveTokens * multiplier, scaledCap);
-    const cap = Math.max(this.maxTokens * multiplier, scaledCap);
-    return clamp(desired, floor, cap);
+    return resolveMaxTokens({
+      prompt,
+      multiplier,
+      adaptiveMaxTokens: this.adaptiveMaxTokens,
+      adaptiveMaxTokensCap: this.adaptiveMaxTokensCap,
+      adaptiveCharsPerToken: this.adaptiveCharsPerToken,
+      minAdaptiveTokens: this.minAdaptiveTokens,
+      maxTokens: this.maxTokens,
+    });
   }
 }
 
@@ -514,6 +508,51 @@ function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
   if (value > max) return max;
   return value;
+}
+
+/**
+ * Shared output-token budget math for external providers (OpenRouter and
+ * Copilot). Single source of truth so the two providers can't drift.
+ *
+ * When adaptive max-tokens is OFF, returns the fixed `maxTokens` cap (scaled
+ * by the per-wave multiplier).
+ *
+ * When adaptive is ON, the output budget must reach the model's real
+ * generation cap for large documents. Deriving `desired` purely from input
+ * length under-sizes the budget: a 293K-char skill yields only ~73K output
+ * tokens, but models like deepseek-v4-flash can emit up to 384K output
+ * tokens. So we take the max of (input-derived estimate, the model's adaptive
+ * cap) — the model stops early when the document is small, but large
+ * documents get the full generation budget instead of being silently
+ * truncated.
+ *
+ * The floor is scaled by the multiplier too, otherwise the fixed
+ * minAdaptiveTokens floor (16384) overrides the per-wave multiplier for
+ * small-prompt waves and silently caps output at 16K tokens (the
+ * ambiguities/contradiction waves then truncate at ~17K regardless of
+ * model). See plan item 4 follow-up / e61 deep-model investigation.
+ */
+function resolveMaxTokens(
+  opts: {
+    prompt: string;
+    multiplier: number;
+    adaptiveMaxTokens: boolean;
+    adaptiveMaxTokensCap: number;
+    adaptiveCharsPerToken: number;
+    minAdaptiveTokens: number;
+    maxTokens: number;
+  },
+): number {
+  const { prompt, multiplier, adaptiveMaxTokens, adaptiveMaxTokensCap, adaptiveCharsPerToken, minAdaptiveTokens, maxTokens } = opts;
+  const scaledCap = Math.round(adaptiveMaxTokensCap * multiplier);
+  if (!adaptiveMaxTokens) return Math.round(maxTokens * multiplier);
+  const desired = Math.max(
+    Math.ceil(prompt.length / adaptiveCharsPerToken) * multiplier,
+    scaledCap,
+  );
+  const floor = Math.min(minAdaptiveTokens * multiplier, scaledCap);
+  const cap = Math.max(maxTokens * multiplier, scaledCap);
+  return clamp(desired, floor, cap);
 }
 
 /**

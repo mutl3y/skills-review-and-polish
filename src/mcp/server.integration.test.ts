@@ -57,7 +57,7 @@ describe('MCP server integration', () => {
 
   // ── Non-LLM tools: always run (provider not needed) ──────────────────
 
-  it('listTools returns all 7 tools', async () => {
+  it('listTools returns all 8 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([

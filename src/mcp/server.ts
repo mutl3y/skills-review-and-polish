@@ -51,6 +51,9 @@ const analysisJobs = new Map<string, AnalysisJob>();
  */
 const MAX_TEXT_LENGTH = 200_000; // ~50k tokens
 
+/** Minimum document chars the analyzer always accepts (mirrors Analyzer.MIN_DOCUMENT_CHARS). */
+const MIN_DOCUMENT_CHARS = 8_000;
+
 // ---------------------------------------------------------------------------
 // Cost budget guard
 // ---------------------------------------------------------------------------
@@ -101,9 +104,14 @@ function resolveMaxOutputTokens(value: unknown): number {
   return DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION;
 }
 
-/** Estimate output tokens for a response body (chars / CHARS_PER_TOKEN). */
+/**
+ * Estimate output tokens for a response body (chars / CHARS_PER_TOKEN).
+ * Strips insignificant JSON whitespace first so pretty-printed bodies
+ * (JSON.stringify(x, null, 2)) aren't over-charged for indentation.
+ */
 function estimateOutputTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
+  const compact = text.replace(/\s+/g, '');
+  return Math.ceil(compact.length / CHARS_PER_TOKEN);
 }
 
 /**
@@ -122,7 +130,7 @@ function chargeOutputTokens(text: string): boolean {
 
 /** True when the session budget is exhausted (guard enabled and over cap). */
 function budgetExhausted(): boolean {
-  return _maxOutputTokensPerSession > 0 && _sessionOutputTokens >= _maxOutputTokensPerSession;
+  return _maxOutputTokensPerSession > 0 && _sessionOutputTokens > _maxOutputTokensPerSession;
 }
 
 /** Error message returned when the budget is exhausted. */
@@ -222,12 +230,13 @@ function optionalPositiveNumber(value: unknown): number | undefined {
 /**
  * Compute the maximum accepted text length for a given provider context
  * length (in tokens). Mirrors the analyzer's document-budget math
- * (1 token ≈ 4 chars, reserve a fraction for system prompt + response).
- * Falls back to `MAX_TEXT_LENGTH` when the context is unknown.
+ * (1 token ≈ 4 chars, reserve a fraction for system prompt + response, with
+ * a minimum-document floor so tiny models still get useful text). Falls back
+ * to `MAX_TEXT_LENGTH` when the context is unknown.
  */
 function maxTextLengthForContext(contextLength: number | undefined): number {
   if (contextLength && contextLength > 0) {
-    return Math.floor(contextLength * 4 * 0.8);
+    return Math.max(Math.floor(contextLength * 4 * 0.8), MIN_DOCUMENT_CHARS);
   }
   return MAX_TEXT_LENGTH;
 }
@@ -477,7 +486,6 @@ async function handleGetAnalysisResult(args: Record<string, unknown>, _ctx: Tool
       isError: true,
     };
   }
-  // completed
   // completed
   const results = await job.getResults();
   analysisJobs.delete(jobId);
@@ -784,16 +792,16 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       const fixModel = cfg.fixModel || undefined;
       const structuredOutput = structuredOutputValue(cfg.structuredOutput) ?? structuredOutputValue(cfg.externalStructuredOutput);
       const requestTimeoutMs = optionalPositiveNumber(cfg.requestTimeoutMs) ?? optionalPositiveNumber(cfg.externalRequestTimeoutMs);
-      // Resolve context lengths from the OpenRouter catalog (1h cached;
-      // ~50ms cold, ~5ms warm). The MCP registry awaits this before
-      // serving the first request, so the analyzer's 200K-char fallback
-      // is never hit on the cold path.
-      const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
-      const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
 
       if (provider === 'openrouter') {
         const apiKey = process.env.OPENROUTER_API_KEY?.trim();
         if (apiKey) {
+          // Resolve context lengths from the OpenRouter catalog (1h cached;
+          // ~50ms cold, ~5ms warm). The MCP registry awaits this before
+          // serving the first request, so the analyzer's 200K-char fallback
+          // is never hit on the cold path.
+          const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
+          const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
           const batch = cfg.batch === true || process.env.MCP_BATCH_API === '1';
           const base = new OpenRouterProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
           const { provider: wrapped, batching } = maybeBatchProvider(base, model, batch);
@@ -806,11 +814,25 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       if (provider === 'copilot') {
         const apiKey = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
         if (apiKey) {
+          // The Copilot API has no batch transport — reject batch config loudly
+          // instead of silently ignoring it.
+          if (cfg.batch === true || process.env.MCP_BATCH_API === '1') {
+            throw new Error('Batch mode is not supported by the Copilot provider. Set batch=false or use the OpenRouter provider.');
+          }
           // Resolve context length from the live Copilot /models API so new
-          // models are picked up automatically (no static table).
+          // models are picked up automatically (no static table). Only fall
+          // back to the OpenRouter catalog if the Copilot fetch fails — a
+          // Copilot deployment shouldn't depend on openrouter.ai being up.
           const copilotCtx = await resolveCopilotContextLength(model, apiKey);
-          const copilotContextLength = copilotCtx ?? contextLength;
-          const copilotContextSource = copilotCtx ? 'copilot-api' : contextSource;
+          let copilotContextLength = copilotCtx;
+          let copilotContextSource = copilotCtx ? 'copilot-api' : 'fallback';
+          if (!copilotCtx) {
+            const fallback = await pickSmallestContextLength(model, deepModel, fixModel);
+            if (fallback) {
+              copilotContextLength = fallback;
+              copilotContextSource = 'catalog-or-static';
+            }
+          }
           return {
             engine: new Engine(new CopilotProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength: copilotContextLength }), engineConfig),
             config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource: copilotContextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
@@ -849,6 +871,10 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
   // Copilot via env var (GITHUB_TOKEN / COPILOT_TOKEN).
   const copilotToken = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
   if (copilotToken) {
+    // The Copilot API has no batch transport — reject batch config loudly.
+    if (process.env.MCP_BATCH_API === '1') {
+      throw new Error('Batch mode is not supported by the Copilot provider. Unset MCP_BATCH_API or use the OpenRouter provider.');
+    }
     const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
     const deepModel = process.env.DEEP_MODEL ?? undefined;
     const fixModel = process.env.FIX_MODEL ?? undefined;
@@ -859,10 +885,18 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       scoreSamples: process.env.SCORE_SAMPLES ? Number(process.env.SCORE_SAMPLES) : undefined,
     });
     // Resolve context length from the live Copilot /models API so new models
-    // are picked up automatically (no static table).
+    // are picked up automatically (no static table). Only fall back to the
+    // OpenRouter catalog if the Copilot fetch fails.
     const copilotCtx = await resolveCopilotContextLength(model, copilotToken);
-    const contextLength = copilotCtx ?? await pickSmallestContextLength(model, deepModel, fixModel);
-    const contextSource = copilotCtx ? 'copilot-api' : (contextLength ? 'catalog-or-static' : 'fallback');
+    let contextLength = copilotCtx;
+    let contextSource = copilotCtx ? 'copilot-api' : 'fallback';
+    if (!copilotCtx) {
+      const fallback = await pickSmallestContextLength(model, deepModel, fixModel);
+      if (fallback) {
+        contextLength = fallback;
+        contextSource = 'catalog-or-static';
+      }
+    }
     return {
       engine: new Engine(new CopilotProvider({ apiKey: copilotToken, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
       config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: 'env:GITHUB_TOKEN', engineConfig } as McpEngineConfig,

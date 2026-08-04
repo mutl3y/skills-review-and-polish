@@ -44,6 +44,13 @@ const OPENROUTER_CACHE_FILE = path.join(
 const MIN_OPENROUTER_ENTRIES = 100;
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
+/** Copilot context cache disk file (offline resilience, mirrors OpenRouter). */
+const COPILOT_CACHE_FILE = path.join(
+  os.tmpdir(),
+  'skills-review-and-polish-copilot-context-cache-v1.json',
+);
+const COPILOT_DISK_CACHE_TTL_MS = 15 * 60 * 1000;
+
 interface CatalogCache {
   models: Map<string, number>;
   fetchedAt: number;
@@ -250,7 +257,7 @@ interface CopilotModelsResponse {
   }>;
 }
 
-let copilotCache: { models: Map<string, number>; fetchedAt: number } | null = null;
+let copilotCache: { models: Map<string, number>; fetchedAt: number; apiKey: string } | null = null;
 let copilotFetchInFlight: Promise<Map<string, number>> | null = null;
 
 /**
@@ -258,16 +265,28 @@ let copilotFetchInFlight: Promise<Map<string, number>> | null = null;
  * Failures are silently ignored so callers always get a usable Map.
  *
  * The returned Map keys are the Copilot model IDs (e.g. `gpt-5-mini`,
- * `gpt-4.1`, `claude-sonnet-4.5`).
+ * `gpt-4.1`, `claude-sonnet-4.5`) plus their normalized forms, so lookups
+ * by either raw ID or normalized name hit.
+ *
+ * The cache is keyed by the API token so different tokens (config-file engine
+ * vs env-var engine, or token rotation) never reuse each other's in-flight
+ * fetch or cached models.
  */
 export async function fetchCopilotContextLengths(
   apiKey: string,
 ): Promise<Map<string, number>> {
-  if (copilotCache && Date.now() - copilotCache.fetchedAt < COPILOT_CACHE_TTL_MS) {
+  if (copilotCache && copilotCache.apiKey === apiKey && Date.now() - copilotCache.fetchedAt < COPILOT_CACHE_TTL_MS) {
     return copilotCache.models;
   }
   if (copilotFetchInFlight) {
     return copilotFetchInFlight;
+  }
+
+  // Disk cache for offline resilience (mirrors the OpenRouter path).
+  const disk = readCopilotDiskCache();
+  if (disk && Date.now() - disk.fetchedAt < COPILOT_DISK_CACHE_TTL_MS) {
+    copilotCache = { models: disk.models, fetchedAt: disk.fetchedAt, apiKey };
+    return disk.models;
   }
 
   copilotFetchInFlight = (async () => {
@@ -285,9 +304,11 @@ export async function fetchCopilotContextLengths(
       const ctx = entry.capabilities?.limits?.max_context_window_tokens;
       if (entry.id && typeof ctx === 'number' && ctx > 0) {
         models.set(entry.id, ctx);
+        models.set(normalizeModelId(entry.id), ctx);
       }
     }
-    copilotCache = { models, fetchedAt: Date.now() };
+    copilotCache = { models, fetchedAt: Date.now(), apiKey };
+    writeCopilotDiskCache(copilotCache);
     return models;
   })();
 
@@ -298,10 +319,37 @@ export async function fetchCopilotContextLengths(
   }
 }
 
+function readCopilotDiskCache(): CatalogCache | null {
+  try {
+    if (!fs.existsSync(COPILOT_CACHE_FILE)) return null;
+    const raw = fs.readFileSync(COPILOT_CACHE_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as SerializedCatalogCache;
+    if (!parsed || !Array.isArray(parsed.entries) || typeof parsed.fetchedAt !== 'number') {
+      return null;
+    }
+    return { models: new Map(parsed.entries), fetchedAt: parsed.fetchedAt };
+  } catch {
+    return null;
+  }
+}
+
+function writeCopilotDiskCache(cache: CatalogCache): void {
+  try {
+    const payload: SerializedCatalogCache = {
+      fetchedAt: cache.fetchedAt,
+      entries: Array.from(cache.models.entries()),
+    };
+    fs.writeFileSync(COPILOT_CACHE_FILE, JSON.stringify(payload), 'utf8');
+  } catch {
+    // Ignore — fresh fetch on next call.
+  }
+}
+
 /** @internal Reset the Copilot context cache (for tests). */
 export function _resetCopilotContextCache(): void {
   copilotCache = null;
   copilotFetchInFlight = null;
+  try { fs.unlinkSync(COPILOT_CACHE_FILE); } catch { /* ignore */ }
 }
 
 /**
