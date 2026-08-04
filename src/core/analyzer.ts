@@ -128,6 +128,10 @@ export class AnalysisHistoryStore {
   set(docKey: string, record: AnalysisHistory): void {
     this.evictOldestIfNeeded();
     this.history.set(docKey, record);
+    // Touch on set so newly-set entries are evictable — otherwise a doc that
+    // is set but never get() has no access timestamp and is invisible to
+    // eviction, letting the store grow past MAX_HISTORY_ENTRIES.
+    this.touch(docKey);
   }
 
   update(docKey: string, record: Partial<AnalysisHistory>): void {

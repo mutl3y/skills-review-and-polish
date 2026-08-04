@@ -115,16 +115,21 @@ function estimateOutputTokens(text: string): number {
 }
 
 /**
- * Charge the session budget for an LLM response. Returns true if the charge
+ * Charge the session budget for an LLM call. Returns true if the charge
  * was accepted (within budget). When the charge would exceed the cap, the
  * budget is still incremented (so `usedOutputTokens` stays honest) and false
  * is returned — the caller may still return the result, but subsequent
  * analysis requests will be refused until the next session.
+ *
+ * Charges BOTH input and output tokens: the expensive part of an LLM call is
+ * the input (a 200K-char document is ~50K input tokens per wave, × 6 waves).
+ * `inputChars` is the document text length; `outputText` is the response body.
  */
-function chargeOutputTokens(text: string): boolean {
+function chargeTokens(inputChars: number, outputText: string): boolean {
   if (_maxOutputTokensPerSession <= 0) return true; // guard disabled
-  const cost = estimateOutputTokens(text);
-  _sessionOutputTokens += cost;
+  const inputCost = Math.ceil(inputChars / CHARS_PER_TOKEN);
+  const outputCost = estimateOutputTokens(outputText);
+  _sessionOutputTokens += inputCost + outputCost;
   return _sessionOutputTokens <= _maxOutputTokensPerSession;
 }
 
@@ -179,6 +184,38 @@ function resolveAcceptedFindingsPath(): string {
   return path.join(workspaceRoot, '.accepted-findings.json');
 }
 
+/**
+ * Resolve the MCP server's workspace root. All file paths accepted by tools
+ * must stay under this root — it is the trust boundary for the MCP server.
+ */
+function resolveWorkspaceRoot(): string {
+  return process.env['MCP_SERVER_WORKSPACE']?.trim() || process.cwd();
+}
+
+/**
+ * Validate and resolve a `filePath` argument against the workspace root.
+ *
+ * The MCP server is driven by an LLM agent, so `filePath` and document content
+ * are attacker-controlled. We must NOT trust a path derived from the input —
+ * the fixer/analyzer derive their reference dirs from `filePath`, so an
+ * attacker could point it at `/etc/references` or `~/.ssh/references` to read
+ * arbitrary files. This resolves the path against the fixed workspace root and
+ * rejects anything that escapes it (absolute paths, `..`, symlinks).
+ *
+ * Returns the resolved absolute path, or `undefined` when the path is missing
+ * or escapes the workspace root.
+ */
+function safeResolveFilePath(filePath: string | undefined): string | undefined {
+  if (!filePath || filePath.trim() === '') return undefined;
+  const root = path.resolve(resolveWorkspaceRoot());
+  const resolved = path.resolve(root, filePath);
+  // Reject paths that escape the workspace root (absolute paths, .. traversal).
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    return undefined;
+  }
+  return resolved;
+}
+
 function requireString(args: Record<string, unknown>, key: string): string {
   const val = typeof args[key] === 'string' ? args[key] : '';
   if (!val.trim()) throw new Error(`Missing required argument: ${key}`);
@@ -206,11 +243,7 @@ function optionalBoolean(value: unknown): boolean | undefined {
  *   - undefined               → undefined (caller applies its own default)
  */
 function structuredOutputValue(value: unknown): boolean | 'schema' | undefined {
-  if (value === 'schema' || value === 'true' || value === 'false'
-      || value === '1' || value === '0' || value === 'on' || value === 'off') {
-    if (value === 'schema') return 'schema';
-    // String truthy/falsy values fall through to boolean parsing.
-  }
+  if (value === 'schema') return 'schema';
   const bool = optionalBoolean(value);
   if (typeof bool === 'boolean') return bool;
   if (value === undefined) return undefined;
@@ -408,14 +441,14 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
     try {
       const results = await engine.analyze({
         text,
-        filePath: optionalString(args, 'filePath'),
+        filePath: safeResolveFilePath(optionalString(args, 'filePath')),
         acceptedFindingsPath: resolveAcceptedFindingsPath(),
       }, undefined, undefined, configOverride);
       const body = JSON.stringify(results, null, 2);
-      // Charge the budget. If this call pushes us over the cap, we still return
-      // its result (the work is done) but mark the budget exhausted so the next
-      // analysis request is refused.
-      chargeOutputTokens(body);
+      // Charge the budget (input + output tokens). If this call pushes us over
+      // the cap, we still return its result (the work is done) but mark the
+      // budget exhausted so the next analysis request is refused.
+      chargeTokens(text.length, body);
       return { content: [{ type: 'text', text: body }] };
     } finally {
       if (progressTimer) clearInterval(progressTimer);
@@ -423,10 +456,13 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
   }
 
   // Batch (slow) mode: submit as a deferred job and return a handle immediately.
+  // Charge the input tokens now (the expensive part — the document is sent to
+  // the LLM regardless of whether the client ever polls for the result).
+  chargeTokens(text.length, '');
   const job = engine.analyzeDeferred(
     {
       text,
-      filePath: optionalString(args, 'filePath'),
+      filePath: safeResolveFilePath(optionalString(args, 'filePath')),
       acceptedFindingsPath: resolveAcceptedFindingsPath(),
     },
     { batch: true },
@@ -490,9 +526,9 @@ async function handleGetAnalysisResult(args: Record<string, unknown>, _ctx: Tool
   const results = await job.getResults();
   analysisJobs.delete(jobId);
   const body = JSON.stringify(results, null, 2);
-  // Charge the batch results against the session budget too — otherwise the
-  // batch path would bypass the cost guard entirely.
-  chargeOutputTokens(body);
+  // Charge the batch output against the session budget too (input was already
+  // charged at submission) — otherwise the batch path would bypass the guard.
+  chargeTokens(0, body);
   return { content: [{ type: 'text', text: body }] };
 }
 
@@ -536,7 +572,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   };
 
   const fixer = new SurgicalFixer(engine.provider as LlmProvider);
-  const result = await fixer.fixIssue(text, optionalString(args, 'filePath') ?? '', syntheticDiag, {
+  const result = await fixer.fixIssue(text, safeResolveFilePath(optionalString(args, 'filePath')) ?? '', syntheticDiag, {
     additive: true,
     semanticCheck: false,
     selfCritique: false,
@@ -544,7 +580,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   });
 
   const body = JSON.stringify(result, null, 2);
-  chargeOutputTokens(body);
+  chargeTokens(text.length, body);
   return { content: [{ type: 'text', text: body }] };
 }
 
@@ -635,10 +671,10 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
   }
   const result = await engine.score({
     text,
-    filePath: optionalString(args, 'filePath'),
+    filePath: safeResolveFilePath(optionalString(args, 'filePath')),
   });
   const body = JSON.stringify(result, null, 2);
-  chargeOutputTokens(body);
+  chargeTokens(text.length, body);
   return { content: [{ type: 'text', text: body }] };
 }
 
@@ -654,7 +690,7 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
   // 1. Re-analyze (6 waves — the only LLM cost)
   const results = await engine.analyze({
     text,
-    filePath: optionalString(args, 'filePath'),
+    filePath: safeResolveFilePath(optionalString(args, 'filePath')),
     acceptedFindingsPath: resolveAcceptedFindingsPath(),
   });
 
@@ -670,7 +706,7 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
     newIssues,
     issueCount: results.length,
   }, null, 2);
-  chargeOutputTokens(body);
+  chargeTokens(text.length, body);
   return { content: [{ type: 'text', text: body }] };
 }
 

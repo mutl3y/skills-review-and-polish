@@ -11,6 +11,21 @@ import { LlmProvider, LlmRequest, LlmResponse, BatchRequestItem, BatchResult, Ba
 import { LLM_RESPONSE_JSON_SCHEMA_BODY } from './llmResponseSchema';
 
 /**
+ * Redact secrets from an error string before it is logged or surfaced.
+ * Provider error bodies (400/422) can echo back tokens or other sensitive
+ * data; this strips them so they never reach the log or the user.
+ */
+function redactSecrets(text: string): string {
+  let out = text;
+  out = out.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
+  out = out.replace(/(api[_-]?key|token|secret|password|authorization|credential)[\s:=]+\S+/gi, '$1=[REDACTED]');
+  out = out.replace(/(x-api-key|x-goog-api-key|x-amz-security-token)[\s:=]+\S+/gi, '$1=[REDACTED]');
+  out = out.replace(/https?:\/\/[^\s]*@[^\s]+/gi, 'https://[REDACTED]');
+  out = out.replace(/\b[0-9a-f]{32,}\b/gi, '[REDACTED]');
+  return out;
+}
+
+/**
  * HTTP error with status code — allows retry logic to distinguish
  * permanent client errors (4xx) from transient server errors (5xx).
  */
@@ -136,7 +151,7 @@ async function fetchWithRetry(
       const resp = await fetchJson(url, JSON.stringify(activeBody), extraHeaders, requestTimeoutMs, token);
       const apiErr = getApiError(resp);
       if (apiErr) {
-        lastError = String(apiErr.message ?? apiErr);
+        lastError = redactSecrets(String(apiErr.message ?? apiErr));
         if (shouldRetryWithoutStructuredOutput(activeBody, apiErr.code ?? apiErr.status, lastError) && !retriedWithoutStructuredOutput) {
           activeBody = withoutStructuredOutput(activeBody);
           retriedWithoutStructuredOutput = true;
@@ -169,7 +184,7 @@ async function fetchWithRetry(
         }
         break;
       }
-      lastError = String(e).replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
+      lastError = redactSecrets(String(e));
       if (isTimeoutOrCancellationError(lastError)) break;
     }
   }
@@ -277,6 +292,24 @@ export class OpenRouterProvider implements LlmProvider {
       temperature: this.temperature,
       top_p: this.topP,
       ...buildResponseFormat(mode),
+    };
+  }
+
+  /**
+   * Build a single Batch API request item from an `LlmRequest`, reusing the
+   * exact same body construction as `complete()` (correct schema, correct
+   * max_tokens, temperature 0). This is the single source of truth so batch
+   * mode produces the same output the analyzer parses — not a hand-rolled
+   * divergent schema.
+   */
+  buildBatchItem(req: LlmRequest, index: number): BatchRequestItem {
+    const modelToUse = req.modelId
+      || (req.modelTier === 'fix' && this.fixModel ? this.fixModel
+        : req.modelTier === 'deep' && this.deepModel ? this.deepModel
+        : this.model);
+    return {
+      custom_id: `req-${index}`,
+      body: this.buildBody(modelToUse, req),
     };
   }
 
@@ -391,6 +424,7 @@ export class OpenRouterProvider implements LlmProvider {
       adaptiveCharsPerToken: this.adaptiveCharsPerToken,
       minAdaptiveTokens: this.minAdaptiveTokens,
       maxTokens: this.maxTokens,
+      contextLength: this.contextLength,
     });
   }
 }
@@ -500,6 +534,7 @@ export class CopilotProvider implements LlmProvider {
       adaptiveCharsPerToken: this.adaptiveCharsPerToken,
       minAdaptiveTokens: this.minAdaptiveTokens,
       maxTokens: this.maxTokens,
+      contextLength: this.contextLength,
     });
   }
 }
@@ -541,9 +576,11 @@ function resolveMaxTokens(
     adaptiveCharsPerToken: number;
     minAdaptiveTokens: number;
     maxTokens: number;
+    /** Optional model context length (tokens). Bounds output so input + output fit the window. */
+    contextLength?: number;
   },
 ): number {
-  const { prompt, multiplier, adaptiveMaxTokens, adaptiveMaxTokensCap, adaptiveCharsPerToken, minAdaptiveTokens, maxTokens } = opts;
+  const { prompt, multiplier, adaptiveMaxTokens, adaptiveMaxTokensCap, adaptiveCharsPerToken, minAdaptiveTokens, maxTokens, contextLength } = opts;
   const scaledCap = Math.round(adaptiveMaxTokensCap * multiplier);
   if (!adaptiveMaxTokens) return Math.round(maxTokens * multiplier);
   const desired = Math.max(
@@ -552,7 +589,16 @@ function resolveMaxTokens(
   );
   const floor = Math.min(minAdaptiveTokens * multiplier, scaledCap);
   const cap = Math.max(maxTokens * multiplier, scaledCap);
-  return clamp(desired, floor, cap);
+  let result = clamp(desired, floor, cap);
+  // Bound output by the model's context window: input tokens (prompt chars / 4)
+  // plus output must not exceed the context length, or the provider returns a
+  // hard error / truncates. Leave headroom for the system prompt + framing.
+  if (contextLength && contextLength > 0) {
+    const inputTokens = Math.ceil(prompt.length / 4);
+    const maxOutput = Math.max(1, contextLength - inputTokens - 1024);
+    result = Math.min(result, maxOutput);
+  }
+  return result;
 }
 
 /**

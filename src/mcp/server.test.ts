@@ -471,9 +471,10 @@ describe('createMcpToolRegistry', () => {
     expect(SurgicalFixer).toHaveBeenCalledWith(expect.objectContaining({ fake: true }));
 
     // Verify fixIssue was called with the correct synthetic diagnostic
+    // (filePath is resolved against the workspace root for path safety).
     expect(fixIssue).toHaveBeenCalledWith(
       'Bad text here.',
-      'test.md',
+      expect.stringMatching(/test\.md$/),
       expect.objectContaining({
         code: 'ambiguity-llm',
         message: 'Bad text',

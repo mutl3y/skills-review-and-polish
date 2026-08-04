@@ -8,7 +8,7 @@ import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
-import { OpenRouterProvider } from './providers/externalProvider';
+import { OpenRouterProvider, CopilotProvider } from './providers/externalProvider';
 import { BatchAwareOpenRouterProvider } from './providers/batchAwareProvider';
 import { isBatchSupported } from './modelCatalog';
 import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
@@ -494,6 +494,41 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     return state!.cachedEngine;
   }
 
+  if (cfg.provider === 'copilot') {
+    // Copilot API provider: uses a GitHub token (GITHUB_TOKEN env or the
+    // stored API key) against api.githubcopilot.com — no separate API key.
+    const copilotToken = apiKey || process.env.GITHUB_TOKEN?.trim() || process.env.COPILOT_TOKEN?.trim();
+    if (!copilotToken) {
+      log('warn', `buildEngine: copilot selected but no token — aborting`);
+      vscode.window.showErrorMessage(
+        `Skills Review: provider is "copilot" but no GitHub token is available. ` +
+          'Set GITHUB_TOKEN, or run "Skills Review: Set API Key".',
+      );
+      throw new Error('No GitHub token configured for the copilot provider');
+    }
+    const resolvedCtx = await resolveContextLength(cfg.model || '');
+    const contextLength = resolvedCtx?.contextLength;
+    const provider = new CopilotProvider({
+      apiKey: copilotToken,
+      model: cfg.model || '',
+      deepModel: cfg.deepModel || undefined,
+      fixModel: cfg.fixModel || undefined,
+      maxTokens: cfg.externalMaxResponseTokens,
+      adaptiveMaxTokens: cfg.externalAdaptiveResponseTokens,
+      adaptiveMaxTokensCap: cfg.externalAdaptiveMaxResponseTokens,
+      minAdaptiveTokens: cfg.externalMinAdaptiveResponseTokens,
+      adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
+      structuredOutput: cfg.externalStructuredOutput,
+      requestTimeoutMs: cfg.externalRequestTimeoutMs,
+      contextLength,
+    });
+    log('info', `buildEngine: using copilot provider model=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(same as model)'} fixModel=${cfg.fixModel || '(same as model)'}`);
+    state!.currentVsCodeLmProvider = undefined;
+    state!.cachedEngine = new Engine(provider, cfg);
+    state!.cachedEngineConfigHash = hash;
+    return state!.cachedEngine;
+  }
+
   log('info', `buildEngine: using vscode-lm standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'} fixModel=${cfg.fixModel || '(same as standard)'}`);
   const vscodeLmProvider = new VsCodeLmProvider(
     cfg.model,
@@ -712,6 +747,12 @@ async function selectProvider(): Promise<void> {
       value: 'openrouter',
       picked: current === 'openrouter',
     },
+    {
+      label: '🟣 Copilot API',
+      description: 'Uses api.githubcopilot.com with a GitHub token — no separate API key',
+      value: 'copilot',
+      picked: current === 'copilot',
+    },
   ];
 
   const pick = await vscode.window.showQuickPick(items, {
@@ -788,8 +829,11 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
     '**/skills/**/*.md',
   ];
   const allPatterns = [...new Set([...namePatterns, ...dirPatterns])];
+  // Exclude node_modules AND the user's configured exclude patterns so we
+  // don't enumerate huge trees just to discard them.
+  const excludePattern = ['**/node_modules/**', ...cfg.exclude];
   const fileSets = await Promise.all(
-    allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p), '**/node_modules/**')),
+    allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p), `{${excludePattern.join(',')}}`)),
   );
   // Deduplicate and filter to .md files only
   const seen = new Set<string>();
@@ -1156,6 +1200,13 @@ async function runFixIssue(
 
         // Count occurrences to avoid replacing the wrong instance.
         const anchorCount = anchor ? text.split(anchor).length - 1 : 0;
+        if (anchor && anchorCount !== 1) {
+          log('warn', `runFixIssue: anchor appears ${anchorCount} times — refusing to apply ambiguous fix`);
+          vscode.window.showWarningMessage(
+            `Skills Review: The flagged text appears ${anchorCount} times in the document, so the fix could not be applied safely. Re-analyze or fix a more specific fragment.`,
+          );
+          return;
+        }
         const fixedText = anchor && anchorCount === 1
           ? text.replace(anchor, () => fixResult.fixed)
           : text;
@@ -1382,6 +1433,16 @@ async function applyFixToDocument(
   originalText: string,
   fixedText: string,
 ): Promise<void> {
+  // Staleness check: the fix was computed from a snapshot. If the document has
+  // changed since (user edited between analysis and apply), applying the full
+  // replacement would silently destroy those edits. Refuse and ask to re-run.
+  const currentText = doc.getText();
+  if (currentText !== originalText) {
+    const msg = 'Fix refused: the document changed since this fix was computed. Re-analyze to get a fresh fix.';
+    log('warn', `applyFixToDocument: ${msg}`);
+    vscode.window.showWarningMessage(`Skills Review: ${msg}`);
+    return;
+  }
   // Safety guard: refuse to overwrite with empty content.
   if (fixedText.trim().length === 0) {
     const msg = 'Fix refused: proposed result is empty.';

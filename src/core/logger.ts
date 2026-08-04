@@ -164,8 +164,30 @@ function formatLine(
   const prefix = `${ts} [${level.padEnd(5)}] [${module}] ${message}`;
   if (!data) return prefix;
   try {
-    return `${prefix} ${JSON.stringify(data)}`;
+    return `${prefix} ${redact(JSON.stringify(data))}`;
   } catch {
     return `${prefix} [data serialization failed]`;
   }
+}
+
+/**
+ * Redact secrets from a serialized log line before it reaches the transport.
+ * The logger writes raw `data` objects (including LLM response previews and
+ * error strings) to the output channel and, in debug mode, a plaintext /tmp
+ * file — so any token echoed back by a provider or injected by a document
+ * must not leak. Mirrors the MCP server's sanitizeErrorMessage.
+ */
+function redact(text: string): string {
+  let out = text;
+  // Strip Bearer tokens
+  out = out.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
+  // Strip API key / token / secret / password / authorization values
+  out = out.replace(/(api[_-]?key|token|secret|password|authorization|credential)["']?\s*[:=]\s*["']?[^"',}\s]+/gi, '$1=[REDACTED]');
+  // Strip x-api-key and other common header values
+  out = out.replace(/(x-api-key|x-goog-api-key|x-amz-security-token)["']?\s*[:=]\s*["']?[^"',}\s]+/gi, '$1=[REDACTED]');
+  // Strip URLs with embedded credentials (user:pass@host)
+  out = out.replace(/https?:\/\/[^\s]*@[^\s]+/gi, 'https://[REDACTED]');
+  // Strip long hex strings (32+ chars) that could be API keys
+  out = out.replace(/\b[0-9a-f]{32,}\b/gi, '[REDACTED]');
+  return out;
 }

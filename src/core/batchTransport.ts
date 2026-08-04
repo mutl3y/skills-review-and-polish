@@ -59,6 +59,13 @@ export interface OpenRouterBatchCapableProvider extends LlmProvider {
     batchId: string,
     opts?: { pollIntervalMs?: number; maxWaitMs?: number; token?: LlmRequest['token'] },
   ): Promise<{ id: string; status: string; results?: BatchResultItem[]; error?: string }>;
+  /**
+   * Build a single Batch API request item from an `LlmRequest`, reusing the
+   * provider's own body construction (correct schema, max_tokens, temp 0).
+   * Required for the batch path so batch output matches what the analyzer
+   * parses.
+   */
+  buildBatchItem?(req: LlmRequest, index: number): BatchRequestItem;
 }
 
 /**
@@ -81,32 +88,15 @@ export async function runBatchOrFallback(opts: BatchRunOptions): Promise<LlmResp
     return runFallback(provider, requests);
   }
 
-  const batchItems: BatchRequestItem[] = requests.map((req, i) => ({
-    custom_id: `req-${i}`,
-    body: {
-      model: modelId,
-      messages: [
-        { role: 'system', content: req.systemPrompt },
-        { role: 'user', content: req.prompt },
-      ],
-      max_tokens: 4096,
-      temperature: 0.2,
-      top_p: 0.95,
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'skill_diagnostics',
-          strict: true,
-          schema: {
-            type: 'object',
-            properties: { diagnostics: { type: 'array', items: { type: 'object' } } },
-            required: ['diagnostics'],
-            additionalProperties: false,
-          },
-        },
-      },
-    },
-  }));
+  // Build batch items using the provider's own body construction (correct
+  // schema, max_tokens, temp 0) so batch output matches what the analyzer
+  // parses. Fall back to a conservative single-request path if the provider
+  // doesn't expose buildBatchItem — never hand-roll a divergent schema.
+  if (typeof provider.buildBatchItem !== 'function') {
+    logger(`batch_not_supported: provider lacks buildBatchItem; using single-request fallback`);
+    return runFallback(provider, requests);
+  }
+  const batchItems: BatchRequestItem[] = requests.map((req, i) => provider.buildBatchItem!(req, i));
 
   let batchId: string | undefined;
   try {

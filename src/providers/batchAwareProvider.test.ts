@@ -20,6 +20,19 @@ function makeBaseProvider(overrides: Partial<OpenRouterProvider> = {}): OpenRout
       status: 'completed' as BatchStatus,
       results: [] as BatchResultItem[],
     })),
+    buildBatchItem: (req: LlmRequest, index: number): BatchRequestItem => ({
+      custom_id: `req-${index}`,
+      body: {
+        model: 'openai/gpt-4o-mini',
+        messages: [
+          { role: 'system', content: req.systemPrompt },
+          { role: 'user', content: req.prompt },
+        ],
+        max_tokens: 4096,
+        temperature: 0,
+        top_p: 0,
+      },
+    }),
     ...overrides,
   } as unknown as OpenRouterProvider;
 }
