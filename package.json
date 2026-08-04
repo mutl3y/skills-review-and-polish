@@ -146,11 +146,6 @@
           "maximum": 128,
           "description": "Heuristic scale used by adaptive response-token sizing: desired tokens = ceil(promptChars / this value). Lower values request more output tokens."
         },
-        "skillsReviewAndPolish.batchEnabled": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "**Experimental / off by default.** Submit folder scans as OpenRouter Batch API jobs instead of sequential requests. Batch mode is ~5min slower but cheaper for bulk work. **Disabled by default** because the OpenRouter Batch API endpoint (`/api/beta/batches`) is currently unreliable — when it is down, batch jobs fail and fall back to the standard chat endpoint (which 404s for `:batch`-only models). Leave this OFF unless you have confirmed the Batch API is working. When OFF, `:batch` models are hidden from the model picker and folder scans run synchronously."
-        },
         "skillsReviewAndPolish.mcpMaxOutputTokensPerSession": {
           "type": "number",
           "default": 50000,

@@ -7,7 +7,7 @@
  * Copilot API).
  */
 
-import { LlmProvider, LlmRequest, LlmResponse, BatchRequestItem, BatchResult, BatchResultItem, BatchStatus } from '../core/types';
+import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
 import { LLM_RESPONSE_JSON_SCHEMA_BODY } from './llmResponseSchema';
 
 /**
@@ -293,126 +293,6 @@ export class OpenRouterProvider implements LlmProvider {
       top_p: this.topP,
       ...buildResponseFormat(mode),
     };
-  }
-
-  /**
-   * Build a single Batch API request item from an `LlmRequest`, reusing the
-   * exact same body construction as `complete()` (correct schema, correct
-   * max_tokens, temperature 0). This is the single source of truth so batch
-   * mode produces the same output the analyzer parses — not a hand-rolled
-   * divergent schema.
-   */
-  buildBatchItem(req: LlmRequest, index: number): BatchRequestItem {
-    const modelToUse = req.modelId
-      || (req.modelTier === 'fix' && this.fixModel ? this.fixModel
-        : req.modelTier === 'deep' && this.deepModel ? this.deepModel
-        : this.model);
-    return {
-      custom_id: `req-${index}`,
-      body: this.buildBody(modelToUse, req),
-    };
-  }
-
-  /**
-   * Submit a batch of requests to the OpenRouter Batch API.
-   *
-   * Batch-only models (e.g. some deep-reasoning models) return 404 on the
-   * standard chat endpoint with the message "This model is only available
-   * through the Batch API." — those must be routed here instead. The schema
-   * (`LLM_RESPONSE_JSON_SCHEMA_BODY`) is identical to single-request mode;
-   * only the transport envelope differs (per-item `custom_id` correlation).
-   *
-   * OpenRouter requires the top-level `model` and `endpoint` fields to appear
-   * before `requests` in the payload, so they are passed explicitly here.
-   *
-   * @returns the batch id to pass to `pollBatch`.
-   */
-  async submitBatch(
-    requests: BatchRequestItem[],
-    opts: { model?: string; endpoint?: string } = {},
-  ): Promise<string> {
-    const url = 'https://openrouter.ai/api/beta/batches';
-    const headers = {
-      Authorization: `Bearer ${this.apiKey}`,
-      'HTTP-Referer': 'vscode://skills-review-and-polish',
-      'X-Title': 'Skills Review and Polish',
-      'Content-Type': 'application/json',
-    };
-    const model = opts.model ?? this.model;
-    const endpoint = opts.endpoint ?? '/v1/chat/completions';
-    const resp = await fetchJson(
-      url,
-      JSON.stringify({ model, endpoint, requests }),
-      headers,
-      this.requestTimeoutMs,
-    );
-    const apiErr = getApiError(resp);
-    if (apiErr) {
-      throw new HttpError(String(apiErr.message ?? apiErr), Number(apiErr.code ?? apiErr.status ?? 0) || 400);
-    }
-    const id = resp['id'] as string | undefined;
-    if (!id) {
-      throw new HttpError('Batch submission returned no id', 500);
-    }
-    return id;
-  }
-
-  /**
-   * Poll a batch job until it reaches a terminal state or the timeout elapses.
-   *
-   * Retries transient 5xx/429 on the status poll. Returns the full
-   * `BatchResult` (including `results` when `status === 'completed'`).
-   */
-  async pollBatch(
-    batchId: string,
-    opts: { pollIntervalMs?: number; maxWaitMs?: number; token?: LlmRequest['token'] } = {},
-  ): Promise<BatchResult> {
-    const pollIntervalMs = opts.pollIntervalMs ?? 2000;
-    const maxWaitMs = opts.maxWaitMs ?? this.requestTimeoutMs;
-    const deadline = Date.now() + maxWaitMs;
-    const url = `https://openrouter.ai/api/beta/batches/${encodeURIComponent(batchId)}`;
-    const headers = {
-      Authorization: `Bearer ${this.apiKey}`,
-      'HTTP-Referer': 'vscode://skills-review-and-polish',
-      'X-Title': 'Skills Review and Polish',
-    };
-    while (true) {
-      if (opts.token?.isCancellationRequested) {
-        throw new Error('Batch poll cancelled');
-      }
-      let resp: Record<string, unknown>;
-      try {
-        resp = await fetchJson(url, '', headers, this.requestTimeoutMs, opts.token, 'GET');
-      } catch (e) {
-        // 404 is transient here: a freshly submitted batch is not queryable
-        // until OpenRouter finishes validating it (status `validating` →
-        // `in_progress`). Retry on 404/5xx/429 until the deadline.
-        const retryable = e instanceof HttpError && (e.status === 404 || isRetryable(e.status));
-        if (retryable) {
-          if (Date.now() > deadline) throw e;
-          await sleep(pollIntervalMs);
-          continue;
-        }
-        throw e;
-      }
-      const apiErr = getApiError(resp);
-      if (apiErr) {
-        throw new HttpError(String(apiErr.message ?? apiErr), Number(apiErr.code ?? apiErr.status ?? 0) || 400);
-      }
-      const status = (resp['status'] as BatchStatus | undefined) ?? 'pending';
-      if (status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'expired') {
-        return {
-          id: batchId,
-          status,
-          results: resp['results'] as BatchResultItem[] | undefined,
-          error: resp['error'] as string | undefined,
-        };
-      }
-      if (Date.now() > deadline) {
-        return { id: batchId, status };
-      }
-      await sleep(pollIntervalMs);
-    }
   }
 
   private resolveMaxTokens(prompt: string, multiplier = 1): number {

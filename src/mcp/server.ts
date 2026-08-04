@@ -10,10 +10,7 @@ import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
 import { OpenRouterProvider, CopilotProvider } from '../providers/externalProvider';
-import { BatchAwareOpenRouterProvider } from '../providers/batchAwareProvider';
 import { resolveContextLength, resolveCopilotContextLength } from '../modelCatalog';
-import { batchModeWarning } from '../core/batchTransport';
-import type { AnalysisJob } from '../core/analysisJob';
 import type { AnalysisResult, EngineConfig, LlmProvider, Severity, WaveName } from '../core/types';
 
 export interface McpEngineConfig {
@@ -25,19 +22,7 @@ export interface McpEngineConfig {
   requestTimeoutMs?: number;
   configSource: string;
   engineConfig?: EngineConfig;
-  /** When true, the OpenRouter provider batches wave requests via the Batch API. */
-  batch?: boolean;
-  /** The batch-aware provider instance (when batch mode is on) so handlers can flush it. */
-  batchProvider?: BatchAwareOpenRouterProvider;
 }
-
-/**
- * In-memory registry of deferred analysis jobs (B1 batch design). Keyed by
- * jobId. Lives for the server process lifetime — sufficient for MCP, where the
- * client polls within the same session. Jobs are not persisted across restarts.
- */
-const analysisJobs = new Map<string, AnalysisJob>();
-
 /**
  * Maximum text length accepted by tools. Prevents runaway LLM costs.
  *
@@ -418,118 +403,34 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
     ? { analysisWaves: analysisWaves as any, analysisMode: 'multiWave' as const }
     : undefined;
 
-  // Explicit `batch` arg overrides the server's batch config. When batch mode
-  // is on, analysis runs as a deferred job (B1 design) so the tool returns
-  // immediately instead of blocking ~5 min on the OpenRouter Batch API.
-  const batchArg = optionalBoolean(args['batch']);
-  const batch = batchArg ?? ctx.resolvedConfig?.batch ?? false;
-
-  if (!batch) {
-    // Synchronous single-request path — instant, blocks only on normal latency.
-    // If the client requested a progress token, emit periodic progress so the
-    // request stays alive past the client's default timeout (long analyses can
-    // take minutes). The progress interval is a heartbeat, not a real % — the
-    // analyzer doesn't expose per-wave progress, so we send a monotonic tick.
-    let progressTimer: ReturnType<typeof setInterval> | undefined;
-    if (ctx.sendProgress) {
-      let tick = 0;
-      progressTimer = setInterval(() => {
-        tick += 1;
-        void ctx.sendProgress?.(tick, undefined, 'analyzing…').catch(() => { /* client may have gone away */ });
-      }, 15_000);
-    }
-    try {
-      const results = await engine.analyze({
-        text,
-        filePath: safeResolveFilePath(optionalString(args, 'filePath')),
-        acceptedFindingsPath: resolveAcceptedFindingsPath(),
-      }, undefined, undefined, configOverride);
-      const body = JSON.stringify(results, null, 2);
-      // Charge the budget (input + output tokens). If this call pushes us over
-      // the cap, we still return its result (the work is done) but mark the
-      // budget exhausted so the next analysis request is refused.
-      chargeTokens(text.length, body);
-      return { content: [{ type: 'text', text: body }] };
-    } finally {
-      if (progressTimer) clearInterval(progressTimer);
-    }
+  // Analysis always runs synchronously (single-request). If the client
+  // requested a progress token, emit periodic progress so the request stays
+  // alive past the client's default timeout (long analyses can take minutes).
+  // The progress interval is a heartbeat, not a real % — the analyzer doesn't
+  // expose per-wave progress, so we send a monotonic tick.
+  let progressTimer: ReturnType<typeof setInterval> | undefined;
+  if (ctx.sendProgress) {
+    let tick = 0;
+    progressTimer = setInterval(() => {
+      tick += 1;
+      void ctx.sendProgress?.(tick, undefined, 'analyzing…').catch(() => { /* client may have gone away */ });
+    }, 15_000);
   }
-
-  // Batch (slow) mode: submit as a deferred job and return a handle immediately.
-  // Charge the input tokens now (the expensive part — the document is sent to
-  // the LLM regardless of whether the client ever polls for the result).
-  chargeTokens(text.length, '');
-  const job = engine.analyzeDeferred(
-    {
+  try {
+    const results = await engine.analyze({
       text,
       filePath: safeResolveFilePath(optionalString(args, 'filePath')),
       acceptedFindingsPath: resolveAcceptedFindingsPath(),
-    },
-    { batch: true },
-  );
-  // Flush the batch provider so buffered waves are submitted as one batch job.
-  if (ctx.resolvedConfig?.batchProvider) {
-    void ctx.resolvedConfig.batchProvider.flush();
+    }, undefined, undefined, configOverride);
+    const body = JSON.stringify(results, null, 2);
+    // Charge the budget (input + output tokens). If this call pushes us over
+    // the cap, we still return its result (the work is done) but mark the
+    // budget exhausted so the next analysis request is refused.
+    chargeTokens(text.length, body);
+    return { content: [{ type: 'text', text: body }] };
+  } finally {
+    if (progressTimer) clearInterval(progressTimer);
   }
-  analysisJobs.set(job.jobId, job);
-
-  return {
-    content: [{
-      type: 'text',
-      text: JSON.stringify({
-        status: 'processing',
-        jobId: job.jobId,
-        estimatedWaitSeconds: Math.round((job.estimatedWaitMs ?? 300_000) / 1000),
-        warning: batchModeWarning(ctx.resolvedConfig?.model ?? '', Math.round((job.estimatedWaitMs ?? 300_000) / 1000)),
-        nextStep: `Poll get_analysis_result with jobId "${job.jobId}". Do NOT re-call analyze — that submits a duplicate batch.`,
-      }, null, 2),
-    }],
-  };
-}
-
-async function handleGetAnalysisResult(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
-  const jobId = requireString(args, 'jobId');
-  const job = analysisJobs.get(jobId);
-  if (!job) {
-    return {
-      content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: `Unknown jobId: ${jobId}` }, null, 2) }],
-      isError: true,
-    };
-  }
-  if (job.status === 'processing') {
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          status: 'processing',
-          jobId,
-          estimatedWaitSeconds: Math.round((job.estimatedWaitMs ?? 300_000) / 1000),
-          warning: batchModeWarning(_ctx.resolvedConfig?.model ?? '', Math.round((job.estimatedWaitMs ?? 300_000) / 1000)),
-          nextStep: `Still running. Poll get_analysis_result with jobId "${jobId}" again. Do NOT re-call analyze.`,
-        }, null, 2),
-      }],
-    };
-  }
-  if (job.status === 'failed' || job.status === 'cancelled') {
-    let message = job.status === 'cancelled' ? 'Analysis job was cancelled.' : 'Analysis job failed.';
-    try {
-      await job.getResults();
-    } catch (e) {
-      message = e instanceof Error ? e.message : String(e);
-    }
-    return {
-      content: [{ type: 'text', text: JSON.stringify({ status: job.status, error: message }, null, 2) }],
-      isError: true,
-    };
-  }
-  // completed
-  const results = await job.getResults();
-  analysisJobs.delete(jobId);
-  const body = JSON.stringify(results, null, 2);
-  // Charge the batch output against the session budget too (input was already
-  // charged at submission) — otherwise the batch path would bypass the guard.
-  chargeTokens(0, body);
-  return { content: [{ type: 'text', text: body }] };
 }
 
 async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
@@ -734,7 +635,6 @@ async function handleListAcceptedFindings(args: Record<string, unknown>, _ctx: T
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   analyze: handleAnalyze,
-  get_analysis_result: handleGetAnalysisResult,
   fix: handleFix,
   accept_finding: handleAcceptFinding,
   health: handleHealth,
@@ -792,23 +692,6 @@ async function pickSmallestContextLength(
   return values.length > 0 ? Math.min(...values) : undefined;
 }
 
-/**
- * Wrap an OpenRouter provider in a batch-aware provider when batch mode is
- * enabled. Batch mode submits the analyzer's wave requests as a single
- * OpenRouter Batch API job instead of sequential chat completions. When the
- * model is not batch-capable, the wrapper falls back to single requests
- * transparently, so callers always get correct results.
- */
-function maybeBatchProvider(
-  base: OpenRouterProvider,
-  model: string,
-  batch: boolean,
-): { provider: LlmProvider; batching: boolean; batchProvider?: BatchAwareOpenRouterProvider } {
-  if (!batch) return { provider: base, batching: false };
-  const wrapped = new BatchAwareOpenRouterProvider({ provider: base, modelId: model, flushSize: 6 });
-  return { provider: wrapped, batching: wrapped.batchingEnabled, batchProvider: wrapped };
-}
-
 export async function createDefaultEngine(): Promise<{ engine: Engine; config: McpEngineConfig }> {
   // Priority 1: .skills-review.json in workspace root
   // MCP_SERVER_WORKSPACE env var takes precedence for config discovery,
@@ -838,23 +721,16 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
           // is never hit on the cold path.
           const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
           const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
-          const batch = cfg.batch === true || process.env.MCP_BATCH_API === '1';
           const base = new OpenRouterProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
-          const { provider: wrapped, batching } = maybeBatchProvider(base, model, batch);
           return {
-            engine: new Engine(wrapped, engineConfig),
-            config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig, batch: batch && batching } as McpEngineConfig,
+            engine: new Engine(base, engineConfig),
+            config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
           };
         }
       }
       if (provider === 'copilot') {
         const apiKey = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
         if (apiKey) {
-          // The Copilot API has no batch transport — reject batch config loudly
-          // instead of silently ignoring it.
-          if (cfg.batch === true || process.env.MCP_BATCH_API === '1') {
-            throw new Error('Batch mode is not supported by the Copilot provider. Set batch=false or use the OpenRouter provider.');
-          }
           // Resolve context length from the live Copilot /models API so new
           // models are picked up automatically (no static table). Only fall
           // back to the OpenRouter catalog if the Copilot fetch fails — a
@@ -895,22 +771,16 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
     });
     const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
     const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
-    const batch = process.env.MCP_BATCH_API === '1';
     const base = new OpenRouterProvider({ apiKey: openRouterKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
-    const { provider, batching, batchProvider } = maybeBatchProvider(base, model, batch);
     return {
-      engine: new Engine(provider, engineConfig),
-      config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig, batch: batch && batching, batchProvider } as McpEngineConfig,
+      engine: new Engine(base, engineConfig),
+      config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
     };
   }
 
   // Copilot via env var (GITHUB_TOKEN / COPILOT_TOKEN).
   const copilotToken = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
   if (copilotToken) {
-    // The Copilot API has no batch transport — reject batch config loudly.
-    if (process.env.MCP_BATCH_API === '1') {
-      throw new Error('Batch mode is not supported by the Copilot provider. Unset MCP_BATCH_API or use the OpenRouter provider.');
-    }
     const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
     const deepModel = process.env.DEEP_MODEL ?? undefined;
     const fixModel = process.env.FIX_MODEL ?? undefined;
@@ -1016,24 +886,8 @@ export function createMcpToolRegistry({
                 items: { type: 'string', enum: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'] },
                 description: 'Optional: which analysis waves to run. If omitted, all 6 waves run in multi-wave mode.',
               },
-              batch: {
-                type: 'boolean',
-                description: 'Optional: force batch (slow) mode. When true, analyze returns a jobId immediately and you must poll get_analysis_result (~5 min). Defaults to the server batch config.',
-              },
             },
             required: ['text'],
-          },
-        },
-        {
-          name: 'get_analysis_result',
-          description:
-            'Poll the result of a deferred (batch/slow-mode) analysis job started by `analyze`. Returns the diagnostics once the OpenRouter Batch API job completes (~5 min). While the job is still processing, returns status "processing" with a warning — do NOT re-call analyze (that submits a duplicate batch). Use this only when `analyze` returned a jobId (batch mode); for synchronous single-request analysis, `analyze` already returns the results directly.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              jobId: { type: 'string', description: 'Job id returned by analyze in batch mode.' },
-            },
-            required: ['jobId'],
           },
         },
         {

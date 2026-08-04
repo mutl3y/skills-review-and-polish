@@ -38,7 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Copilot config no longer depends on OpenRouter** — it resolves its own
   context first and only falls back to the OpenRouter catalog if the Copilot
   fetch fails.
-- **Copilot rejects batch mode loudly** instead of silently ignoring it.
 - **Budget guard off-by-one** — a charge landing exactly on the cap is now
   accepted consistently.
 

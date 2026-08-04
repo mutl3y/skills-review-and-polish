@@ -3,14 +3,12 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
-import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig, AnalysisJob } from './core';
+import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, CopilotProvider } from './providers/externalProvider';
-import { BatchAwareOpenRouterProvider } from './providers/batchAwareProvider';
-import { isBatchSupported } from './modelCatalog';
 import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
 import { acceptFinding } from './core/acceptedFindings';
 import { createDiagnosticCollection, publishDiagnostics } from './ui/diagnostics';
@@ -33,11 +31,6 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
  * Returns 'vscode-lm' as fallback for Copilot/free-tier models.
  */
 async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'openrouter' | 'copilot'> {
-  // Batch-API-only models (OpenRouter ":batch" suffix) are NOT available through
-  // VS Code LM — they must be routed to the OpenRouter provider's Batch API
-  // transport. vscode.lm may still return the model object (vendor "openrouter")
-  // but calling it yields 404 "only available through the Batch API".
-  if (modelId.endsWith(':batch')) return 'openrouter';
   try {
     const models = await vscode.lm.selectChatModels({ id: modelId });
     if (models.length > 0) {
@@ -407,15 +400,6 @@ export function deactivate(): void {
 // Engine builder
 // ---------------------------------------------------------------------------
 
-/**
- * Whether the configured OpenRouter model supports batch (slow) mode. Used to
- * decide if folder scans should default to batch. Returns false for non-batch
- * models or when no model is configured (empty string → auto-select).
- */
-function isBatchSupportedForProvider(modelId: string): boolean {
-  return !!modelId && isBatchSupported(modelId);
-}
-
 async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
   const ctx = context ?? state?.extensionContext;
   if (!ctx) {
@@ -427,25 +411,6 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
   if (state?.cachedEngine && state.cachedEngineConfigHash === hash) {
     log('debug', 'buildEngine: using cached engine');
     return state.cachedEngine;
-  }
-
-  // Self-correct inconsistent persisted config: a Batch-API-only model
-  // (":batch" suffix) cannot run through the standard chat endpoint (it 404s),
-  // and batch mode is disabled by default because the Batch API endpoint is
-  // down. Strip the ":batch" suffix to fall back to the base model, which runs
-  // on the chat endpoint. If the provider was vscode-lm, also switch to
-  // openrouter (the base model is an OpenRouter id). This guards against stale
-  // config written before the picker filter / provider auto-switch fix left a
-  // ":batch" model persisted in settings.
-  if (cfg.model?.endsWith(':batch')) {
-    const baseModel = cfg.model.slice(0, -':batch'.length);
-    log('warn', `buildEngine: model ${cfg.model} is Batch-API-only and batch mode is disabled — falling back to base model ${baseModel}`);
-    const section = vscode.workspace.getConfiguration('skillsReviewAndPolish');
-    await section.update('model', baseModel, vscode.ConfigurationTarget.Global);
-    if (cfg.provider === 'vscode-lm') {
-      await section.update('provider', 'openrouter', vscode.ConfigurationTarget.Global);
-    }
-    return buildEngine(ctx);
   }
 
   log('info', `buildEngine: provider=${cfg.provider} standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'}`);
@@ -478,18 +443,9 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
       requestTimeoutMs: cfg.externalRequestTimeoutMs,
       contextLength,
     });
-    // Wrap in a batch-aware provider when batch mode is enabled AND the
-    // model supports the OpenRouter Batch API. The wrapper buffers wave
-    // requests and submits them as a single batch job; non-batch models
-    // fall through to single-request transparently. Batch is OFF by
-    // default (cfg.batchEnabled) because the Batch API endpoint is
-    // currently unreliable.
-    const provider = cfg.batchEnabled && isBatchSupportedForProvider(cfg.model)
-      ? new BatchAwareOpenRouterProvider({ provider: base, modelId: cfg.model, flushSize: 6 })
-      : base;
     log('info', `buildEngine: using external provider ${cfg.provider} model=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(same as model)'} fixModel=${cfg.fixModel || '(same as model)'}`);
     state!.currentVsCodeLmProvider = undefined;
-    state!.cachedEngine = new Engine(provider, cfg);
+    state!.cachedEngine = new Engine(base, cfg);
     state!.cachedEngineConfigHash = hash;
     return state!.cachedEngine;
   }
@@ -855,42 +811,28 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
 
   log('info', `runAnalyzeFolder: found ${files.length} files in ${folderPath}`);
 
-  // Folder scans use batch (slow) mode ONLY when explicitly enabled. The
-  // OpenRouter Batch API endpoint is currently unreliable, so batch is OFF by
-  // default — folder scans run synchronously like single-file analysis.
-  const useBatch = cfg.batchEnabled === true && cfg.provider === 'openrouter' && isBatchSupportedForProvider(cfg.model);
-  const jobs: Array<{ doc: vscode.TextDocument; job: AnalysisJob }> = [];
+  // Folder scans always run synchronously (single-request analysis).
+  const jobs: Array<{ doc: vscode.TextDocument; job: Promise<AnalysisResult[]> }> = [];
 
   await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: `Skills Review: Submitting ${files.length} file(s)…`, cancellable: true },
+    { location: vscode.ProgressLocation.Notification, title: `Skills Review: Analyzing ${files.length} file(s)…`, cancellable: true },
     async (progress, token) => {
       for (let i = 0; i < files.length; i++) {
         if (token.isCancellationRequested) break;
         const doc = await vscode.workspace.openTextDocument(files[i]);
         progress.report({ message: `${i + 1}/${files.length}: ${doc.fileName}`, increment: 100 / files.length });
         const engine = await buildEngine(state?.extensionContext);
-        const job = engine.analyzeDeferred(
-          { text: doc.getText(), filePath: doc.uri.fsPath, acceptedFindingsPath: getAcceptedFindingsPath() },
-          { batch: useBatch },
+        const job = engine.analyze(
+          { text: doc.getText(), filePath: doc.uri.fsPath, acceptedFindingsPath: getAcceptedFindingsPath(), token },
         );
-        if (useBatch && engine.provider instanceof BatchAwareOpenRouterProvider) {
-          void engine.provider.flush();
-        }
         jobs.push({ doc, job });
       }
     },
   );
 
-  if (useBatch) {
-    state?.statusBar.showBatchStarted(300);
-    vscode.window.showInformationMessage(
-      `Skills Review: Batch (slow) mode started for ${files.length} file(s). Results populate automatically in ~5 min — you can keep editing.`,
-    );
-  }
-
   // Publish results as each job completes (fire-and-forget; non-blocking).
   for (const { doc, job } of jobs) {
-    void job.onComplete((results) => {
+    void job.then((results) => {
       if (!results) return;
       publishDiagnostics(state!.diagnostics, doc.uri, results, cfg.severityOverrides, cfg.maxDiagnostics);
       state?.lastResults.set(doc.uri.toString(), results);
@@ -900,9 +842,7 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
     });
   }
 
-  if (!useBatch) {
-    vscode.window.showInformationMessage(`Skills Review: Finished analyzing ${files.length} file(s).`);
-  }
+  vscode.window.showInformationMessage(`Skills Review: Finished analyzing ${files.length} file(s).`);
 }
 
 type TriggerSource = 'manual' | 'onSave' | 'onType';
@@ -1502,9 +1442,7 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
     if (apiKey && cfg.provider === 'openrouter') {
       try {
         const models = await fetchExternalModels(cfg.provider, apiKey);
-        // Hide Batch-API-only models (":batch" suffix) — the Batch API endpoint
-        // is unreliable and these models 404 on the standard chat endpoint.
-        externalModels = models.filter((m) => !m.id.includes(':batch'));
+        externalModels = models;
         log('info', `selectModel: fetched ${externalModels.length} models from ${cfg.provider}`);
       } catch (err) {
         log('error', `selectModel: failed to fetch ${cfg.provider} models: ${err}`);
@@ -1534,7 +1472,7 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
   }
 
   // Sort and filter models
-  const filteredModels = lmModels.filter((m) => m.vendor !== 'copilotcli' && !m.id.includes('auto') && !m.name.toLowerCase().includes('auto') && !m.id.includes(':batch'));
+  const filteredModels = lmModels.filter((m) => m.vendor !== 'copilotcli' && !m.id.includes('auto') && !m.name.toLowerCase().includes('auto'));
   const droppedModels = lmModels.filter((m) => m.vendor === 'copilotcli' || m.id.includes('auto') || m.name.toLowerCase().includes('auto'));
   log('debug', `selectModel: filtered ${filteredModels.length} models, dropped ${droppedModels.length} models - dropped: ${droppedModels.map(m => `${m.id}:${m.vendor}`).join(', ')}`);
   const visibleModels = filteredModels

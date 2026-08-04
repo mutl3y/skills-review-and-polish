@@ -57,14 +57,13 @@ describe('MCP server integration', () => {
 
   // ── Non-LLM tools: always run (provider not needed) ──────────────────
 
-  it('listTools returns all 8 tools', async () => {
+  it('listTools returns all 7 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'accept_finding',
       'analyze',
       'fix',
-      'get_analysis_result',
       'health',
       'list_accepted_findings',
       'score',
@@ -114,9 +113,9 @@ describe('MCP server integration', () => {
   // engine (real OpenRouter endpoint, not mocked).
 
   describe.skipIf(!hasToken).sequential('Non-LLM tools with live provider', () => {
-    it('listTools still returns all 8 tools with a live provider', async () => {
+    it('listTools still returns all 7 tools with a live provider', async () => {
       const { tools } = await client.listTools();
-      expect(tools.length).toBe(8);
+      expect(tools.length).toBe(7);
       const names = tools.map((t) => t.name).sort();
       expect(names).toContain('health');
       expect(names).toContain('analyze');
@@ -125,7 +124,6 @@ describe('MCP server integration', () => {
       expect(names).toContain('verify_fix');
       expect(names).toContain('accept_finding');
       expect(names).toContain('list_accepted_findings');
-      expect(names).toContain('get_analysis_result');
     });
 
     it('health reports a real provider name and config source', async () => {

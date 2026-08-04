@@ -41,16 +41,6 @@ export class StatusBarManager {
   }
 
   /**
-   * Call when a batch (slow) analysis job is submitted. Shows that results
-   * will populate later (~5 min) and the user can keep editing — avoids the
-   * "Analyzing…" state reading like a hang.
-   */
-  showBatchStarted(estSec = 300): void {
-    this.item.text = `$(history) Skills Review: batch ~${Math.round(estSec / 60)}m`;
-    this.item.tooltip = `Batch (slow) analysis running — results populate automatically in ~${estSec}s. You can keep editing.`;
-  }
-
-  /**
    * Call after analysis completes.
    * @param grade  Letter grade, e.g. 'A+', 'B', 'F'
    * @param issueCount  Total number of diagnostics published

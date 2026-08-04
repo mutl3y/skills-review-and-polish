@@ -342,55 +342,6 @@ With **prompt caching** enabled (automatic in Copilot), repeat analyses on the s
 
 ---
 
-## Batch API Transport (OpenRouter)
-
-When the analyzer runs many requests against a single OpenRouter model, it can
-submit them as a single Batch API job (`/api/beta/batches`) instead of N
-sequential chat completions. This is cheaper and avoids rate limits, but not
-every model supports batch mode — and some models are *batch-only* (they 404
-on the standard chat endpoint with "This model is only available through the
-Batch API").
-
-The capability decision lives in `src/core/batchTransport.ts`, which wraps
-`OpenRouterProvider.submitBatch` / `pollBatch` with a model-capability filter
-and a single-request fallback:
-
-```mermaid
-flowchart TD
-  A[Wave requests] --> B{isBatchSupported modelId?}
-  B -- no --> C[Concurrent single requests<br/>provider.complete]
-  B -- yes --> D[submitBatch → batch id]
-  D --> E[pollBatch until terminal]
-  E -- completed --> F[correlate results by custom_id]
-  E -- failed/timeout --> C
-  D -- error --> C
-  C --> G[LlmResponse[] aligned 1:1]
-  F --> G
-```
-
-- **Capability source**: `modelCatalog.isBatchSupported(modelId)` reads the
-  `batchSupported` allowlist in `assets/openrouter-catalog.json`. Unknown
-  models default to the safe single-request path.
-- **Fallback**: any batch submission error, non-`completed` status, or missing
-  results falls back to concurrent `provider.complete` and logs
-  `batch_not_supported` / `batch_failed` / `batch_error`.
-- **Schema**: the per-item `response_format` is identical to single-request
-  mode (`LLM_RESPONSE_JSON_SCHEMA_BODY`); only the transport envelope differs
-  (per-item `custom_id` correlation).
-- **Gated (off by default)**: batch mode is controlled by the
-  `skillsReviewAndPolish.batchEnabled` setting (default `false`). When off,
-  `runAnalyzeFolder` never sets `useBatch` and `buildEngine` does not wrap the
-  provider in `BatchAwareOpenRouterProvider`, so folder scans run synchronously
-  like single-file analysis. The `:batch`-suffixed models are also filtered out
-  of the model picker (`selectModel`) because they 404 on the standard chat
-  endpoint. **As of 2026-07-30 the OpenRouter Batch API submission endpoint
-  (`POST /api/beta/batches`) is down (returns an HTML 404 page) and the Batch
-  API uses a 24-hour completion window, so batch mode should remain disabled
-  until OpenRouter restores the endpoint and the latency is acceptable.** The
-  batch code is retained but dormant.
-
----
-
 ## For Developers: Configuration
 
 ### Key Settings
