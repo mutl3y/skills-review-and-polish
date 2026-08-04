@@ -561,8 +561,17 @@ async function fetchJson(
     // or other sensitive data that would leak into user-visible error messages.
     throw new HttpError(`HTTP ${response.status}`, response.status);
   }
-  const rawResp = (await response.json()) as Record<string, unknown>;
-  return rawResp;
+  // For 429 (and ok), parse the body defensively — a rate-limit response may
+  // be a non-JSON HTML/plain-text page. Guard so a JSON parse error doesn't
+  // mask the real rate-limit signal.
+  try {
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    if (response.status === 429) {
+      return { error: { message: 'Rate limited (HTTP 429)', code: 429 } };
+    }
+    throw new HttpError(`HTTP ${response.status}`, response.status);
+  }
 }
 
 function getApiError(resp: Record<string, unknown>): ApiError | undefined {

@@ -222,6 +222,11 @@ export class Analyzer {
     this.store = store ?? defaultHistoryStore;
   }
 
+  /** Clear THIS analyzer's history store (works for injected stores too). */
+  clearHistory(): void {
+    this.store.clear();
+  }
+
   // ── Public entry point ───────────────────────────────────────────────────
 
   async analyze(
@@ -1289,23 +1294,34 @@ export class Analyzer {
     }
 
     // Partial word match — collect candidates, then pick nearest to hintLine.
+    // Require multiple words on the same line to avoid anchoring a finding to
+    // a line that merely shares one common word in a different context.
     const words = lowerSearch.split(/\s+/).filter(w => w.length > 3).slice(0, 5);
-    const partialMatches: Array<{ line: number; col: number; len: number }> = [];
+    const partialMatches: Array<{ line: number; col: number; len: number; hits: number }> = [];
     for (let i = 0; i < lines.length; i++) {
       const lowerLine = lines[i].toLowerCase();
+      let hits = 0;
+      let firstCol = -1;
+      let firstLen = 0;
       for (const word of words) {
         const col = lowerLine.indexOf(word);
         if (col !== -1) {
-          partialMatches.push({ line: i, col, len: word.length });
-          break; // one match per line is enough
+          hits++;
+          if (firstCol === -1) { firstCol = col; firstLen = word.length; }
         }
+      }
+      if (hits > 0) {
+        partialMatches.push({ line: i, col: firstCol, len: firstLen, hits });
       }
     }
 
     if (partialMatches.length > 0) {
-      if (hintLine !== undefined && partialMatches.length > 1) {
-        partialMatches.sort((a, b) => Math.abs(a.line - hintLine) - Math.abs(b.line - hintLine));
-      }
+      // Prefer lines matching the most words; tie-break by proximity to hint.
+      partialMatches.sort((a, b) => {
+        if (b.hits !== a.hits) return b.hits - a.hits;
+        if (hintLine !== undefined) return Math.abs(a.line - hintLine) - Math.abs(b.line - hintLine);
+        return a.line - b.line;
+      });
       const best = partialMatches[0];
       return { line: best.line, startChar: best.col, endChar: best.col + best.len };
     }

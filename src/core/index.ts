@@ -50,6 +50,11 @@ export class Engine {
     this.analyzer = new Analyzer(provider);
   }
 
+  /** Clear this engine's analysis history (loop-detection state). */
+  clearHistory(): void {
+    this.analyzer.clearHistory();
+  }
+
   /**
    * Analyze a customization document and return findings.
    * Runs all enabled waves in parallel and applies deterministic consolidation.

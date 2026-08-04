@@ -45,11 +45,16 @@ const MIN_OPENROUTER_ENTRIES = 100;
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
 /** Copilot context cache disk file (offline resilience, mirrors OpenRouter). */
-const COPILOT_CACHE_FILE = path.join(
-  os.tmpdir(),
-  'skills-review-and-polish-copilot-context-cache-v1.json',
-);
 const COPILOT_DISK_CACHE_TTL_MS = 15 * 60 * 1000;
+
+/** Copilot disk cache file, keyed by a token hash so different tokens don't share a cache. */
+function copilotCacheFile(apiKey: string): string {
+  let h = 0;
+  for (let i = 0; i < apiKey.length; i++) {
+    h = ((h << 5) - h + apiKey.charCodeAt(i)) | 0;
+  }
+  return path.join(os.tmpdir(), `skills-review-and-polish-copilot-context-cache-${(h >>> 0).toString(36)}.json`);
+}
 
 interface CatalogCache {
   models: Map<string, number>;
@@ -283,7 +288,7 @@ export async function fetchCopilotContextLengths(
   }
 
   // Disk cache for offline resilience (mirrors the OpenRouter path).
-  const disk = readCopilotDiskCache();
+  const disk = readCopilotDiskCache(apiKey);
   if (disk && Date.now() - disk.fetchedAt < COPILOT_DISK_CACHE_TTL_MS) {
     copilotCache = { models: disk.models, fetchedAt: disk.fetchedAt, apiKey };
     return disk.models;
@@ -319,10 +324,11 @@ export async function fetchCopilotContextLengths(
   }
 }
 
-function readCopilotDiskCache(): CatalogCache | null {
+function readCopilotDiskCache(apiKey: string): CatalogCache | null {
   try {
-    if (!fs.existsSync(COPILOT_CACHE_FILE)) return null;
-    const raw = fs.readFileSync(COPILOT_CACHE_FILE, 'utf8');
+    const file = copilotCacheFile(apiKey);
+    if (!fs.existsSync(file)) return null;
+    const raw = fs.readFileSync(file, 'utf8');
     const parsed = JSON.parse(raw) as SerializedCatalogCache;
     if (!parsed || !Array.isArray(parsed.entries) || typeof parsed.fetchedAt !== 'number') {
       return null;
@@ -333,13 +339,13 @@ function readCopilotDiskCache(): CatalogCache | null {
   }
 }
 
-function writeCopilotDiskCache(cache: CatalogCache): void {
+function writeCopilotDiskCache(cache: { models: Map<string, number>; fetchedAt: number; apiKey: string }): void {
   try {
     const payload: SerializedCatalogCache = {
       fetchedAt: cache.fetchedAt,
       entries: Array.from(cache.models.entries()),
     };
-    fs.writeFileSync(COPILOT_CACHE_FILE, JSON.stringify(payload), 'utf8');
+    fs.writeFileSync(copilotCacheFile(cache.apiKey), JSON.stringify(payload), 'utf8');
   } catch {
     // Ignore — fresh fetch on next call.
   }
@@ -349,7 +355,14 @@ function writeCopilotDiskCache(cache: CatalogCache): void {
 export function _resetCopilotContextCache(): void {
   copilotCache = null;
   copilotFetchInFlight = null;
-  try { fs.unlinkSync(COPILOT_CACHE_FILE); } catch { /* ignore */ }
+  try {
+    const dir = os.tmpdir();
+    for (const f of fs.readdirSync(dir)) {
+      if (f.startsWith('skills-review-and-polish-copilot-context-cache-')) {
+        try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore */ }
 }
 
 /**

@@ -104,6 +104,7 @@ class ExtensionState {
     this.lastResults.clear();
     this.analysisLocks.clear();
     this.fixPreviewContent.clear();
+    this.cachedEngine?.clearHistory();
     this.cachedEngine = undefined;
     Analyzer.clearHistory();
   }
@@ -673,21 +674,14 @@ async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
     return;
   }
 
-  const originalWaves = cfg.enabledWaves;
-  const originalMode = cfg.analysisMode;
-  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-    .update('enabledWaves', selectedWaves, vscode.ConfigurationTarget.Global);
-  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-    .update('analysisMode', modePick.mode, vscode.ConfigurationTarget.Global);
-
-  try {
-    await analyzeDocument(document);
-  } finally {
-    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-      .update('enabledWaves', originalWaves, vscode.ConfigurationTarget.Global);
-    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-      .update('analysisMode', originalMode, vscode.ConfigurationTarget.Global);
-  }
+  // Pass the selected waves/mode as a per-run config override instead of
+  // mutating Global settings (which would persist on crash and fire config
+  // change events). analyzeDocument applies the override for this run only.
+  const override: Partial<EngineConfig> = {
+    enabledWaves: selectedWaves,
+    analysisMode: modePick.mode,
+  };
+  await analyzeDocument(document, undefined, 'manual', override);
 }
 
 // ---------------------------------------------------------------------------
@@ -825,37 +819,58 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   log('info', `runAnalyzeFolder: found ${files.length} files in ${folderPath}`);
 
   // Folder scans always run synchronously (single-request analysis).
+  // Bound concurrency so a large folder doesn't fire hundreds of simultaneous
+  // 6-wave analyses (quota exhaustion, event-loop saturation). Process files
+  // in small batches and await each batch before starting the next.
+  const CONCURRENCY = 3;
   const jobs: Array<{ doc: vscode.TextDocument; job: Promise<AnalysisResult[]> }> = [];
 
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `Skills Review: Analyzing ${files.length} file(s)…`, cancellable: true },
     async (progress, token) => {
-      for (let i = 0; i < files.length; i++) {
+      for (let i = 0; i < files.length; i += CONCURRENCY) {
         if (token.isCancellationRequested) break;
-        const doc = await vscode.workspace.openTextDocument(files[i]);
-        progress.report({ message: `${i + 1}/${files.length}: ${doc.fileName}`, increment: 100 / files.length });
-        const engine = await buildEngine(state?.extensionContext);
-        const job = engine.analyze(
-          { text: doc.getText(), filePath: doc.uri.fsPath, acceptedFindingsPath: getAcceptedFindingsPath(), token },
+        const batch = files.slice(i, i + CONCURRENCY);
+        const batchJobs = await Promise.all(
+          batch.map(async (file) => {
+            const doc = await vscode.workspace.openTextDocument(file);
+            progress.report({ message: `${i + 1}/${files.length}: ${doc.fileName}`, increment: 100 / files.length });
+            const engine = await buildEngine(state?.extensionContext);
+            const job = engine.analyze(
+              { text: doc.getText(), filePath: doc.uri.fsPath, acceptedFindingsPath: getAcceptedFindingsPath(), token },
+            );
+            return { doc, job };
+          }),
         );
-        jobs.push({ doc, job });
+        jobs.push(...batchJobs);
+        // Await this batch's analyses before starting the next, so we never
+        // have more than CONCURRENCY in flight.
+        await Promise.allSettled(batchJobs.map(({ job }) => job));
       }
     },
   );
 
-  // Publish results as each job completes (fire-and-forget; non-blocking).
+  // Publish results as each job completes. Handle rejections so a failed
+  // analysis doesn't become an unhandled rejection or a false "Finished".
+  let succeeded = 0;
   for (const { doc, job } of jobs) {
-    void job.then((results) => {
-      if (!results) return;
+    try {
+      const results = await job;
+      if (!results) continue;
+      succeeded++;
       publishDiagnostics(state!.diagnostics, doc.uri, results, cfg.severityOverrides, cfg.maxDiagnostics);
       state?.lastResults.set(doc.uri.toString(), results);
       const lineCount = doc.getText().split('\n').length;
       const score = scoreSkill(results, lineCount, parseSkillType(doc.getText()));
       if (cfg.showScoreCodeLens) state?.codeLensProvider.update(doc.uri, score, results.length);
-    });
+    } catch (err) {
+      log('warn', `runAnalyzeFolder: analysis failed for ${doc.uri.fsPath}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
-  vscode.window.showInformationMessage(`Skills Review: Finished analyzing ${files.length} file(s).`);
+  vscode.window.showInformationMessage(
+    `Skills Review: Finished analyzing ${succeeded}/${files.length} file(s).`,
+  );
 }
 
 type TriggerSource = 'manual' | 'onSave' | 'onType';

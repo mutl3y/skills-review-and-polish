@@ -123,6 +123,23 @@ function chargeTokens(inputChars: number, outputText: string, inputWaves = 1): b
   return _sessionTokens <= _maxTokensPerSession;
 }
 
+/**
+ * Estimate how many LLM waves an analysis will run, so the cost budget
+ * charges the input per wave (not a flat 6). Mirrors the engine's mode logic:
+ * single=1, focused=2, multiWave=enabledWaves.length (default 6). A direct
+ * `analysisWaves` list overrides the mode.
+ */
+function estimateWaveCount(
+  engineConfig: EngineConfig | undefined,
+  analysisWaves: string[] | undefined,
+): number {
+  if (analysisWaves && analysisWaves.length > 0) return analysisWaves.length;
+  const mode = engineConfig?.analysisMode ?? DEFAULT_ENGINE_CONFIG.analysisMode;
+  if (mode === 'single') return 1;
+  if (mode === 'focused') return 2;
+  return engineConfig?.enabledWaves?.length ?? ALL_WAVES.length;
+}
+
 /** True when the session budget is exhausted (guard enabled and over cap). */
 function budgetExhausted(): boolean {
   return _maxTokensPerSession > 0 && _sessionTokens > _maxTokensPerSession;
@@ -458,10 +475,11 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
       acceptedFindingsPath: resolveAcceptedFindingsPath(),
     }, undefined, undefined, configOverride);
     const body = JSON.stringify(results, null, 2);
-    // Charge the budget (input × 6 waves + output). If this call pushes us
+    // Charge the budget (input × waves + output). If this call pushes us
     // over the cap, we still return its result (the work is done) but mark
     // the budget exhausted so the next analysis request is refused.
-    chargeTokens(text.length, body, 6);
+    const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, analysisWaves);
+    chargeTokens(text.length, body, waves);
     return { content: [{ type: 'text', text: body }] };
   } finally {
     if (progressTimer) clearInterval(progressTimer);
@@ -519,11 +537,15 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   };
 
   const fixer = new SurgicalFixer(engine.provider as LlmProvider);
+  // Respect the configured safety gates (semantic check + self-critique) so
+  // the MCP path gets the same protection as the interactive path — not
+  // weaker. additive is the safe default for ambiguity fixes.
+  const fixCfg = ctx.resolvedConfig?.engineConfig ?? DEFAULT_ENGINE_CONFIG;
   const result = await fixer.fixIssue(text, requireSafeFilePath(args) ?? '', syntheticDiag, {
     additive: true,
-    semanticCheck: false,
-    selfCritique: false,
-    referenceGrounding: true,
+    semanticCheck: fixCfg.fixSemanticCheck,
+    selfCritique: fixCfg.fixSelfCritique,
+    referenceGrounding: fixCfg.fixReferenceGrounding,
   });
 
   const body = JSON.stringify(result, null, 2);
@@ -656,8 +678,9 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
     newIssues,
     issueCount: results.length,
   }, null, 2);
-  // verify_fix re-runs the full 6-wave analysis.
-  chargeTokens(text.length, body, 6);
+  // verify_fix re-runs the full analysis (wave count from config).
+  const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, undefined);
+  chargeTokens(text.length, body, waves);
   return { content: [{ type: 'text', text: body }] };
 }
 

@@ -2,6 +2,17 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 vi.mock('../core/index', () => ({
   Engine: vi.fn(),
+  DEFAULT_ENGINE_CONFIG: {
+    analysisMode: 'focused',
+    enabledWaves: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+    scoreSamples: 1,
+    fixStrategy: 'subtractive',
+    fixSemanticCheck: true,
+    fixSelfCritique: true,
+    fixReferenceGrounding: true,
+    filterFindings: true,
+  },
+  ALL_WAVES: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
 }));
 
 vi.mock('../core/fixer', () => ({
@@ -489,8 +500,8 @@ describe('createMcpToolRegistry', () => {
       }),
       expect.objectContaining({
         additive: true,
-        semanticCheck: false,
-        selfCritique: false,
+        semanticCheck: true,
+        selfCritique: true,
         referenceGrounding: true,
       }),
     );
