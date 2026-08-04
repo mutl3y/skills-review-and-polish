@@ -9,23 +9,7 @@
 
 import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
 import { LLM_RESPONSE_JSON_SCHEMA_BODY } from './llmResponseSchema';
-
-/**
- * Redact secrets from an error string before it is logged or surfaced.
- * Provider error bodies (400/422) can echo back tokens or other sensitive
- * data; this strips them so they never reach the log or the user.
- */
-function redactSecrets(text: string): string {
-  let out = text;
-  out = out.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
-  out = out.replace(/(api[_-]?key|token|secret|password|authorization|credential)[\s:=]+\S+/gi, '$1=[REDACTED]');
-  out = out.replace(/(x-api-key|x-goog-api-key|x-amz-security-token)[\s:=]+\S+/gi, '$1=[REDACTED]');
-  out = out.replace(/https?:\/\/[^\s]*@[^\s]+/gi, 'https://[REDACTED]');
-  out = out.replace(/\b[0-9a-f]{32,}\b/gi, '[REDACTED]');
-  // Strip OpenRouter API keys (sk-or-v1-...) even when unlabeled
-  out = out.replace(/sk-or-v1-[A-Za-z0-9\-_]+/gi, '[REDACTED]');
-  return out;
-}
+import { redactSecrets } from '../core/redact';
 
 /**
  * HTTP error with status code — allows retry logic to distinguish
@@ -474,13 +458,15 @@ function resolveMaxTokens(
   let result = clamp(desired, floor, cap);
   // Bound output by the model's context window so input + output fit, or the
   // provider returns a hard error / truncates. Reserve headroom for the system
-  // prompt + framing. Only apply when it meaningfully reduces the result —
-  // never collapse to a tiny max_tokens that yields garbage.
+  // prompt + framing. The bound is a hard ceiling: never send more than the
+  // window allows, even if that means going below the adaptive floor (sending
+  // an oversized max_tokens would error/truncate, which is worse than a small
+  // response). Only apply when it meaningfully reduces the result.
   if (contextLength && contextLength > 0) {
     const inputTokens = Math.ceil(prompt.length / 4);
     const maxOutput = Math.max(1, contextLength - inputTokens - CONTEXT_HEADROOM_TOKENS);
     if (maxOutput < result) {
-      result = Math.max(floor, Math.min(result, maxOutput));
+      result = Math.min(result, maxOutput);
     }
   }
   return result;

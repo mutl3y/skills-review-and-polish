@@ -10,6 +10,7 @@ vi.mock('../core/fixer', () => ({
       fixIssue: vi.fn(async () => ({ accepted: true, fixed: 'fixed', risks: [] })),
     };
   }),
+  expandToParagraph: (content: string, phrase: string) => (content.includes(phrase) ? phrase : null),
 }));
 
 import { createMcpToolRegistry, sanitizeErrorMessage, _resetAnalyzeCooldown } from './server';

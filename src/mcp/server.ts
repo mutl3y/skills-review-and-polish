@@ -6,7 +6,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
-import { SurgicalFixer } from '../core/fixer';
+import { SurgicalFixer, expandToParagraph } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
 import { OpenRouterProvider, CopilotProvider } from '../providers/externalProvider';
@@ -478,12 +478,23 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   }
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const relevantText = requireString(args, 'relevantText');
-  const line = typeof args['line'] === 'number' ? args['line'] : (typeof args['line'] === 'string' ? parseInt(args['line'], 10) : undefined);
+  // Parse the optional line argument defensively — a malformed value (e.g.
+  // parseInt('abc') → NaN) must NOT bypass the duplicate-anchor guard.
+  const rawLine = args['line'];
+  const line = typeof rawLine === 'number' && Number.isFinite(rawLine)
+    ? rawLine
+    : typeof rawLine === 'string' && rawLine.trim() !== '' && Number.isFinite(Number(rawLine))
+      ? Number(rawLine)
+      : undefined;
 
-  // Duplicate-anchor guard: if relevantText appears more than once and no
-  // explicit line was provided, refuse to fix to avoid replacing the wrong instance.
+  // Duplicate-anchor guard: the fixer may expand a short relevantText to its
+  // surrounding paragraph (expandToParagraph), so count occurrences of the
+  // RESOLVED anchor — not the raw fragment — to avoid replacing the wrong
+  // instance. If no explicit line was provided and the anchor is ambiguous,
+  // refuse to fix.
   if (line === undefined) {
-    const occurrences = text.split(relevantText).length - 1;
+    const anchor = text.includes(relevantText) ? relevantText : expandToParagraph(text, relevantText);
+    const occurrences = anchor ? text.split(anchor).length - 1 : 0;
     if (occurrences > 1) {
       return {
         content: [{

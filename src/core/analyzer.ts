@@ -140,6 +140,8 @@ export class AnalysisHistoryStore {
       existing.recommendations = record.recommendations;
       existing.lastFingerprint = record.lastFingerprint ?? existing.lastFingerprint;
       existing.skillMetadata = record.skillMetadata ?? existing.skillMetadata;
+      // Touch on update so a recently-updated entry isn't the eviction target.
+      this.touch(docKey);
     }
   }
 

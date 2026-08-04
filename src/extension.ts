@@ -7,6 +7,7 @@ import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig } f
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
+import { redactSecrets } from './core/redact';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, CopilotProvider } from './providers/externalProvider';
 import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
@@ -116,12 +117,15 @@ function log(level: 'info' | 'warn' | 'error' | 'debug', message: string): void 
   const cfg = readConfig();
   if (level === 'debug' && cfg.logLevel !== 'debug') return;
 
+  // Redact secrets from the message before it reaches the output channel or
+  // the /tmp debug file — error strings can echo back tokens.
+  const safe = redactSecrets(message);
   const ts = new Date().toISOString();
-  const line = `${ts} [${level.toUpperCase().padEnd(5)}] ${message}`;
-  if (level === 'error') state?.out?.error(message);
-  else if (level === 'warn') state?.out?.warn(message);
-  else if (level === 'debug') state?.out?.debug(message);
-  else state?.out?.info(message);
+  const line = `${ts} [${level.toUpperCase().padEnd(5)}] ${safe}`;
+  if (level === 'error') state?.out?.error(safe);
+  else if (level === 'warn') state?.out?.warn(safe);
+  else if (level === 'debug') state?.out?.debug(safe);
+  else state?.out?.info(safe);
   if (level === 'debug' && cfg.logLevel === 'debug' && state?.logFilePath) {
     try { fs.appendFileSync(state.logFilePath, line + '\n'); } catch { /* ignore */ }
   }
@@ -1845,7 +1849,9 @@ async function testModelSimplePrompt(): Promise<void> {
       log('info', `testModelSimplePrompt: ${statusMsg}`);
       vscode.window.showInformationMessage(statusMsg);
     } catch (err) {
-      log('error', `testModelSimplePrompt error: ${err}`);
+      // The extension's log() redacts the message, so any secret in the error
+      // string is stripped before it reaches the output channel / /tmp file.
+      log('error', `testModelSimplePrompt error: ${err instanceof Error ? err.message : String(err)}`);
       vscode.window.showErrorMessage(`Test failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     return;
