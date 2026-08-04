@@ -18,7 +18,7 @@ import { SkillsCodeActionProvider } from './ui/codeActions';
 import { SuggestionHoverProvider } from './ui/hover';
 import { createInlineRewriteProvider } from './ui/inlineRewrites';
 import { fetchPricing, formatPricing, normalizeModelName, ModelPricing } from './pricing';
-import { fetchContextLengths, formatContextLength, resolveContextLength } from './modelCatalog';
+import { fetchContextLengths, formatContextLength, resolveContextLength, resolveCopilotContextLength } from './modelCatalog';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -462,7 +462,10 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
       );
       throw new Error('No GitHub token configured for the copilot provider');
     }
-    const resolvedCtx = await resolveContextLength(cfg.model || '');
+    // Resolve context length from the live Copilot /models API (new models
+    // picked up automatically), falling back to the OpenRouter catalog.
+    const copilotCtx = await resolveCopilotContextLength(cfg.model || '', copilotToken);
+    const resolvedCtx = copilotCtx ? { contextLength: copilotCtx } : await resolveContextLength(cfg.model || '');
     const contextLength = resolvedCtx?.contextLength;
     const provider = new CopilotProvider({
       apiKey: copilotToken,
@@ -773,9 +776,12 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   const cfg = readConfig();
   // Use configured include patterns + common prompt directory patterns + direct .md files.
   // findFiles doesn't support brace expansion {a,b} — query each pattern separately.
-  const namePatterns = cfg.include.length ? cfg.include : [
+  // The effective include list is used for BOTH discovery and filtering so an
+  // empty `include` config falls back to defaults consistently.
+  const effectiveInclude = cfg.include.length ? cfg.include : [
     '**/SKILL.md', '**/*.prompt.md', '**/*.agent.md', '**/*.instructions.md', '**/AGENTS.md',
   ];
+  const namePatterns = effectiveInclude;
   // Catch .md files in common prompt directories AND directly in the selected folder
   const dirPatterns = [
     '*.md',
@@ -800,7 +806,7 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   for (const set of fileSets) {
     for (const uri of set) {
       if (!seen.has(uri.toString()) && uri.fsPath.endsWith('.md') &&
-          isCustomizationPath(uri.fsPath, cfg.include)) {
+          isCustomizationPath(uri.fsPath, effectiveInclude)) {
         seen.add(uri.toString());
         files.push(uri);
       }
@@ -1789,21 +1795,32 @@ async function testModelSimplePrompt(): Promise<void> {
   const cfg = readConfig();
 
   if (cfg.provider !== 'vscode-lm') {
-    // External provider — test directly via the provider's API
+    // External provider — test directly via the provider's API. Branch on the
+    // provider so we never send one provider's token to another provider's
+    // endpoint (e.g. a GitHub token must not go to openrouter.ai).
     const apiKey = state?.extensionContext ? await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
-    if (!apiKey) {
+    const copilotToken = apiKey || process.env.GITHUB_TOKEN?.trim() || process.env.COPILOT_TOKEN?.trim();
+    const token = cfg.provider === 'copilot' ? copilotToken : apiKey;
+    if (!token) {
       vscode.window.showErrorMessage(
         `Cannot test "${cfg.provider}" provider — no API key stored. Run "Skills Review: Set API Key" first.`,
       );
       return;
     }
     const model = cfg.model || '';
-    const provider = new OpenRouterProvider({
-      apiKey,
-      model,
-      structuredOutput: cfg.externalStructuredOutput,
-      requestTimeoutMs: cfg.externalRequestTimeoutMs,
-    });
+    const provider = cfg.provider === 'copilot'
+      ? new CopilotProvider({
+          apiKey: token,
+          model,
+          structuredOutput: cfg.externalStructuredOutput,
+          requestTimeoutMs: cfg.externalRequestTimeoutMs,
+        })
+      : new OpenRouterProvider({
+          apiKey: token,
+          model,
+          structuredOutput: cfg.externalStructuredOutput,
+          requestTimeoutMs: cfg.externalRequestTimeoutMs,
+        });
 
     vscode.window.showInformationMessage(`Testing ${cfg.provider} model "${model}" with simple JSON prompt…`);
     try {

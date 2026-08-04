@@ -2,24 +2,14 @@
 
 Reference: <https://openrouter.ai/docs/batch-quickstart>
 
-> **STATUS (2026-07-30): GATED OFF BY DEFAULT — DO NOT ENABLE.**
-> The OpenRouter Batch API submission endpoint (`POST /api/beta/batches`)
-> is currently returning an HTML 404 page (not JSON) for all models, so batch
-> mode is non-functional server-side. Additionally, the Batch API uses a
-> 24-hour completion window, which makes it unsuitable for interactive use.
-> The feature is therefore:
->
-> - Hidden from the model picker (`:batch` models are filtered out in
->   `selectModel`).
-> - Disabled by default via the `skillsReviewAndPolish.batchEnabled` setting
->   (default `false`). Folder scans run synchronously unless a user explicitly
->   opts in *and* the endpoint is healthy.
-> - The batch code (`src/core/batchTransport.ts`, `src/providers/batchAwareProvider.ts`)
->   is retained but dormant, ready to re-enable once OpenRouter restores the
->   endpoint and the latency becomes acceptable.
->
-> Re-test the endpoint (`POST https://openrouter.ai/api/beta/batches`) before
-> flipping `batchEnabled` back on.
+> **STATUS (2026-08-04): REMOVED.**
+> The OpenRouter Batch API mode was **removed entirely** on 2026-08-04. It had
+> a 24-hour completion window, was unreliable, and was off by default — not
+> worth keeping. The batch code (`src/core/batchTransport.ts`,
+> `src/providers/batchAwareProvider.ts`, `src/core/analysisJob.ts`) and the
+> `batchEnabled` setting were deleted. The app now uses only synchronous
+> single-request analysis. This document is retained as a historical record of
+> the feature that existed and why it was removed.
 
 ## What exists today
 

@@ -111,10 +111,13 @@ function estimateOutputTokens(text: string): number {
  * Charges BOTH input and output tokens: the expensive part of an LLM call is
  * the input (a 200K-char document is ~50K input tokens per wave, × 6 waves).
  * `inputChars` is the document text length; `outputText` is the response body.
+ * `inputWaves` is the number of times the input is sent to the LLM (analyze
+ * runs 6 waves; score runs scoreSamples × waves) — the input cost is charged
+ * per wave so the budget reflects actual spend.
  */
-function chargeTokens(inputChars: number, outputText: string): boolean {
+function chargeTokens(inputChars: number, outputText: string, inputWaves = 1): boolean {
   if (_maxTokensPerSession <= 0) return true; // guard disabled
-  const inputCost = Math.ceil(inputChars / CHARS_PER_TOKEN);
+  const inputCost = Math.ceil(inputChars / CHARS_PER_TOKEN) * inputWaves;
   const outputCost = estimateOutputTokens(outputText);
   _sessionTokens += inputCost + outputCost;
   return _sessionTokens <= _maxTokensPerSession;
@@ -455,10 +458,10 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
       acceptedFindingsPath: resolveAcceptedFindingsPath(),
     }, undefined, undefined, configOverride);
     const body = JSON.stringify(results, null, 2);
-    // Charge the budget (input + output tokens). If this call pushes us over
-    // the cap, we still return its result (the work is done) but mark the
-    // budget exhausted so the next analysis request is refused.
-    chargeTokens(text.length, body);
+    // Charge the budget (input × 6 waves + output). If this call pushes us
+    // over the cap, we still return its result (the work is done) but mark
+    // the budget exhausted so the next analysis request is refused.
+    chargeTokens(text.length, body, 6);
     return { content: [{ type: 'text', text: body }] };
   } finally {
     if (progressTimer) clearInterval(progressTimer);
@@ -518,6 +521,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
 }
 
 async function handleAcceptFinding(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
+  // filePath is used as a store key (not a file read), so it's kept as-is.
   const filePath = requireString(args, 'filePath');
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const rawRelevantText = requireString(args, 'relevantText');
@@ -607,7 +611,9 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
     filePath: requireSafeFilePath(args),
   });
   const body = JSON.stringify(result, null, 2);
-  chargeTokens(text.length, body);
+  // score runs scoreSamples analyses × 6 waves each.
+  const samples = ctx.resolvedConfig?.engineConfig?.scoreSamples ?? 1;
+  chargeTokens(text.length, body, 6 * samples);
   return { content: [{ type: 'text', text: body }] };
 }
 
@@ -639,7 +645,8 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
     newIssues,
     issueCount: results.length,
   }, null, 2);
-  chargeTokens(text.length, body);
+  // verify_fix re-runs the full 6-wave analysis.
+  chargeTokens(text.length, body, 6);
   return { content: [{ type: 'text', text: body }] };
 }
 
