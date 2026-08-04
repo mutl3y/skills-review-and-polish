@@ -44,6 +44,11 @@ function sleep(ms: number): Promise<void> {
 /** Base max_tokens for vscode.lm requests. */
 const BASE_MAX_TOKENS = 16384;
 
+/** Request timeout (ms) for vscode.lm calls. Override via VSCODE_LM_TIMEOUT_MS. */
+const REQUEST_TIMEOUT_MS = Number(process.env.VSCODE_LM_TIMEOUT_MS) > 0
+  ? Number(process.env.VSCODE_LM_TIMEOUT_MS)
+  : 90_000;
+
 /**
  * Resolve the max_tokens for a vscode.lm request, honoring the analyzer's
  * per-wave `maxTokensMultiplier` (ambiguities/contradiction waves request
@@ -317,7 +322,7 @@ export class VsCodeLmProvider implements LlmProvider {
     if (request.token) {
       request.token.onCancellationRequested(() => cts.cancel());
     }
-    const timeout = setTimeout(() => cts.cancel(), 90_000);
+    const timeout = setTimeout(() => cts.cancel(), REQUEST_TIMEOUT_MS);
 
     // vscode.lm doesn't support System message type, so combine into User message
     const combinedPrompt = `${request.systemPrompt}\n\n${request.prompt}`;
@@ -358,7 +363,7 @@ export class VsCodeLmProvider implements LlmProvider {
           if (request.token) {
             request.token.onCancellationRequested(() => retryCts.cancel());
           }
-          const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
+          const retryTimeout = setTimeout(() => retryCts.cancel(), REQUEST_TIMEOUT_MS);
           try {
             await sleep(STREAM_RETRY_BACKOFF_MS * attempt);
             const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } }, retryCts.token);
@@ -412,7 +417,7 @@ export class VsCodeLmProvider implements LlmProvider {
 
         this.log.debug('complete: retrying with fresh model', { vendor: freshModel.vendor, name: freshModel.name });
         const retryCts = new vscode.CancellationTokenSource();
-        const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
+        const retryTimeout = setTimeout(() => retryCts.cancel(), REQUEST_TIMEOUT_MS);
         try {
           const retryResponse = await freshModel.sendRequest(
             messages,

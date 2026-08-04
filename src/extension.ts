@@ -1250,9 +1250,17 @@ async function runAcceptFinding(
     vscode.window.showWarningMessage('Skills Review: No workspace folder open — cannot persist accepted findings.');
     return;
   }
+  // Validate the text pattern like the MCP path does: a too-long or empty
+  // pattern would over-suppress unrelated findings via substring containment.
+  const rawPattern = (result.relevantText ?? result.message ?? '').trim();
+  const textPattern = rawPattern.length > 200 ? rawPattern.slice(0, 200) : rawPattern;
+  if (textPattern.length < 3) {
+    vscode.window.showWarningMessage('Skills Review: Cannot accept this finding — its text is too short to match safely.');
+    return;
+  }
   acceptFinding(acceptedFindingsPath, fileName, {
     code: result.code,
-    textPattern: result.relevantText ?? result.message,
+    textPattern,
     acceptedAt: new Date().toISOString(),
   });
 
@@ -1369,6 +1377,9 @@ async function showFixDiff(
 
   state!.fixPreviewContent.set(beforeKey, { text: originalDoc.getText(), ts: Date.now() });
   state!.fixPreviewContent.set(afterKey, { text: fixedText, ts: Date.now() });
+  // Capture the snapshot the fix was computed against, so the staleness guard
+  // in applyFixToDocument can detect edits made during the diff-review window.
+  const snapshotText = originalDoc.getText();
   const beforeUri = vscode.Uri.parse(`${FIX_SCHEME}:${beforeKey}`);
   const afterUri  = vscode.Uri.parse(`${FIX_SCHEME}:${afterKey}`);
   log('info', `showFixDiff: opening diff view "${title}"`);
@@ -1387,7 +1398,7 @@ async function showFixDiff(
     'Discard',
   );
   if (choice === 'Apply Fix') {
-    await applyFixToDocument(originalDoc, originalDoc.getText(), fixedText);
+    await applyFixToDocument(originalDoc, snapshotText, fixedText);
   } else {
     log('info', 'showFixDiff: user discarded the fix');
   }

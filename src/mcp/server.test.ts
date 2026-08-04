@@ -22,6 +22,10 @@ vi.mock('../core/fixer', () => ({
     };
   }),
   expandToParagraph: (content: string, phrase: string) => (content.includes(phrase) ? phrase : null),
+  extractParagraphAtLine: (content: string, line: number) => {
+    const lines = content.split('\n');
+    return lines[line] ?? null;
+  },
 }));
 
 import { createMcpToolRegistry, sanitizeErrorMessage, _resetAnalyzeCooldown } from './server';

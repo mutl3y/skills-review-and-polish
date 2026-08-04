@@ -6,8 +6,9 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
-import { SurgicalFixer, expandToParagraph } from '../core/fixer';
+import { SurgicalFixer, expandToParagraph, extractParagraphAtLine } from '../core/fixer';
 import { setTransport } from '../core/logger';
+import { redactSecrets } from '../core/redact';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
 import { OpenRouterProvider, CopilotProvider } from '../providers/externalProvider';
 import { resolveContextLength, resolveCopilotContextLength } from '../modelCatalog';
@@ -176,18 +177,9 @@ const GENERIC_PATTERNS = new Set([
  */
 export function sanitizeErrorMessage(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
-  let sanitized = msg;
-  // Strip Bearer tokens
-  sanitized = sanitized.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
-  // Strip API key / token / secret / password patterns in assignment or header contexts
-  sanitized = sanitized.replace(/(api[_-]?key|token|secret|password|authorization|credential)[\s:=]+\S+/gi, '$1=[REDACTED]');
-  // Strip x-api-key and other common header values
-  sanitized = sanitized.replace(/(x-api-key|x-goog-api-key|x-amz-security-token)[\s:=]+\S+/gi, '$1=[REDACTED]');
-  // Strip URLs that may contain embedded credentials (user:pass@host)
-  sanitized = sanitized.replace(/https?:\/\/[^\s]*@[^\s]+/gi, 'https://[REDACTED]');
-  // Strip any remaining long hex strings (32+ chars) that could be API keys
-  sanitized = sanitized.replace(/\b[0-9a-f]{32,}\b/gi, '[REDACTED]');
-  return sanitized;
+  // Delegate to the shared redaction helper so the MCP server and the logger
+  // use one source of truth (they were drifting).
+  return redactSecrets(msg);
 }
 
 /** Resolve the accepted-findings path from MCP_SERVER_WORKSPACE env var (or cwd fallback). */
@@ -457,7 +449,7 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
   // Use configOverride with analysisWaves (E21 API) — cleaner than 3rd parameter.
   // analysisMode: 'multiWave' ensures wave selection runs (not single-pass).
   const configOverride = analysisWaves && analysisWaves.length > 0
-    ? { analysisWaves: analysisWaves as any, analysisMode: 'multiWave' as const }
+    ? { analysisWaves: analysisWaves as WaveName[], analysisMode: 'multiWave' as const }
     : undefined;
 
   // Analysis always runs synchronously (single-request). If the client
@@ -537,13 +529,19 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   }
 
   const resolvedLine = validLine ?? 0;
+  // When a line is provided, resolve the anchor to the paragraph at that line
+  // so the fix targets the CORRECT occurrence of a duplicated relevantText —
+  // otherwise the fixer would silently fix the first occurrence.
+  const anchorText = validLine !== undefined
+    ? (extractParagraphAtLine(text, validLine) ?? relevantText)
+    : relevantText;
   const syntheticDiag: AnalysisResult = {
     code: diagnosticCode,
-    message: relevantText,
+    message: anchorText,
     severity: 'warning',
     range: { start: { line: resolvedLine, character: 0 }, end: { line: resolvedLine, character: 0 } },
     analyzer: 'mcp',
-    relevantText,
+    relevantText: anchorText,
   };
 
   const fixer = new SurgicalFixer(engine.provider as LlmProvider);
@@ -673,12 +671,23 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const relevantText = requireString(args, 'relevantText');
 
-  // 1. Re-analyze (6 waves — the only LLM cost)
+  // Re-analyze with the same wave set the user analyzed with (if provided),
+  // so verification is consistent with the analysis it's verifying.
+  const wavesArg = args['analysisWaves'] ?? args['enabledWaves'];
+  const validWaves = new Set<string>(['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene']);
+  const analysisWaves: string[] | undefined = Array.isArray(wavesArg)
+    ? (wavesArg as string[]).filter(w => validWaves.has(w))
+    : undefined;
+  const configOverride = analysisWaves && analysisWaves.length > 0
+    ? { analysisWaves: analysisWaves as WaveName[], analysisMode: 'multiWave' as const }
+    : undefined;
+
+  // 1. Re-analyze (the only LLM cost)
   const results = await engine.analyze({
     text,
     filePath: requireSafeFilePath(args),
     acceptedFindingsPath: resolveAcceptedFindingsPath(),
-  });
+  }, undefined, undefined, configOverride);
 
   // 2. Check if target issue is gone
   const targetAccepted = [{ code: diagnosticCode, textPattern: relevantText, acceptedAt: '' }];
@@ -692,8 +701,8 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
     newIssues,
     issueCount: results.length,
   }, null, 2);
-  // verify_fix re-runs the full analysis (wave count from config).
-  const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, undefined);
+  // verify_fix re-runs the analysis (wave count from config override).
+  const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, analysisWaves);
   chargeTokens(text.length, body, waves);
   return { content: [{ type: 'text', text: body }] };
 }
@@ -1145,20 +1154,17 @@ export async function main(): Promise<void> {
   // receives a termination signal. Without this explicit ref, Node can exit
   // immediately after connect() resolves in some child-process environments.
   const keepAlive = setInterval(() => undefined, 60_000);
-  let sawStdinData = false;
-  process.stdin.on('data', () => {
-    sawStdinData = true;
-  });
   await new Promise<void>((resolve) => {
-    const done = (force = false) => {
-      if (!force && !sawStdinData) return;
+    const done = () => {
       clearInterval(keepAlive);
       resolve();
     };
-    process.stdin.once('end', () => done());
-    process.stdin.once('close', () => done());
-    process.once('SIGTERM', () => done(true));
-    process.once('SIGINT', () => done(true));
+    // Always exit on stdin end/close — if the client closes stdin (even with
+    // no data), the session is over and the process must not hang.
+    process.stdin.once('end', done);
+    process.stdin.once('close', done);
+    process.once('SIGTERM', done);
+    process.once('SIGINT', done);
   });
 }
 

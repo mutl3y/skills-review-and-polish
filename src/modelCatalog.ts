@@ -80,7 +80,6 @@ let fixtureCache: Map<string, number> | undefined;
  */
 function getFixturePath(): string {
   // Look for the bundled OpenRouter catalog fixture. The compile script
-  // Look for the bundled OpenRouter catalog fixture. The compile script
   // copies `assets/openrouter-catalog.json` to `out/assets/` so the
   // top-N fixture ships inside the .vsix. In dev/test, the source
   // file at `assets/` is found; in production, the copy at `out/assets/`
