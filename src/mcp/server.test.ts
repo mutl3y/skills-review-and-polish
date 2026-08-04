@@ -410,7 +410,7 @@ describe('createMcpToolRegistry', () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ engine: { analyze: vi.fn() }, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
     });
-    const longText = 'x'.repeat(100_001);
+    const longText = 'x'.repeat(200_001);
     const result = await registry.callTool('analyze', { text: longText });
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toContain('Text too long');
@@ -525,7 +525,7 @@ describe('createMcpToolRegistry', () => {
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
-    const longText = 'x'.repeat(100_001);
+    const longText = 'x'.repeat(200_001);
     const result = await registry.callTool('fix', { text: longText, diagnosticCode: 'x', relevantText: 'y' });
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toContain('Text too long');
@@ -538,7 +538,7 @@ describe('createMcpToolRegistry', () => {
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
-    const longText = 'x'.repeat(100_001);
+    const longText = 'x'.repeat(200_001);
     const result = await registry.callTool('score', { text: longText });
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toContain('Text too long');
@@ -551,7 +551,7 @@ describe('createMcpToolRegistry', () => {
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
-    const longText = 'x'.repeat(100_001);
+    const longText = 'x'.repeat(200_001);
     const result = await registry.callTool('verify_fix', { text: longText, diagnosticCode: 'x', relevantText: 'y' });
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toContain('Text too long');

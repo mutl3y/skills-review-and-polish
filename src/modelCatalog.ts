@@ -229,6 +229,101 @@ export async function resolveContextLength(
 }
 
 // ---------------------------------------------------------------------------
+// GitHub Copilot API context lengths
+// ---------------------------------------------------------------------------
+// The Copilot API (`api.githubcopilot.com/models`) exposes
+// `max_context_window_tokens` per model. We fetch it live (with a short cache)
+// so new Copilot models are picked up automatically — no static table to
+// maintain. This is the same pattern as the OpenRouter catalog fetch.
+
+const COPILOT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const COPILOT_MODELS_URL = 'https://api.githubcopilot.com/models';
+
+interface CopilotModelsResponse {
+  data?: Array<{
+    id: string;
+    capabilities?: {
+      limits?: {
+        max_context_window_tokens?: number;
+      };
+    };
+  }>;
+}
+
+let copilotCache: { models: Map<string, number>; fetchedAt: number } | null = null;
+let copilotFetchInFlight: Promise<Map<string, number>> | null = null;
+
+/**
+ * Fetch and cache all model context lengths from the GitHub Copilot API.
+ * Failures are silently ignored so callers always get a usable Map.
+ *
+ * The returned Map keys are the Copilot model IDs (e.g. `gpt-5-mini`,
+ * `gpt-4.1`, `claude-sonnet-4.5`).
+ */
+export async function fetchCopilotContextLengths(
+  apiKey: string,
+): Promise<Map<string, number>> {
+  if (copilotCache && Date.now() - copilotCache.fetchedAt < COPILOT_CACHE_TTL_MS) {
+    return copilotCache.models;
+  }
+  if (copilotFetchInFlight) {
+    return copilotFetchInFlight;
+  }
+
+  copilotFetchInFlight = (async () => {
+    const resp = await fetchWithTimeout(COPILOT_MODELS_URL, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Copilot-Integration-Id': 'vscode-chat',
+        'Editor-Version': 'vscode/1.90.0',
+      },
+    });
+    if (!resp.ok) throw new Error(`Copilot context fetch failed: HTTP ${resp.status}`);
+    const json = await resp.json() as CopilotModelsResponse;
+    const models = new Map<string, number>();
+    for (const entry of json.data ?? []) {
+      const ctx = entry.capabilities?.limits?.max_context_window_tokens;
+      if (entry.id && typeof ctx === 'number' && ctx > 0) {
+        models.set(entry.id, ctx);
+      }
+    }
+    copilotCache = { models, fetchedAt: Date.now() };
+    return models;
+  })();
+
+  try {
+    return await copilotFetchInFlight;
+  } finally {
+    copilotFetchInFlight = null;
+  }
+}
+
+/** @internal Reset the Copilot context cache (for tests). */
+export function _resetCopilotContextCache(): void {
+  copilotCache = null;
+  copilotFetchInFlight = null;
+}
+
+/**
+ * Resolve the input context length (in tokens) for a Copilot API model ID.
+ * Fetches the live Copilot `/models` catalog (1h cache) so new models are
+ * picked up automatically. Returns `undefined` when the model is unknown or
+ * the fetch fails (caller falls back to the analyzer's 200K-char budget).
+ */
+export async function resolveCopilotContextLength(
+  modelId: string,
+  apiKey: string,
+): Promise<number | undefined> {
+  if (!modelId || !apiKey) return undefined;
+  try {
+    const models = await fetchCopilotContextLengths(apiKey);
+    return models.get(modelId) ?? models.get(normalizeModelId(modelId));
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Batch API capability
 // ---------------------------------------------------------------------------
 

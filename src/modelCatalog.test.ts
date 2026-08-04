@@ -4,14 +4,16 @@
 // captured OpenRouter catalog fixture. Flags drift that would change
 // the analyzer's document budget materially.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   _STATIC_CONTEXT_LENGTHS,
   _resetCatalogCaches,
   _resetFixtureCache,
+  _resetCopilotContextCache,
   resolveContextLength,
+  resolveCopilotContextLength,
 } from './modelCatalog.js';
 
 const FIXTURE_PATH = path.join(__dirname, '..', 'tests', 'fixtures', 'openrouter-catalog.json');
@@ -268,5 +270,44 @@ describe('bundled asset (assets/openrouter-catalog.json)', () => {
     } finally {
       globalThis.fetch = origFetch;
     }
+  });
+});
+
+describe('Copilot context length resolution', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('resolves context length from the live Copilot /models API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'gpt-5-mini', capabilities: { limits: { max_context_window_tokens: 264000 } } },
+          { id: 'gpt-4.1', capabilities: { limits: { max_context_window_tokens: 128000 } } },
+          { id: 'no-limits-model', capabilities: {} },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    _resetCopilotContextCache();
+
+    const ctx = await resolveCopilotContextLength('gpt-5-mini', 'token');
+    expect(ctx).toBe(264000);
+    // The fetch should hit the Copilot models endpoint with auth headers.
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.githubcopilot.com/models');
+    expect(init.headers['Authorization']).toBe('Bearer token');
+    _resetCopilotContextCache();
+    vi.unstubAllGlobals();
+  });
+
+  it('returns undefined for an unknown model or failed fetch', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    _resetCopilotContextCache();
+    const ctx = await resolveCopilotContextLength('gpt-5-mini', 'token');
+    expect(ctx).toBeUndefined();
+    _resetCopilotContextCache();
+    vi.unstubAllGlobals();
   });
 });

@@ -11,7 +11,7 @@ import { setTransport } from '../core/logger';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
 import { OpenRouterProvider, CopilotProvider } from '../providers/externalProvider';
 import { BatchAwareOpenRouterProvider } from '../providers/batchAwareProvider';
-import { resolveContextLength } from '../modelCatalog';
+import { resolveContextLength, resolveCopilotContextLength } from '../modelCatalog';
 import { batchModeWarning } from '../core/batchTransport';
 import type { AnalysisJob } from '../core/analysisJob';
 import type { AnalysisResult, EngineConfig, LlmProvider, Severity, WaveName } from '../core/types';
@@ -38,8 +38,18 @@ export interface McpEngineConfig {
  */
 const analysisJobs = new Map<string, AnalysisJob>();
 
-/** Maximum text length accepted by tools. Prevents runaway LLM costs. */
-const MAX_TEXT_LENGTH = 100_000; // ~25k tokens
+/**
+ * Maximum text length accepted by tools. Prevents runaway LLM costs.
+ *
+ * This must be at least as large as the analyzer's maximum document budget so
+ * large production skills aren't rejected before they reach the analyzer. The
+ * analyzer's budget is derived from the provider's context length (up to a
+ * 200K-char fallback, and more for large-context models like gemini-3.5-flash
+ * at 1M tokens). We set this to 200K to match the analyzer's fallback budget;
+ * the analyzer itself will still truncate/notify if a model's context is
+ * smaller than the document.
+ */
+const MAX_TEXT_LENGTH = 200_000; // ~50k tokens
 
 // ---------------------------------------------------------------------------
 // Cost budget guard
@@ -209,10 +219,32 @@ function optionalPositiveNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-function requireText(args: Record<string, unknown>): string {
+/**
+ * Compute the maximum accepted text length for a given provider context
+ * length (in tokens). Mirrors the analyzer's document-budget math
+ * (1 token ≈ 4 chars, reserve a fraction for system prompt + response).
+ * Falls back to `MAX_TEXT_LENGTH` when the context is unknown.
+ */
+function maxTextLengthForContext(contextLength: number | undefined): number {
+  if (contextLength && contextLength > 0) {
+    return Math.floor(contextLength * 4 * 0.8);
+  }
+  return MAX_TEXT_LENGTH;
+}
+
+/** Resolve the provider's context length defensively (may be absent in mocks). */
+function providerContextLength(engine: Engine): number | undefined {
+  try {
+    return engine.provider?.getContextLength?.();
+  } catch {
+    return undefined;
+  }
+}
+
+function requireText(args: Record<string, unknown>, maxLength = MAX_TEXT_LENGTH): string {
   const text = requireString(args, 'text');
-  if (text.length > MAX_TEXT_LENGTH) {
-    throw new Error(`Text too long: ${text.length} chars (max ${MAX_TEXT_LENGTH}). Split the document or analyze a subsection.`);
+  if (text.length > maxLength) {
+    throw new Error(`Text too long: ${text.length} chars (max ${maxLength}). Split the document or analyze a subsection.`);
   }
   return text;
 }
@@ -313,7 +345,10 @@ let _lastAnalyzeTimestamp = 0;
 export function _resetAnalyzeCooldown(): void { _lastAnalyzeTimestamp = 0; }
 
 async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
-  const text = requireText(args);
+  // Resolve the engine first so we can size the text limit to the provider's
+  // context length (large-context models accept larger documents).
+  const engine = await ctx.getEngine();
+  const text = requireText(args, maxTextLengthForContext(providerContextLength(engine)));
 
   // Cost guard: refuse new analysis once the session budget is exhausted.
   if (budgetExhausted()) {
@@ -327,8 +362,6 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
     await new Promise(resolve => setTimeout(resolve, waitMs));
   }
   _lastAnalyzeTimestamp = Date.now();
-
-  const engine = await ctx.getEngine();
 
   // Parse optional analysisWaves parameter (also accepts legacy enabledWaves)
   const wavesArg = args['analysisWaves'] ?? args['enabledWaves'];
@@ -456,7 +489,8 @@ async function handleGetAnalysisResult(args: Record<string, unknown>, _ctx: Tool
 }
 
 async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
-  const text = requireText(args);
+  const engine = await ctx.getEngine();
+  const text = requireText(args, maxTextLengthForContext(providerContextLength(engine)));
   // Cost guard: fix invokes the LLM (and can loop), so it is a paid operation
   // that must respect the session budget too.
   if (budgetExhausted()) {
@@ -484,7 +518,6 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   }
 
   const resolvedLine = line ?? 0;
-  const engine = await ctx.getEngine();
   const syntheticDiag: AnalysisResult = {
     code: diagnosticCode,
     message: relevantText,
@@ -587,11 +620,11 @@ async function handleHealth(_args: Record<string, unknown>, ctx: ToolHandlerCont
 }
 
 async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
-  const text = requireText(args);
+  const engine = await ctx.getEngine();
+  const text = requireText(args, maxTextLengthForContext(providerContextLength(engine)));
   if (budgetExhausted()) {
     return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
   }
-  const engine = await ctx.getEngine();
   const result = await engine.score({
     text,
     filePath: optionalString(args, 'filePath'),
@@ -602,14 +635,13 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
 }
 
 async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
-  const text = requireText(args);
+  const engine = await ctx.getEngine();
+  const text = requireText(args, maxTextLengthForContext(providerContextLength(engine)));
   if (budgetExhausted()) {
     return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
   }
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const relevantText = requireString(args, 'relevantText');
-
-  const engine = await ctx.getEngine();
 
   // 1. Re-analyze (6 waves — the only LLM cost)
   const results = await engine.analyze({
@@ -774,9 +806,14 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       if (provider === 'copilot') {
         const apiKey = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
         if (apiKey) {
+          // Resolve context length from the live Copilot /models API so new
+          // models are picked up automatically (no static table).
+          const copilotCtx = await resolveCopilotContextLength(model, apiKey);
+          const copilotContextLength = copilotCtx ?? contextLength;
+          const copilotContextSource = copilotCtx ? 'copilot-api' : contextSource;
           return {
-            engine: new Engine(new CopilotProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
-            config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
+            engine: new Engine(new CopilotProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength: copilotContextLength }), engineConfig),
+            config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource: copilotContextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
           };
         }
       }
@@ -821,8 +858,11 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       analysisMode: process.env.ANALYSIS_MODE,
       scoreSamples: process.env.SCORE_SAMPLES ? Number(process.env.SCORE_SAMPLES) : undefined,
     });
-    const contextLength = await pickSmallestContextLength(model, deepModel, fixModel);
-    const contextSource = contextLength ? 'catalog-or-static' : 'fallback';
+    // Resolve context length from the live Copilot /models API so new models
+    // are picked up automatically (no static table).
+    const copilotCtx = await resolveCopilotContextLength(model, copilotToken);
+    const contextLength = copilotCtx ?? await pickSmallestContextLength(model, deepModel, fixModel);
+    const contextSource = copilotCtx ? 'copilot-api' : (contextLength ? 'catalog-or-static' : 'fallback');
     return {
       engine: new Engine(new CopilotProvider({ apiKey: copilotToken, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
       config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: 'env:GITHUB_TOKEN', engineConfig } as McpEngineConfig,
