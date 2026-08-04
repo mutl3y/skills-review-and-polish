@@ -27,6 +27,33 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
 }
 
 /**
+ * Validate a `filePath` against the workspace root before it reaches the
+ * analyzer/fixer. The LM tools are driven by an LLM agent, so `filePath` is
+ * attacker-controlled — a malicious document could point it at `/` or an
+ * absolute path to read arbitrary `.md` files via reference grounding. This
+ * mirrors the MCP server's safeResolveFilePath. Returns the resolved path, or
+ * `undefined` when the path is missing or escapes the workspace root.
+ */
+function safeResolveFilePathForTools(filePath: string | undefined): string | undefined {
+  if (!filePath || filePath.trim() === '') return undefined;
+  const root = path.resolve(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd());
+  const resolved = path.resolve(root, filePath);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    return undefined;
+  }
+  return resolved;
+}
+
+/**
+ * Debug log path, keyed by PID so multiple VS Code instances don't clobber
+ * each other's file. Written with mode 0600 (owner-only) since it holds
+ * document content and LLM response previews.
+ */
+function debugLogFilePath(): string {
+  return path.join(os.tmpdir(), `skills-review-debug-${process.pid}.log`);
+}
+
+/**
  * Detect the correct provider for a given model ID.
  * Checks the vendor of the first matching vscode.lm model.
  * Returns 'vscode-lm' as fallback for Copilot/free-tier models.
@@ -214,8 +241,8 @@ export function activate(context: vscode.ExtensionContext): void {
   state.codeLensProvider = new ScoreCodeLensProvider();
 
   if (cfg.logLevel === 'debug' || cfg.logLevel === 'trace') {
-    state.logFilePath = os.tmpdir() + '/skills-review-debug.log';
-    try { fs.writeFileSync(state.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
+    state.logFilePath = debugLogFilePath();
+    try { fs.writeFileSync(state.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`, { mode: 0o600 }); } catch { /* ignore */ }
   }
 
   setLogLevel(cfg.logLevel === 'trace' ? 'trace' : cfg.logLevel === 'debug' ? 'debug' : 'info');
@@ -741,8 +768,8 @@ async function toggleLogLevel(): Promise<void> {
   // Update the runtime transport immediately (no reload needed)
   setLogLevel(newLevel === 'trace' ? 'trace' : newLevel === 'debug' ? 'debug' : 'info');
   if ((newLevel === 'debug' || newLevel === 'trace') && !state?.logFilePath) {
-    state!.logFilePath = os.tmpdir() + '/skills-review-debug.log';
-    try { fs.writeFileSync(state!.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
+    state!.logFilePath = debugLogFilePath();
+    try { fs.writeFileSync(state!.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`, { mode: 0o600 }); } catch { /* ignore */ }
   }
   setTransport((line) => {
     state?.out?.appendLine(line);
@@ -1868,7 +1895,7 @@ async function testModelSimplePrompt(): Promise<void> {
         systemPrompt: 'You are a helpful assistant. Respond only with valid JSON.',
       });
       if (result.error) {
-        vscode.window.showErrorMessage(`❌ Provider error: ${result.error}`);
+        vscode.window.showErrorMessage(`❌ Provider error: ${redactSecrets(result.error)}`);
         return;
       }
       // Try parsing the response as JSON
@@ -1884,10 +1911,11 @@ async function testModelSimplePrompt(): Promise<void> {
       log('info', `testModelSimplePrompt: ${statusMsg}`);
       vscode.window.showInformationMessage(statusMsg);
     } catch (err) {
-      // The extension's log() redacts the message, so any secret in the error
-      // string is stripped before it reaches the output channel / /tmp file.
-      log('error', `testModelSimplePrompt error: ${err instanceof Error ? err.message : String(err)}`);
-      vscode.window.showErrorMessage(`Test failed: ${err instanceof Error ? err.message : String(err)}`);
+      // Redact the error before showing it to the user — a provider error body
+      // could echo back a token.
+      const errMsg = redactSecrets(err instanceof Error ? err.message : String(err));
+      log('error', `testModelSimplePrompt error: ${errMsg}`);
+      vscode.window.showErrorMessage(`Test failed: ${errMsg}`);
     }
     return;
   }
@@ -2002,7 +2030,11 @@ export function registerLanguageModelTools(
         const { text, filePath } = options.input;
         try {
           const engine = await buildEngineFn();
-          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token });
+          // Validate filePath against the workspace root — the LM tool is
+          // agent-driven, so an attacker-controlled path could read arbitrary
+          // .md files via reference grounding.
+          const safePath = safeResolveFilePathForTools(filePath);
+          const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token });
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
           ]);
@@ -2022,6 +2054,8 @@ export function registerLanguageModelTools(
         try {
           const cfg = readConfigFn();
           const engine = await buildEngineFn();
+          // Validate filePath against the workspace root (agent-driven tool).
+          const safePath = safeResolveFilePathForTools(filePath) ?? '';
           const syntheticDiag: AnalysisResult = {
             code: diagnosticCode,
             message: relevantText,
@@ -2031,7 +2065,7 @@ export function registerLanguageModelTools(
             relevantText,
           };
           const fixer = new SurgicalFixer(engine.provider);
-          const result = await fixer.fixIssue(text, filePath, syntheticDiag, {
+          const result = await fixer.fixIssue(text, safePath, syntheticDiag, {
             additive: cfg.fixStrategy === 'additive',
             semanticCheck: cfg.fixSemanticCheck,
             selfCritique: cfg.fixSelfCritique,
