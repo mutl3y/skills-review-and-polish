@@ -806,17 +806,21 @@ export class SurgicalFixer {
 
     // When a line is provided, resolve the anchor to the paragraph at that
     // line FIRST — this disambiguates which occurrence of a duplicated anchor
-    // to fix, instead of always taking the first match.
+    // to fix, instead of always taking the first match. If the paragraph
+    // extraction fails, REJECT rather than silently falling back to first-match
+    // (which would defeat the disambiguation).
     let targetText: string | null = null;
     if (line !== undefined && line >= 0) {
       targetText = extractParagraphAtLine(text, line);
-    }
-    if (!targetText) {
+      if (!targetText) {
+        return { targetText: null, rejectReason: 'anchor not found at the given line' };
+      }
+    } else {
       targetText = text.includes(rawAnchor) ? rawAnchor : expandToParagraph(text, rawAnchor);
-    }
-    if (!targetText) {
-      const diagLine = diagnostic.range?.start?.line ?? -1;
-      if (diagLine >= 0) targetText = extractParagraphAtLine(text, diagLine);
+      if (!targetText) {
+        const diagLine = diagnostic.range?.start?.line ?? -1;
+        if (diagLine >= 0) targetText = extractParagraphAtLine(text, diagLine);
+      }
     }
 
     if (!targetText) return { targetText: null, rejectReason: 'anchor not found' };

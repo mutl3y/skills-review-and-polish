@@ -561,9 +561,17 @@ export class Analyzer {
     token?: CancellationToken,
   ): Promise<AnalysisResult[]> {
     const configSection = customDiagnostics.map((d, i) => `${i + 1}. **${d.name}**: ${d.description}`).join('\n');
+    // Random per-session delimiter to prevent prompt injection (same defense
+    // as the main path and composition-conflicts) — a static tag could be
+    // broken out of by a malicious skill.
+    const anchorId = crypto.randomUUID();
+    const anchorOpen = `<DOC_${anchorId}>`;
+    const anchorClose = `</DOC_${anchorId}>`;
     const prompt = loadPromptTemplate('custom-diagnostics', {
       CONFIG: configSection,
       DOCUMENT: input.text,
+      ANCHOR_OPEN: anchorOpen,
+      ANCHOR_CLOSE: anchorClose,
     });
     const response = await this.callLLM(prompt, undefined, undefined, token);
     const results: AnalysisResult[] = [];

@@ -652,8 +652,10 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
     filePath: requireSafeFilePath(args),
   });
   const body = JSON.stringify(result, null, 2);
-  // score runs scoreSamples analyses × the configured wave count each.
-  const samples = ctx.resolvedConfig?.engineConfig?.scoreSamples ?? 1;
+  // score runs scoreSamples analyses × the configured wave count each. Clamp
+  // samples to the engine's 1-5 range so the charge matches actual work.
+  const rawSamples = ctx.resolvedConfig?.engineConfig?.scoreSamples ?? 1;
+  const samples = Math.max(1, Math.min(5, Math.floor(rawSamples)));
   const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, undefined);
   chargeTokens(text.length, body, waves * samples);
   return { content: [{ type: 'text', text: body }] };

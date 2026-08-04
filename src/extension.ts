@@ -41,7 +41,17 @@ function safeResolveFilePathForTools(filePath: string | undefined): string | und
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     return undefined;
   }
-  return resolved;
+  // Resolve symlinks and re-check the realpath against the root (mirrors the
+  // MCP server) — a symlink inside the workspace could point outside it.
+  try {
+    const real = fs.realpathSync(resolved);
+    if (real !== root && !real.startsWith(root + path.sep)) {
+      return undefined;
+    }
+    return real;
+  } catch {
+    return resolved;
+  }
 }
 
 /**
@@ -778,10 +788,11 @@ async function toggleLogLevel(): Promise<void> {
     }
   });
 
+  const logPath = state?.logFilePath ?? debugLogFilePath();
   const msg = newLevel === 'trace'
-    ? 'Skills Review: Trace logging enabled — raw LLM responses visible. Check Output panel or /tmp/skills-review-debug.log'
+    ? `Skills Review: Trace logging enabled — raw LLM responses visible. Check Output panel or ${logPath}`
     : newLevel === 'debug'
-    ? 'Skills Review: Debug logging enabled. Check Output panel or /tmp/skills-review-debug.log'
+    ? `Skills Review: Debug logging enabled. Check Output panel or ${logPath}`
     : 'Skills Review: Debug logging disabled.';
   vscode.window.showInformationMessage(msg);
   log('info', `toggleLogLevel: → ${newLevel}`);
@@ -1945,8 +1956,11 @@ async function testModelSimplePrompt(): Promise<void> {
     
     vscode.window.showInformationMessage(statusMsg);
   } catch (err) {
-    log('error', `testModelSimplePrompt error: ${err}`);
-    vscode.window.showErrorMessage(`Test failed: ${err instanceof Error ? err.message : String(err)}`);
+    // Redact the error before showing it to the user (consistent with the
+    // external-provider branch).
+    const errMsg = redactSecrets(err instanceof Error ? err.message : String(err));
+    log('error', `testModelSimplePrompt error: ${errMsg}`);
+    vscode.window.showErrorMessage(`Test failed: ${errMsg}`);
   }
 }
 
@@ -2032,8 +2046,14 @@ export function registerLanguageModelTools(
           const engine = await buildEngineFn();
           // Validate filePath against the workspace root — the LM tool is
           // agent-driven, so an attacker-controlled path could read arbitrary
-          // .md files via reference grounding.
+          // .md files via reference grounding. Fail loudly on rejection (like
+          // the MCP server) rather than silently degrading to no references.
           const safePath = safeResolveFilePathForTools(filePath);
+          if (filePath && safePath === undefined) {
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify({ error: `filePath "${filePath}" is outside the workspace root and was rejected.` })),
+            ]);
+          }
           const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token });
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
