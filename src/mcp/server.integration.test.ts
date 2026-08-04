@@ -2,13 +2,12 @@
  * MCP server integration tests — exercises all 7 tools through a real
  * MCP Client ↔ Server pair using InMemoryTransport (no child process).
  *
- * Tools that require an LLM (analyze, score, fix, verify_fix) are gated
- * on OPENROUTER_API_KEY being set.  Health, accept_finding, and
- * list_accepted_findings always run.
- *
- * This is also the primary home for LLM smoke tests — replacing Playwright
- * tests that previously needed Copilot auth.  All analysis is done via MCP
- * using OPENROUTER_API_KEY, which is always available in the dev container.
+ * Tools that require an LLM (analyze, score, fix, verify_fix) are gated on
+ * a provider token being set AND `RELEASE_GATE=1`. They have real cost, so
+ * they only run during the release gate (`npm run release:gate`), not on
+ * every `npm test`. The provider is either OpenRouter (OPENROUTER_API_KEY)
+ * or the Copilot API (GITHUB_TOKEN, e.g. gpt-5-mini). Health,
+ * accept_finding, and list_accepted_findings always run.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -17,7 +16,15 @@ import { createMcpServer } from './server';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const hasToken = !!process.env.OPENROUTER_API_KEY?.trim();
+// A provider token is available via OpenRouter or Copilot (GITHUB_TOKEN).
+const hasToken = !!(
+  process.env.OPENROUTER_API_KEY?.trim()
+  || process.env.GITHUB_TOKEN?.trim()
+  || process.env.COPILOT_TOKEN?.trim()
+);
+// LLM-backed tests have real cost — only run them during the release gate.
+const isReleaseGate = process.env.RELEASE_GATE === '1';
+const runLlmTests = hasToken && isReleaseGate;
 
 describe('MCP server integration', () => {
   let client: Client;
@@ -69,9 +76,15 @@ describe('MCP server integration', () => {
     const result = await client.callTool({ name: 'health', arguments: {} });
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
     const parsed = JSON.parse(text);
-    expect(parsed.status).toBe('ok');
-    expect(parsed.provider).toBeDefined();
-    expect(parsed.configSource).toBeDefined();
+    // Without a provider token, health reports an error (no engine can be
+    // built) — that's valid. With a token, it reports ok + provider info.
+    if (hasToken) {
+      expect(parsed.status).toBe('ok');
+      expect(parsed.provider).toBeDefined();
+      expect(parsed.configSource).toBeDefined();
+    } else {
+      expect(parsed.status).toBe('error');
+    }
   });
 
   it('accept_finding + list_accepted_findings round-trip', async () => {
@@ -120,7 +133,8 @@ describe('MCP server integration', () => {
       const parsed = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
       expect(parsed.status).toBe('ok');
       // With a live token, the provider should be one of the known names
-      expect(parsed.provider).toMatch(/openrouter/);
+      // (openrouter or copilot).
+      expect(parsed.provider).toMatch(/openrouter|copilot/);
       // Config source should reflect a real source, not 'default'
       expect(parsed.configSource).not.toBe('default');
     });
@@ -177,7 +191,7 @@ Use some tools and do things.
 `;
 
   // LLM tests run sequentially to avoid hitting concurrent request rate limits.
-  describe.skipIf(!hasToken).sequential('LLM-backed tools', () => {
+  describe.skipIf(!runLlmTests).sequential('LLM-backed tools', () => {
     it('analyze returns diagnostics for a skill document', { retry: 1, timeout: 60_000 }, async () => {
       const result = await client.callTool({
         name: 'analyze',
@@ -255,7 +269,7 @@ Use some tools and do things.
   // Mixed fixture: contradictions + ambiguities + hygiene + coverage — best for mode comparison
   const MIXED_FIXTURE_PATH       = join(process.cwd(), 'tests/fixtures/adversarial/test-mixed-hard/SKILL.md');
 
-  describe.skipIf(!hasToken).sequential('Fixture smoke tests via MCP', () => {
+  describe.skipIf(!runLlmTests).sequential('Fixture smoke tests via MCP', () => {
     it('analyze on adversarial fixture detects multiple ambiguity-llm findings', { retry: 1, timeout: 300_000 }, async () => {
       const text = readFileSync(ADVERSARIAL_FIXTURE_PATH, 'utf8');
       const result = await client.callTool({
@@ -382,7 +396,7 @@ Use some tools and do things.
   // contradictions, ambiguities, hygiene/structural, and coverage gaps —
   // designed specifically to show the recall gap between modes.
 
-  describe.skipIf(!hasToken).sequential('Analysis mode quality comparison', () => {
+  describe.skipIf(!runLlmTests).sequential('Analysis mode quality comparison', () => {
     type Diag = { code: string; severity: string };
 
     function countByCategory(diags: Diag[]) {
