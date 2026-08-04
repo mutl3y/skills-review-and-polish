@@ -44,35 +44,37 @@ const MIN_DOCUMENT_CHARS = 8_000;
 // ---------------------------------------------------------------------------
 // The MCP server has no spending cap by default — error redaction exists, but
 // there is no guard against a runaway loop of analyze/score/verify_fix calls
-// burning through a provider quota. This budget tracks cumulative *output*
-// tokens per server session and refuses new analysis requests once exceeded.
-// It is a soft, configurable guard (not a hard wall): operators can raise or
-// disable it via env var or `.skills-review.json`.
+// burning through a provider quota. This budget tracks cumulative *total*
+// tokens (input + output) per server session and refuses new analysis requests
+// once exceeded. It is a soft, configurable guard (not a hard wall): operators
+// can raise or disable it via env var or `.skills-review.json`.
 //
-// Default: 50k output tokens per session (~$0.01-0.03 at current rates).
-const DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION = 50_000;
+// Default: 500k total tokens per session (~$0.05-0.15 at current rates). Input
+// tokens dominate (a 200K-char doc is ~50K input tokens per wave × 6 waves),
+// so the cap is sized for total spend, not just output.
+const DEFAULT_MAX_TOKENS_PER_SESSION = 500_000;
 /** Rough chars-per-token heuristic used when the provider reports no usage. */
 const CHARS_PER_TOKEN = 4;
 
-/** Cumulative output-token budget state for the current server session. */
-let _sessionOutputTokens = 0;
+/** Cumulative total-token budget state for the current server session. */
+let _sessionTokens = 0;
 /** Configured cap for the current session (0 disables the guard). */
-let _maxOutputTokensPerSession = DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION;
+let _maxTokensPerSession = DEFAULT_MAX_TOKENS_PER_SESSION;
 
 /** Reset the session budget (for tests). */
 export function _resetSessionBudget(): void {
-  _sessionOutputTokens = 0;
-  _maxOutputTokensPerSession = DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION;
+  _sessionTokens = 0;
+  _maxTokensPerSession = DEFAULT_MAX_TOKENS_PER_SESSION;
 }
 
 /** Set the session budget cap directly (for tests). 0 disables the guard. */
 export function _setSessionBudgetCap(cap: number): void {
-  _maxOutputTokensPerSession = cap > 0 ? Math.floor(cap) : 0;
+  _maxTokensPerSession = cap > 0 ? Math.floor(cap) : 0;
 }
 
 /** Read the budget cap from env var or config value. Returns 0 to disable. */
-function resolveMaxOutputTokens(value: unknown): number {
-  const env = process.env.MCP_MAX_OUTPUT_TOKENS;
+function resolveMaxTokensPerSession(value: unknown): number {
+  const env = process.env.MCP_MAX_TOKENS;
   // Env var takes precedence; an explicit "0" disables the guard.
   if (env !== undefined && env.trim() !== '') {
     const n = Number(env);
@@ -86,7 +88,7 @@ function resolveMaxOutputTokens(value: unknown): number {
     const n = Number(value);
     if (Number.isFinite(n)) return n > 0 ? Math.floor(n) : 0;
   }
-  return DEFAULT_MAX_OUTPUT_TOKENS_PER_SESSION;
+  return DEFAULT_MAX_TOKENS_PER_SESSION;
 }
 
 /**
@@ -102,7 +104,7 @@ function estimateOutputTokens(text: string): number {
 /**
  * Charge the session budget for an LLM call. Returns true if the charge
  * was accepted (within budget). When the charge would exceed the cap, the
- * budget is still incremented (so `usedOutputTokens` stays honest) and false
+ * budget is still incremented (so `usedTokens` stays honest) and false
  * is returned — the caller may still return the result, but subsequent
  * analysis requests will be refused until the next session.
  *
@@ -111,24 +113,24 @@ function estimateOutputTokens(text: string): number {
  * `inputChars` is the document text length; `outputText` is the response body.
  */
 function chargeTokens(inputChars: number, outputText: string): boolean {
-  if (_maxOutputTokensPerSession <= 0) return true; // guard disabled
+  if (_maxTokensPerSession <= 0) return true; // guard disabled
   const inputCost = Math.ceil(inputChars / CHARS_PER_TOKEN);
   const outputCost = estimateOutputTokens(outputText);
-  _sessionOutputTokens += inputCost + outputCost;
-  return _sessionOutputTokens <= _maxOutputTokensPerSession;
+  _sessionTokens += inputCost + outputCost;
+  return _sessionTokens <= _maxTokensPerSession;
 }
 
 /** True when the session budget is exhausted (guard enabled and over cap). */
 function budgetExhausted(): boolean {
-  return _maxOutputTokensPerSession > 0 && _sessionOutputTokens > _maxOutputTokensPerSession;
+  return _maxTokensPerSession > 0 && _sessionTokens > _maxTokensPerSession;
 }
 
 /** Error message returned when the budget is exhausted. */
 function budgetExhaustedError(): Error {
   return new Error(
-    `MCP session output-token budget exhausted (${_sessionOutputTokens} / ${_maxOutputTokensPerSession} tokens). ` +
+    `MCP session token budget exhausted (${_sessionTokens} / ${_maxTokensPerSession} tokens). ` +
     `Refusing new analysis requests until the next session. Raise the cap via ` +
-    `MCP_MAX_OUTPUT_TOKENS or the "maxOutputTokensPerSession" config, or set it to 0 to disable.`,
+    `MCP_MAX_TOKENS or the "maxTokensPerSession" config, or set it to 0 to disable.`,
   );
 }
 
@@ -185,7 +187,8 @@ function resolveWorkspaceRoot(): string {
  * the fixer/analyzer derive their reference dirs from `filePath`, so an
  * attacker could point it at `/etc/references` or `~/.ssh/references` to read
  * arbitrary files. This resolves the path against the fixed workspace root and
- * rejects anything that escapes it (absolute paths, `..`, symlinks).
+ * rejects anything that escapes it (absolute paths, `..`, and symlinks that
+ * point outside the root).
  *
  * Returns the resolved absolute path, or `undefined` when the path is missing
  * or escapes the workspace root.
@@ -194,17 +197,46 @@ function safeResolveFilePath(filePath: string | undefined): string | undefined {
   if (!filePath || filePath.trim() === '') return undefined;
   const root = path.resolve(resolveWorkspaceRoot());
   const resolved = path.resolve(root, filePath);
-  // Reject paths that escape the workspace root (absolute paths, .. traversal).
+  // Reject paths that escape the workspace root lexically (absolute paths,
+  // .. traversal).
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     return undefined;
   }
-  return resolved;
+  // Resolve symlinks: a symlink inside the workspace could point outside it
+  // (e.g. workspace/references -> /etc). realpath resolves the final target,
+  // which we re-check against the root. Only applies when the path exists —
+  // a non-existent path can't be read, so the lexical check above suffices.
+  try {
+    const real = fs.realpathSync(resolved);
+    if (real !== root && !real.startsWith(root + path.sep)) {
+      return undefined;
+    }
+    return real;
+  } catch {
+    // Path doesn't exist (or realpath failed) — return the lexical path.
+    return resolved;
+  }
 }
 
 function requireString(args: Record<string, unknown>, key: string): string {
   const val = typeof args[key] === 'string' ? args[key] : '';
   if (!val.trim()) throw new Error(`Missing required argument: ${key}`);
   return val;
+}
+
+/**
+ * Resolve a `filePath` argument against the workspace root, throwing a clear
+ * error when the path escapes the workspace (so the caller fails loudly
+ * instead of silently degrading to a wrong reference directory).
+ */
+function requireSafeFilePath(args: Record<string, unknown>): string | undefined {
+  const raw = optionalString(args, 'filePath');
+  if (raw === undefined) return undefined;
+  const resolved = safeResolveFilePath(raw);
+  if (resolved === undefined) {
+    throw new Error(`filePath "${raw}" is outside the MCP workspace root and was rejected.`);
+  }
+  return resolved;
 }
 
 function optionalString(args: Record<string, unknown>, key: string): string | undefined {
@@ -419,7 +451,7 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
   try {
     const results = await engine.analyze({
       text,
-      filePath: safeResolveFilePath(optionalString(args, 'filePath')),
+      filePath: requireSafeFilePath(args),
       acceptedFindingsPath: resolveAcceptedFindingsPath(),
     }, undefined, undefined, configOverride);
     const body = JSON.stringify(results, null, 2);
@@ -473,7 +505,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   };
 
   const fixer = new SurgicalFixer(engine.provider as LlmProvider);
-  const result = await fixer.fixIssue(text, safeResolveFilePath(optionalString(args, 'filePath')) ?? '', syntheticDiag, {
+  const result = await fixer.fixIssue(text, requireSafeFilePath(args) ?? '', syntheticDiag, {
     additive: true,
     semanticCheck: false,
     selfCritique: false,
@@ -540,8 +572,8 @@ async function handleHealth(_args: Record<string, unknown>, ctx: ToolHandlerCont
           requestTimeoutMs: ctx.resolvedConfig?.requestTimeoutMs,
           configSource: ctx.resolvedConfig?.configSource ?? 'unknown',
           costBudget: {
-            maxOutputTokensPerSession: _maxOutputTokensPerSession,
-            usedOutputTokens: _sessionOutputTokens,
+            maxTokensPerSession: _maxTokensPerSession,
+            usedTokens: _sessionTokens,
             exhausted: budgetExhausted(),
             // The token count is an estimate (response chars / 4), not the
             // provider's reported usage — the provider interface does not
@@ -572,7 +604,7 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
   }
   const result = await engine.score({
     text,
-    filePath: safeResolveFilePath(optionalString(args, 'filePath')),
+    filePath: requireSafeFilePath(args),
   });
   const body = JSON.stringify(result, null, 2);
   chargeTokens(text.length, body);
@@ -591,7 +623,7 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
   // 1. Re-analyze (6 waves — the only LLM cost)
   const results = await engine.analyze({
     text,
-    filePath: safeResolveFilePath(optionalString(args, 'filePath')),
+    filePath: requireSafeFilePath(args),
     acceptedFindingsPath: resolveAcceptedFindingsPath(),
   });
 
@@ -703,7 +735,7 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
     const cfg = JSON.parse(raw);
     if (cfg && typeof cfg === 'object') {
       // Apply the session cost budget from config (env var takes precedence).
-      _maxOutputTokensPerSession = resolveMaxOutputTokens(cfg.maxOutputTokensPerSession);
+      _maxTokensPerSession = resolveMaxTokensPerSession(cfg.maxTokensPerSession);
       const engineConfig = buildEngineConfig(cfg as Record<string, unknown>);
       const provider = cfg.provider || 'openrouter';
       const model = cfg.model || 'gpt-4o-mini';
@@ -757,7 +789,7 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
   }
 
   // Priority 2: env vars (existing logic)
-  _maxOutputTokensPerSession = resolveMaxOutputTokens(undefined);
+  _maxTokensPerSession = resolveMaxTokensPerSession(undefined);
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openRouterKey) {
     const model = process.env.ANALYSIS_MODEL ?? 'openai/gpt-4o-mini';

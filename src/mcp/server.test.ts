@@ -307,7 +307,7 @@ describe('createMcpToolRegistry', () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(parsed.costBudget).toBeDefined();
-    expect(parsed.costBudget.maxOutputTokensPerSession).toBeGreaterThan(0);
+    expect(parsed.costBudget.maxTokensPerSession).toBeGreaterThan(0);
     expect(parsed.costBudget.exhausted).toBe(false);
   });
 

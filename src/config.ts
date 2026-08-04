@@ -53,7 +53,7 @@ export interface ExtensionConfig extends EngineConfig {
   externalAdaptiveCharsPerToken: number;
   externalRequestTimeoutMs: number;
   /** Cumulative output-token budget for the MCP server per session. 0 disables the guard. */
-  mcpMaxOutputTokensPerSession: number;
+  mcpMaxTokensPerSession: number;
   runOn: 'manual' | 'onSave' | 'onType';
   include: string[];
   exclude: string[];
@@ -89,7 +89,7 @@ export function readConfig(): ExtensionConfig {
     externalMinAdaptiveResponseTokens: c.get('external.minAdaptiveResponseTokens', 4_096),
     externalAdaptiveCharsPerToken: c.get('external.adaptiveCharsPerToken', 8),
     externalRequestTimeoutMs: c.get('external.requestTimeoutMs', 120_000),
-    mcpMaxOutputTokensPerSession: c.get('mcpMaxOutputTokensPerSession', 50_000),
+    mcpMaxTokensPerSession: c.get('mcpMaxTokensPerSession', 500_000),
     analysisMode: c.get('analysisMode', DEFAULT_ENGINE_CONFIG.analysisMode),
     enabledWaves: waves.length ? waves : [...ALL_WAVES],
     scoreSamples: c.get('scoreSamples', 3),

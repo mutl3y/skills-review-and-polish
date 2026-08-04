@@ -22,6 +22,8 @@ function redactSecrets(text: string): string {
   out = out.replace(/(x-api-key|x-goog-api-key|x-amz-security-token)[\s:=]+\S+/gi, '$1=[REDACTED]');
   out = out.replace(/https?:\/\/[^\s]*@[^\s]+/gi, 'https://[REDACTED]');
   out = out.replace(/\b[0-9a-f]{32,}\b/gi, '[REDACTED]');
+  // Strip OpenRouter API keys (sk-or-v1-...) even when unlabeled
+  out = out.replace(/sk-or-v1-[A-Za-z0-9\-_]+/gi, '[REDACTED]');
   return out;
 }
 
@@ -470,16 +472,22 @@ function resolveMaxTokens(
   const floor = Math.min(minAdaptiveTokens * multiplier, scaledCap);
   const cap = Math.max(maxTokens * multiplier, scaledCap);
   let result = clamp(desired, floor, cap);
-  // Bound output by the model's context window: input tokens (prompt chars / 4)
-  // plus output must not exceed the context length, or the provider returns a
-  // hard error / truncates. Leave headroom for the system prompt + framing.
+  // Bound output by the model's context window so input + output fit, or the
+  // provider returns a hard error / truncates. Reserve headroom for the system
+  // prompt + framing. Only apply when it meaningfully reduces the result —
+  // never collapse to a tiny max_tokens that yields garbage.
   if (contextLength && contextLength > 0) {
     const inputTokens = Math.ceil(prompt.length / 4);
-    const maxOutput = Math.max(1, contextLength - inputTokens - 1024);
-    result = Math.min(result, maxOutput);
+    const maxOutput = Math.max(1, contextLength - inputTokens - CONTEXT_HEADROOM_TOKENS);
+    if (maxOutput < result) {
+      result = Math.max(floor, Math.min(result, maxOutput));
+    }
   }
   return result;
 }
+
+/** Headroom (tokens) reserved for system prompt + framing when bounding output by context. */
+const CONTEXT_HEADROOM_TOKENS = 2048;
 
 /**
  * Map the `structuredOutput` option to the OpenRouter/OpenAI-compatible

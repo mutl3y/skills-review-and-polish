@@ -146,11 +146,11 @@
           "maximum": 128,
           "description": "Heuristic scale used by adaptive response-token sizing: desired tokens = ceil(promptChars / this value). Lower values request more output tokens."
         },
-        "skillsReviewAndPolish.mcpMaxOutputTokensPerSession": {
+        "skillsReviewAndPolish.mcpMaxTokensPerSession": {
           "type": "number",
-          "default": 50000,
+          "default": 500000,
           "minimum": 0,
-          "markdownDescription": "Cumulative output-token budget for the MCP server per session. When the MCP server's analyze/score/verify_fix calls exceed this cap, it refuses new analysis requests until the next session. Set to `0` to disable the guard. Default 50000 (~$0.01-0.03 at current rates). Also configurable via the `MCP_MAX_OUTPUT_TOKENS` env var or `maxOutputTokensPerSession` in `.skills-review.json`."
+          "markdownDescription": "Cumulative total-token budget (input + output) for the MCP server per session. When the MCP server's analyze/score/verify_fix calls exceed this cap, it refuses new analysis requests until the next session. Set to `0` to disable the guard. Default 500000 (~$0.05-0.15 at current rates). Also configurable via the `MCP_MAX_TOKENS` env var or `maxTokensPerSession` in `.skills-review.json`."
         },
         "skillsReviewAndPolish.analysisMode": {
           "type": "string",

@@ -786,8 +786,11 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   ];
   const allPatterns = [...new Set([...namePatterns, ...dirPatterns])];
   // Exclude node_modules AND the user's configured exclude patterns so we
-  // don't enumerate huge trees just to discard them.
-  const excludePattern = ['**/node_modules/**', ...cfg.exclude];
+  // don't enumerate huge trees just to discard them. Guard against a
+  // non-array exclude config (a common user error) so the spread doesn't
+  // explode a string into characters.
+  const userExcludes = Array.isArray(cfg.exclude) ? cfg.exclude : [];
+  const excludePattern = ['**/node_modules/**', ...userExcludes];
   const fileSets = await Promise.all(
     allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p), `{${excludePattern.join(',')}}`)),
   );
@@ -1686,7 +1689,7 @@ async function syncMcpConfig(silent = false): Promise<void> {
     requestTimeoutMs: cfg.externalRequestTimeoutMs,
     analysisMode: cfg.analysisMode,
     logLevel: cfg.logLevel,
-    maxOutputTokensPerSession: cfg.mcpMaxOutputTokensPerSession,
+    maxTokensPerSession: cfg.mcpMaxTokensPerSession,
   };
   // Atomic write: write to temp file first, then rename to avoid corruption
   // on crash/disk-full.  Node's rename(2) is atomic on the same filesystem.

@@ -189,5 +189,7 @@ function redact(text: string): string {
   out = out.replace(/https?:\/\/[^\s]*@[^\s]+/gi, 'https://[REDACTED]');
   // Strip long hex strings (32+ chars) that could be API keys
   out = out.replace(/\b[0-9a-f]{32,}\b/gi, '[REDACTED]');
+  // Strip OpenRouter API keys (sk-or-v1-...) even when unlabeled
+  out = out.replace(/sk-or-v1-[A-Za-z0-9\-_]+/gi, '[REDACTED]');
   return out;
 }
