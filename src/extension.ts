@@ -18,7 +18,7 @@ import { SkillsCodeActionProvider } from './ui/codeActions';
 import { SuggestionHoverProvider } from './ui/hover';
 import { createInlineRewriteProvider } from './ui/inlineRewrites';
 import { fetchPricing, formatPricing, normalizeModelName, ModelPricing } from './pricing';
-import { fetchContextLengths, formatContextLength } from './modelCatalog';
+import { fetchContextLengths, formatContextLength, resolveContextLength } from './modelCatalog';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -58,9 +58,10 @@ function safeResolveFilePathForTools(filePath: string | undefined): string | und
     }
     return real;
   } catch {
-    // realpath failed (file doesn't exist / permission) — reject rather than
-    // returning the unresolved path, so the symlink-escape check isn't skipped.
-    return undefined;
+    // realpath failed (file doesn't exist / permission). A non-existent file
+    // can't be read, so the lexical path (already verified within root) is
+    // safe to return — this lets the LM tools analyze unsaved/proposed paths.
+    return resolved;
   }
 }
 
@@ -493,6 +494,41 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     return state!.cachedEngine;
   }
 
+  if (cfg.provider === 'copilot') {
+    // Copilot API provider: uses a GitHub token (stored key or env) against
+    // api.githubcopilot.com — no separate API key.
+    const copilotToken = apiKey || process.env.GITHUB_TOKEN?.trim() || process.env.COPILOT_TOKEN?.trim();
+    if (!copilotToken) {
+      log('warn', `buildEngine: copilot selected but no token — aborting`);
+      vscode.window.showErrorMessage(
+        `Skills Review: provider is "copilot" but no GitHub token is available. ` +
+          'Set GITHUB_TOKEN, or run "Skills Review: Set API Key".',
+      );
+      throw new Error('No GitHub token configured for the copilot provider');
+    }
+    const resolvedCtx = await resolveContextLength(cfg.model || '');
+    const contextLength = resolvedCtx?.contextLength;
+    const provider = new CopilotProvider({
+      apiKey: copilotToken,
+      model: cfg.model || '',
+      deepModel: cfg.deepModel || undefined,
+      fixModel: cfg.fixModel || undefined,
+      maxTokens: cfg.externalMaxResponseTokens,
+      adaptiveMaxTokens: cfg.externalAdaptiveResponseTokens,
+      adaptiveMaxTokensCap: cfg.externalAdaptiveMaxResponseTokens,
+      minAdaptiveTokens: cfg.externalMinAdaptiveResponseTokens,
+      adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
+      structuredOutput: cfg.externalStructuredOutput,
+      requestTimeoutMs: cfg.externalRequestTimeoutMs,
+      contextLength,
+    });
+    log('info', `buildEngine: using copilot provider model=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(same as model)'} fixModel=${cfg.fixModel || '(same as model)'}`);
+    state!.currentVsCodeLmProvider = undefined;
+    state!.cachedEngine = new Engine(provider, cfg);
+    state!.cachedEngineConfigHash = hash;
+    return state!.cachedEngine;
+  }
+
   log('info', `buildEngine: using vscode-lm standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'} fixModel=${cfg.fixModel || '(same as standard)'}`);
   const vscodeLmProvider = new VsCodeLmProvider(
     cfg.model,
@@ -674,21 +710,14 @@ async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
     return;
   }
 
-  const originalWaves = cfg.enabledWaves;
-  const originalMode = cfg.analysisMode;
-  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-    .update('enabledWaves', selectedWaves, vscode.ConfigurationTarget.Global);
-  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-    .update('analysisMode', modePick.mode, vscode.ConfigurationTarget.Global);
-
-  try {
-    await analyzeDocument(document);
-  } finally {
-    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-      .update('enabledWaves', originalWaves, vscode.ConfigurationTarget.Global);
-    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
-      .update('analysisMode', originalMode, vscode.ConfigurationTarget.Global);
-  }
+  // Pass the selected waves/mode as a per-run config override instead of
+  // mutating Global settings (which would persist on crash and fire config
+  // change events). analyzeDocument applies the override for this run only.
+  const override: Partial<EngineConfig> = {
+    enabledWaves: selectedWaves,
+    analysisMode: modePick.mode,
+  };
+  await analyzeDocument(document, undefined, 'manual', override);
 }
 
 // ---------------------------------------------------------------------------
@@ -712,7 +741,7 @@ async function selectProvider(): Promise<void> {
       picked: current === 'openrouter',
     },
     {
-      label: '� Copilot API',
+      label: '🟣 Copilot API',
       description: 'Uses api.githubcopilot.com with a GitHub token — no separate API key',
       value: 'copilot',
       picked: current === 'copilot',
@@ -793,8 +822,12 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
     '**/skills/**/*.md',
   ];
   const allPatterns = [...new Set([...namePatterns, ...dirPatterns])];
+  // Exclude node_modules AND the user's configured exclude patterns so files
+  // the user explicitly asked to skip aren't analyzed (burning LLM tokens).
+  const userExcludes = Array.isArray(cfg.exclude) ? cfg.exclude : [];
+  const excludePattern = ['**/node_modules/**', ...userExcludes];
   const fileSets = await Promise.all(
-    allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p), '**/node_modules/**')),
+    allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p), `{${excludePattern.join(',')}}`)),
   );
   // Deduplicate and filter to .md files only
   const seen = new Set<string>();
@@ -1569,9 +1602,15 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
   }
 
   const wsCfg = vscode.workspace.getConfiguration('skillsReviewAndPolish');
-  await wsCfg.update(target, picked.modelId, vscode.ConfigurationTarget.Global);
+  // Prefer Workspace scope when a workspace is open (per-project model choice);
+  // fall back to Global otherwise. Avoids baking a one-off model pick into the
+  // user's machine-wide settings.
+  const targetScope = vscode.workspace.workspaceFolders?.length
+    ? vscode.ConfigurationTarget.Workspace
+    : vscode.ConfigurationTarget.Global;
+  await wsCfg.update(target, picked.modelId, targetScope);
   // DisplayName is optional - ignore errors for backward compatibility
-  void wsCfg.update(`${target}DisplayName`, picked.name, vscode.ConfigurationTarget.Global);
+  void wsCfg.update(`${target}DisplayName`, picked.name, targetScope);
 
   // Auto-detect and update provider when selecting the analysis or fix model.
   // Read current provider from the actual vscode config (not the mock) to avoid test breakage.

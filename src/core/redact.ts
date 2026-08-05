@@ -30,6 +30,9 @@ export function redactSecrets(text: string): string {
   out = out.replace(/sk-or-v1-[A-Za-z0-9\-_]+/gi, '[REDACTED]');
   // Strip generic OpenAI-style keys (sk-...) even when unlabeled (short keys too)
   out = out.replace(/\bsk-[A-Za-z0-9\-_]{8,}\b/gi, '[REDACTED]');
+  // Strip GitHub tokens (ghp_ PATs, github_pat_ fine-grained, gho_/ghu_ OAuth)
+  out = out.replace(/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b/gi, '[REDACTED]');
+  out = out.replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/gi, '[REDACTED]');
   // Strip JWT-shaped tokens. Require the header to start with eyJ (base64url of
   // '{"') so we don't over-redact legitimate dotted identifiers/version strings.
   out = out.replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gi, '[REDACTED]');

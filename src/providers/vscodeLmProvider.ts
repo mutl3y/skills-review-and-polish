@@ -25,6 +25,21 @@ function isRateLimitError(msg: string): boolean {
     || lower.includes('exceeded');
 }
 
+/** Base max_tokens for vscode.lm requests. */
+const BASE_MAX_TOKENS = 16384;
+
+/**
+ * Resolve the max_tokens for a vscode.lm request, honoring the analyzer's
+ * per-wave `maxTokensMultiplier` (ambiguities/contradiction waves request
+ * extra headroom so they don't truncate mid-JSON). The external providers
+ * honor this via resolveMaxTokens; vscode.lm must too, or the default
+ * provider silently truncates large waves.
+ */
+function resolveMaxTokens(multiplier: number | undefined): number {
+  const m = multiplier && multiplier > 0 ? multiplier : 1;
+  return Math.round(BASE_MAX_TOKENS * m);
+}
+
 /**
  * Default provider — wraps VS Code's Language Model API (`vscode.lm`).
  * No API keys: uses the user's Copilot subscription.
@@ -298,7 +313,7 @@ export class VsCodeLmProvider implements LlmProvider {
         messages,
         { 
           modelOptions: { 
-            max_tokens: 16384,
+            max_tokens: resolveMaxTokens(request.maxTokensMultiplier),
           }
         },
         cts.token,
@@ -325,7 +340,7 @@ export class VsCodeLmProvider implements LlmProvider {
         }
         const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
         try {
-          const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: 16384 } }, retryCts.token);
+          const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } }, retryCts.token);
           if (!retryResponse.text) {
             return { text: streamed.text, error: streamed.error };
           }
@@ -389,7 +404,7 @@ export class VsCodeLmProvider implements LlmProvider {
         try {
           const retryResponse = await freshModel.sendRequest(
             messages,
-            { modelOptions: { max_tokens: 16384 } },
+            { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } },
             retryCts.token,
           );
           if (!retryResponse.text) {
@@ -459,7 +474,15 @@ export class VsCodeLmProvider implements LlmProvider {
         throw iterErr;
       }
 
-      const isValidJSON = text.includes('{') && text.includes('}') && !text.includes('_') && !text.match(/[^\x20-\x7E\n\r]/);
+      // Validate JSON properly — strip code fences then JSON.parse. The old
+      // heuristic (has braces, no underscores) rejected valid JSON like
+      // {"a_b":1} and accepted garbage like "this is { not } json".
+      let isValidJSON = false;
+      try {
+        const cleaned = text.trim().replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+        JSON.parse(cleaned);
+        isValidJSON = true;
+      } catch { /* not valid JSON */ }
       this.log.debug('testSimplePrompt: result', { textLen: text.length, validJSON: isValidJSON });
 
       return { success: isValidJSON, response: text.substring(0, 200), modelUsed: model.id };
