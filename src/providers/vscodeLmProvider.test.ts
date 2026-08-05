@@ -627,12 +627,11 @@ describe('VsCodeLmProvider.selectModel()', () => {
       const testProvider = new VsCodeLmProvider('claude-sonnet-4.5', 'claude-sonnet-4.5');
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
-      // All attempts fail; the retry's error surfaces with the failed-N-times
-      // marker. STREAM_RETRY_ATTEMPTS=3 means 1 initial + 3 retries = 4 calls.
-      // (collectStreamText reports each failure as empty-text because the thrown
-      // iteration error left no salvageable partial output.)
-      expect(result.error).toContain('Stream failed 4 times');
-      expect(mockModel.sendRequest).toHaveBeenCalledTimes(4);
+      // Both attempts fail; the retry's error surfaces with the twice-failed marker.
+      // (collectStreamText reports the second failure as empty-text because the
+      // thrown iteration error left no salvageable partial output.)
+      expect(result.error).toContain('Stream failed twice');
+      expect(mockModel.sendRequest).toHaveBeenCalledTimes(2);
     });
 
     it('returns an error when the streamed text is empty', async () => {

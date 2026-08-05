@@ -5,42 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-
-- **GitHub Copilot API provider (`copilot`).** The MCP server can now use the
-  Copilot API (`api.githubcopilot.com`) with a `GITHUB_TOKEN` — no separate API
-  key, draws on your Copilot subscription. Model IDs are Copilot IDs (e.g.
-  `gpt-5-mini`, `gpt-4.1`, `claude-sonnet-4.5`). Configure via
-  `"provider": "copilot"` in `.skills-review.json` or `GITHUB_TOKEN` env.
-- **Live Copilot context-length resolution.** The Copilot provider resolves
-  `max_context_window_tokens` from `api.githubcopilot.com/models` (1h in-memory
-  + 15min disk cache) so new models are picked up automatically — no static
-  table. Large production skills (e.g. 292KB) now analyze correctly.
-- **Dynamic MCP text-length limit.** The MCP `analyze`/`score`/`fix`/
-  `verify_fix` text guard is now derived from the provider's context length
-  (mirroring the analyzer's budget math), so large-context models accept larger
-  documents. Fixed fallback raised from 100K to 200K chars.
-- **Progress notifications during long analysis.** The MCP server emits
-  `notifications/progress` every ~15s while a synchronous `analyze` runs, so
-  clients that set `resetTimeoutOnProgress` keep the request alive past the
-  default 60s timeout.
-
-### Fixed
-
-- **Copilot output truncation on large documents.** `resolveMaxTokens` is now a
-  shared helper used by both OpenRouter and Copilot providers — the Copilot
-  copy was missing the `Math.max(desired, scaledCap)` fix that prevents
-  mid-JSON truncation.
-- **Copilot context cache keyed by token** (no cross-token reuse) and **disk
-  cache** for offline resilience.
-- **Copilot config no longer depends on OpenRouter** — it resolves its own
-  context first and only falls back to the OpenRouter catalog if the Copilot
-  fetch fails.
-- **Budget guard off-by-one** — a charge landing exactly on the cap is now
-  accepted consistently.
-
 ## [0.1.50] — 2026-07-19 (marketplace publish)
 
 ### Fixed
@@ -130,14 +94,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Reference files now included for all 6 waves.** The composition-conflicts wave was already reading linked `.prompt.md` / `.agent.md` / `.instructions.md` files; the rest of the waves now read every `.md` reference linked from the skill. Files that would overflow the per-model budget are dropped (with a marker) rather than truncated mid-content.
 
-- **`LlmProvider.getContextLength()` is a required interface method.** `VsCodeLmProvider` reads `maxInputTokens` from the cached `vscode.LanguageModelChat`; `OpenRouterProvider` accepts a `contextLength` constructor option. Callers that don't populate it get a 200K-char fallback and an `info`-level warning.
+- **`LlmProvider.getContextLength()` is a required interface method.** `VsCodeLmProvider` reads `maxInputTokens` from the cached `vscode.LanguageModelChat`; `OpenRouterProvider` and `GitHubModelsProvider` accept a `contextLength` constructor option. Callers that don't populate it get a 200K-char fallback and an `info`-level warning.
 
 ### Added (v0.1.39 unreleased)
 
 - **Bundled OpenRouter catalog asset** — `assets/openrouter-catalog.json` (top-75 popular models, ~4.5KB) ships inside the .vsix so the analyzer works offline for the most common models. Refreshed by `node scripts/refresh-openrouter-catalog.mjs` (auto-runs on `vscode:prepublish`).
 - **`scripts/refresh-openrouter-catalog.mjs`** — maintenance script that fetches the live OpenRouter `/models` catalog (140ms cold, 1h cached) and writes both `assets/openrouter-catalog.json` (bundled subset, top-75) and `tests/fixtures/openrouter-catalog.json` (full 1,215-entry catalog for test drift detection).
 - **`npm run release:gate`** — single command for pre-flight: refresh fixtures + compile + test + lint + lint:md. `vscode:prepublish` runs the refresh-then-compile half automatically before every `vsce package` / `vsce publish`.
-- **Model catalog chain**: live OpenRouter catalog → bundled asset → 3-entry static table (for niche Copilot display names not in the OpenRouter catalog).
+- **Model catalog chain**: live OpenRouter catalog → bundled asset → 5-entry static table (for niche Copilot display names and GitHub Models IDs not in the OpenRouter catalog).
 - **Model picker** surfaces `· ctx=200K` on each model's detail line (powered by the same catalog lookup).
 - **MCP `createDefaultEngine` is now async** — fetches the OpenRouter catalog at startup (140ms cold, ~5ms warm, 1h cached in-memory) so the analyzer's budget is resolved before the first analyze call. No more 200K fallback hits on the cold path.
 
@@ -145,13 +109,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`Analyzer.buildUserPrompt` is async** — reads linked reference files in document order, includes them greedily until the per-model budget would overflow. Reference files that don't fit are dropped with a clear marker.
 - **Static `MAX_ANALYSIS_DOCUMENT_CHARS` constant removed** — replaced by `FALLBACK_DOCUMENT_CHARS = 200_000`, `CONTEXT_FRACTION = 0.8`, and `MIN_DOCUMENT_CHARS = 8_000`, computed dynamically from the provider's context length.
-- **Static context-length table slimmed** from 38 entries (mostly dead code already covered by the OpenRouter catalog) to 3 entries (niche Copilot display names that genuinely aren't in OpenRouter). Drift detection now runs against the fixture.
+- **Static context-length table slimmed** from 38 entries (mostly dead code already covered by the OpenRouter catalog) to 5 entries (niche Copilot display names and GitHub Models IDs that genuinely aren't in OpenRouter). Drift detection now runs against the fixture.
 - **`scripts/e50-clean-architecture.mjs` `STRUCTURED_OUTPUT` env parser** widened to accept `schema|json|off` (default `schema`). Legacy `1`/`0` boolean aliases preserved.
 
 ### Fixed (v0.1.39 unreleased)
 
 - **Analyzer truncation was destroying analyzer quality.** The 60K-char cap was forcing head/tail slicing on any skill over 60K chars (lines 256-2262 of `quality-playbook` were entirely invisible to the model). The probe (`scripts/probes/verify-full-doc.mjs`) shows the new behavior: a 292K-char skill now produces a 293K-char prompt including 6 reference files, no head/tail marker.
-- **Output-budget under-sizing on large skills (root cause of `finish_reason: length`).** `resolveMaxTokens` derived the output budget from *input length* (`ceil(prompt.length / adaptiveCharsPerToken)`), which for a 293K-char skill yielded only ~73K output tokens — far below the model's real generation cap. `OpenRouterProvider` now sizes the budget from the model's generation cap (`adaptiveMaxTokensCap * multiplier`) via `desired = max(inputDerived, scaledCap)`, so large skills get the full budget. Verified: the contradiction wave on `quality-playbook` now requests 768K tokens (was 73K) and completes without truncation. Residual `finish_reason: length` on `quality-playbook`'s hygiene/coverage/ambiguity waves is the model's *realized* generation limit (~73K tokens / ~293K chars) even at `max_tokens=384000` — a model behavior limit, not a code defect; `salvageTruncatedJSON` recovers partial findings. Skill chunking is explicitly deferred (long skills are rare; authors should split them). See `docs/plan/archive/releases/20260717-handling-noise-floor-and-release-blockers.md` → "Model output-cap limitations".
+- **Output-budget under-sizing on large skills (root cause of `finish_reason: length`).** `resolveMaxTokens` derived the output budget from *input length* (`ceil(prompt.length / adaptiveCharsPerToken)`), which for a 293K-char skill yielded only ~73K output tokens — far below the model's real generation cap. Both `OpenRouterProvider` and `GitHubModelsProvider` now size the budget from the model's generation cap (`adaptiveMaxTokensCap * multiplier`) via `desired = max(inputDerived, scaledCap)`, so large skills get the full budget. Verified: the contradiction wave on `quality-playbook` now requests 768K tokens (was 73K) and completes without truncation. Residual `finish_reason: length` on `quality-playbook`'s hygiene/coverage/ambiguity waves is the model's *realized* generation limit (~73K tokens / ~293K chars) even at `max_tokens=384000` — a model behavior limit, not a code defect; `salvageTruncatedJSON` recovers partial findings. Skill chunking is explicitly deferred (long skills are rare; authors should split them). See `docs/plan/archive/releases/20260717-handling-noise-floor-and-release-blockers.md` → "Model output-cap limitations".
 - **Deterministic retry/merge path (schema-mode noise-floor fix).** When a wave got a non-stop finish reason and retried, the merge previously kept whichever degraded response was *longer* — a non-deterministic signal that injected run-to-run variance. The merge now keeps the **first** response unless the retry is a *clean* recovery (stop finish, no error, passes `shouldRetryFinishResponse`); under greedy decoding (temperature 0) the first response is the deterministic result. This collapsed the 10× noise-floor probe from range 89 → range 3 (9 of 10 runs identical). `seed` was prototyped and **rejected** (greedy decoding makes it inert) and fully reverted. See `docs/plan/archive/releases/20260718-determinism-and-noise-floor-resolution.md`.
 
 ## [0.1.44] — 2026-07-18 (marketplace publish)

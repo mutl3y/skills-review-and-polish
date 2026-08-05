@@ -508,8 +508,7 @@ describe('analyze with mock provider', () => {
       ['contradictions'],
     );
 
-    // Deep tier fails → retried directly once → falls back to standard.
-    expect(tiers).toEqual(['deep', 'deep', 'standard']);
+    expect(tiers).toEqual(['deep', 'standard']);
     expect(results.some(r => r.code === 'llm-error')).toBe(false);
     expect(results.some(r => r.code === 'contradiction')).toBe(true);
   });

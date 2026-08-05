@@ -26,42 +26,6 @@ function isRateLimitError(msg: string): boolean {
 }
 
 /**
- * Number of fresh-stream retries for a mid-stream transport failure (e.g.
- * "Server error. Stream terminated"). The Copilot stream is flaky enough that
- * a single retry is often insufficient, so we allow a few attempts with
- * backoff before surfacing the error to the analyzer's retry chain.
- */
-const STREAM_RETRY_ATTEMPTS = 3;
-
-/** Backoff between stream retries, scaled by attempt number (attempt * this). */
-const STREAM_RETRY_BACKOFF_MS = 500;
-
-/** Minimal promise-based sleep used for stream-retry backoff. */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Base max_tokens for vscode.lm requests. */
-const BASE_MAX_TOKENS = 16384;
-
-/** Request timeout (ms) for vscode.lm calls. Override via VSCODE_LM_TIMEOUT_MS. */
-const REQUEST_TIMEOUT_MS = Number(process.env.VSCODE_LM_TIMEOUT_MS) > 0
-  ? Number(process.env.VSCODE_LM_TIMEOUT_MS)
-  : 90_000;
-
-/**
- * Resolve the max_tokens for a vscode.lm request, honoring the analyzer's
- * per-wave `maxTokensMultiplier` (ambiguities/contradiction waves request
- * extra headroom so they don't truncate mid-JSON). The external providers
- * honor this via resolveMaxTokens; vscode.lm must too, or the default
- * provider silently truncates large waves.
- */
-function resolveMaxTokens(multiplier: number | undefined): number {
-  const m = multiplier && multiplier > 0 ? multiplier : 1;
-  return Math.round(BASE_MAX_TOKENS * m);
-}
-
-/**
  * Default provider — wraps VS Code's Language Model API (`vscode.lm`).
  * No API keys: uses the user's Copilot subscription.
  *
@@ -101,17 +65,12 @@ export class VsCodeLmProvider implements LlmProvider {
   }
 
   /**
-   * The input context length of the STANDARD (analysis) model. The analyzer's
-   * document budget should be sized to the model that actually runs the
-   * analysis — not the fix model (which is often smaller and would needlessly
-   * constrain the budget). Falls back to the min over all resolved tiers when
-   * the standard tier isn't resolved yet. Returns `undefined` when nothing is
-   * resolved (cold cache).
+   * The smallest input context length across the three configured tiers.
+   * Returns the most conservative value so the analyzer's document budget
+   * fits every model the provider might serve. When no tier has been
+   * resolved yet (cold cache), returns `undefined`.
    */
   getContextLength(): number | undefined {
-    if (this.cachedStandard && typeof this.cachedStandard.maxInputTokens === 'number') {
-      return this.cachedStandard.maxInputTokens;
-    }
     const contexts = [this.cachedStandard, this.cachedDeep, this.cachedFix]
       .filter((m): m is vscode.LanguageModelChat => !!m && typeof m.maxInputTokens === 'number')
       .map(m => m.maxInputTokens);
@@ -127,39 +86,24 @@ export class VsCodeLmProvider implements LlmProvider {
    * Failures are non-fatal — `complete()` will surface a user-facing error.
    */
   async warmUp(): Promise<void> {
-    // Resolve ALL tiers (standard, deep, fix) so getContextLength() returns a
-    // real value before the first analysis wave builds its prompt. Previously
-    // only the standard tier was warmed, so getContextLength() (which takes
-    // the min over all cached tiers) returned undefined on the first run and
-    // every wave fell back to the 200K-char budget.
     if (!this.cachedStandard) {
       this.cachedStandard = await this.selectModel(this.standardModelId);
       if (this.cachedStandard && this.onModelSelected) {
         this.onModelSelected(this.cachedStandard.id);
       }
     }
-    if (!this.cachedDeep && this.deepModelId && this.deepModelId !== this.standardModelId) {
-      // Silent: deep/fix are optional tiers — don't surface an error popup if
-      // they're unavailable during warm-up.
-      this.cachedDeep = await this.selectModel(this.deepModelId, true);
-    }
-    if (!this.cachedFix && this.fixModelId && this.fixModelId !== this.standardModelId) {
-      this.cachedFix = await this.selectModel(this.fixModelId, true);
-    }
   }
 
-  private async selectModel(modelId: string, silent = false): Promise<vscode.LanguageModelChat | undefined> {
+  private async selectModel(modelId: string): Promise<vscode.LanguageModelChat | undefined> {
     const allModels = await vscode.lm.selectChatModels();
     this.log.debug('models available', { count: allModels.length, ids: allModels.map(m => m.id).join(', ') });
     this.log.debug('model vendors', { vendors: allModels.map(m => `${m.id}:${m.vendor}`).join(', ') });
 
     if (allModels.length === 0) {
       this.log.info('no models available');
-      if (!silent) {
-        vscode.window.showErrorMessage(
-          'No language models available. Please sign in to GitHub Copilot or configure a specific model in Settings.',
-        );
-      }
+      vscode.window.showErrorMessage(
+        'No language models available. Please sign in to GitHub Copilot or configure a specific model in Settings.',
+      );
       return undefined;
     }
 
@@ -342,7 +286,7 @@ export class VsCodeLmProvider implements LlmProvider {
     if (request.token) {
       request.token.onCancellationRequested(() => cts.cancel());
     }
-    const timeout = setTimeout(() => cts.cancel(), REQUEST_TIMEOUT_MS);
+    const timeout = setTimeout(() => cts.cancel(), 90_000);
 
     // vscode.lm doesn't support System message type, so combine into User message
     const combinedPrompt = `${request.systemPrompt}\n\n${request.prompt}`;
@@ -354,7 +298,7 @@ export class VsCodeLmProvider implements LlmProvider {
         messages,
         { 
           modelOptions: { 
-            max_tokens: resolveMaxTokens(request.maxTokensMultiplier),
+            max_tokens: 16384,
           }
         },
         cts.token,
@@ -368,45 +312,37 @@ export class VsCodeLmProvider implements LlmProvider {
 
       const streamed = await this.collectStreamText(response as { stream: AsyncIterable<unknown>; text?: unknown });
       if (streamed.error) {
-        // Stream-iteration failures (e.g. "network request aborted" /
-        // "Server error. Stream terminated" mid-stream) are transient transport
-        // errors, not model errors — the request itself succeeded. Retry with a
-        // fresh stream up to STREAM_RETRY_ATTEMPTS times with a short backoff.
-        // This path previously returned the error directly, so a single network
-        // hiccup failed the whole analysis wave with no retry (rate limits, by
-        // contrast, get a full retry chain). The Copilot stream is flaky enough
-        // that one retry is often not enough, so we allow a few attempts.
-        let lastStreamed = streamed;
-        for (let attempt = 1; attempt <= STREAM_RETRY_ATTEMPTS; attempt++) {
-          this.log.info('complete: stream error — retrying with fresh stream', { attempt, error: lastStreamed.error });
-          const retryCts = new vscode.CancellationTokenSource();
-          if (request.token) {
-            request.token.onCancellationRequested(() => retryCts.cancel());
-          }
-          const retryTimeout = setTimeout(() => retryCts.cancel(), REQUEST_TIMEOUT_MS);
-          try {
-            await sleep(STREAM_RETRY_BACKOFF_MS * attempt);
-            const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } }, retryCts.token);
-            if (!retryResponse.text) {
-              return { text: lastStreamed.text, error: lastStreamed.error };
-            }
-            const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
-            if (retryStreamed.error) {
-              lastStreamed = retryStreamed;
-              continue;
-            }
-            this.log.debug('complete: stream retry success', { attempt, textLen: retryStreamed.text.length });
-            return { text: retryStreamed.text };
-          } catch (retryErr) {
-            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-            this.log.info('complete: stream retry also failed', { attempt, error: retryMsg });
-            return { text: lastStreamed.text, error: lastStreamed.error, isRateLimit: isRateLimitError(retryMsg) };
-          } finally {
-            clearTimeout(retryTimeout);
-            retryCts.dispose();
-          }
+        this.log.info('complete: stream error — retrying once with fresh stream', { error: streamed.error });
+        // Stream-iteration failures (e.g. "network request aborted" mid-stream)
+        // are transient transport errors, not model errors — the request itself
+        // succeeded. Retry once against the same model before giving up. This
+        // path previously returned the error directly, so a single network hiccup
+        // failed the whole analysis wave with no retry (rate limits, by contrast,
+        // get a full retry chain).
+        const retryCts = new vscode.CancellationTokenSource();
+        if (request.token) {
+          request.token.onCancellationRequested(() => retryCts.cancel());
         }
-        return { text: lastStreamed.text, error: `Stream failed ${STREAM_RETRY_ATTEMPTS + 1} times: ${lastStreamed.error}` };
+        const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
+        try {
+          const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: 16384 } }, retryCts.token);
+          if (!retryResponse.text) {
+            return { text: streamed.text, error: streamed.error };
+          }
+          const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
+          if (retryStreamed.error) {
+            return { text: retryStreamed.text, error: `Stream failed twice: ${retryStreamed.error}` };
+          }
+          this.log.debug('complete: stream retry success', { textLen: retryStreamed.text.length });
+          return { text: retryStreamed.text };
+        } catch (retryErr) {
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          this.log.info('complete: stream retry also failed', { error: retryMsg });
+          return { text: streamed.text, error: streamed.error, isRateLimit: isRateLimitError(retryMsg) };
+        } finally {
+          clearTimeout(retryTimeout);
+          retryCts.dispose();
+        }
       }
 
       this.log.debug('complete: success', { textLen: streamed.text.length });
@@ -422,7 +358,9 @@ export class VsCodeLmProvider implements LlmProvider {
       }
 
       // Invalidate the cached model — it may be stale or disconnected
-      if (isDeep) {
+      if (isFix) {
+        this.cachedFix = undefined;
+      } else if (isDeep) {
         this.cachedDeep = undefined;
       } else {
         this.cachedStandard = undefined;
@@ -434,14 +372,24 @@ export class VsCodeLmProvider implements LlmProvider {
         if (!freshModel) {
           return { text: '{}', error: `Retry failed: no model available after cache invalidation. Original: ${message}`, isRateLimit: isRateLimitError(message) };
         }
+        // Store the fresh model back into the cache so subsequent requests
+        // reuse it (previously the fix tier was never re-cached, so every fix
+        // after a failure reused the stale model and failed again).
+        if (isFix) {
+          this.cachedFix = freshModel;
+        } else if (isDeep) {
+          this.cachedDeep = freshModel;
+        } else {
+          this.cachedStandard = freshModel;
+        }
 
         this.log.debug('complete: retrying with fresh model', { vendor: freshModel.vendor, name: freshModel.name });
         const retryCts = new vscode.CancellationTokenSource();
-        const retryTimeout = setTimeout(() => retryCts.cancel(), REQUEST_TIMEOUT_MS);
+        const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
         try {
           const retryResponse = await freshModel.sendRequest(
             messages,
-            { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } },
+            { modelOptions: { max_tokens: 16384 } },
             retryCts.token,
           );
           if (!retryResponse.text) {
@@ -485,7 +433,7 @@ export class VsCodeLmProvider implements LlmProvider {
     this.log.debug('testSimplePrompt: starting', { modelId: model.id, vendor: model.vendor });
 
     const cts = new vscode.CancellationTokenSource();
-    const timeout = setTimeout(() => cts.cancel(), REQUEST_TIMEOUT_MS);
+    const timeout = setTimeout(() => cts.cancel(), 30_000);
     
     try {
       const response = await model.sendRequest(
@@ -511,15 +459,7 @@ export class VsCodeLmProvider implements LlmProvider {
         throw iterErr;
       }
 
-      // Validate JSON properly — strip code fences then JSON.parse. The old
-      // heuristic (has braces, no underscores) rejected valid JSON like
-      // {"a_b":1} and accepted garbage like "this is { not } json".
-      let isValidJSON = false;
-      try {
-        const cleaned = text.trim().replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-        JSON.parse(cleaned);
-        isValidJSON = true;
-      } catch { /* not valid JSON */ }
+      const isValidJSON = text.includes('{') && text.includes('}') && !text.includes('_') && !text.match(/[^\x20-\x7E\n\r]/);
       this.log.debug('testSimplePrompt: result', { textLen: text.length, validJSON: isValidJSON });
 
       return { success: isValidJSON, response: text.substring(0, 200), modelUsed: model.id };

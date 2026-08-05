@@ -34,7 +34,8 @@ export interface ScoreResult {
 }
 
 // ─── Infrastructure codes (excluded from scoring) ─────────────────────────────
-const INFRA_SKIP = new Set([
+const 
+INFRA_SKIP = new Set([
   'llm-error', 'llm-parse-error', 'llm-disabled', 'llm-loop-detected',
   'high-complexity', 'limited-coverage', 'llm-rate-limited',
 ]);

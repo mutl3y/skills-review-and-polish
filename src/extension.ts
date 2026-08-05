@@ -7,7 +7,6 @@ import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig } f
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
-import { redactSecrets } from './core/redact';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, CopilotProvider } from './providers/externalProvider';
 import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
@@ -19,7 +18,7 @@ import { SkillsCodeActionProvider } from './ui/codeActions';
 import { SuggestionHoverProvider } from './ui/hover';
 import { createInlineRewriteProvider } from './ui/inlineRewrites';
 import { fetchPricing, formatPricing, normalizeModelName, ModelPricing } from './pricing';
-import { fetchContextLengths, formatContextLength, resolveContextLength, resolveCopilotContextLength } from './modelCatalog';
+import { fetchContextLengths, formatContextLength } from './modelCatalog';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -52,15 +51,6 @@ function safeResolveFilePathForTools(filePath: string | undefined): string | und
   } catch {
     return resolved;
   }
-}
-
-/**
- * Debug log path, keyed by PID so multiple VS Code instances don't clobber
- * each other's file. Written with mode 0600 (owner-only) since it holds
- * document content and LLM response previews.
- */
-function debugLogFilePath(): string {
-  return path.join(os.tmpdir(), `skills-review-debug-${process.pid}.log`);
 }
 
 /**
@@ -141,7 +131,6 @@ class ExtensionState {
     this.lastResults.clear();
     this.analysisLocks.clear();
     this.fixPreviewContent.clear();
-    this.cachedEngine?.clearHistory();
     this.cachedEngine = undefined;
     Analyzer.clearHistory();
   }
@@ -155,15 +144,12 @@ function log(level: 'info' | 'warn' | 'error' | 'debug', message: string): void 
   const cfg = readConfig();
   if (level === 'debug' && cfg.logLevel !== 'debug') return;
 
-  // Redact secrets from the message before it reaches the output channel or
-  // the /tmp debug file — error strings can echo back tokens.
-  const safe = redactSecrets(message);
   const ts = new Date().toISOString();
-  const line = `${ts} [${level.toUpperCase().padEnd(5)}] ${safe}`;
-  if (level === 'error') state?.out?.error(safe);
-  else if (level === 'warn') state?.out?.warn(safe);
-  else if (level === 'debug') state?.out?.debug(safe);
-  else state?.out?.info(safe);
+  const line = `${ts} [${level.toUpperCase().padEnd(5)}] ${message}`;
+  if (level === 'error') state?.out?.error(message);
+  else if (level === 'warn') state?.out?.warn(message);
+  else if (level === 'debug') state?.out?.debug(message);
+  else state?.out?.info(message);
   if (level === 'debug' && cfg.logLevel === 'debug' && state?.logFilePath) {
     try { fs.appendFileSync(state.logFilePath, line + '\n'); } catch { /* ignore */ }
   }
@@ -251,8 +237,8 @@ export function activate(context: vscode.ExtensionContext): void {
   state.codeLensProvider = new ScoreCodeLensProvider();
 
   if (cfg.logLevel === 'debug' || cfg.logLevel === 'trace') {
-    state.logFilePath = debugLogFilePath();
-    try { fs.writeFileSync(state.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`, { mode: 0o600 }); } catch { /* ignore */ }
+    state.logFilePath = os.tmpdir() + '/skills-review-debug.log';
+    try { fs.writeFileSync(state.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
   }
 
   setLogLevel(cfg.logLevel === 'trace' ? 'trace' : cfg.logLevel === 'debug' ? 'debug' : 'info');
@@ -454,7 +440,6 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     log('debug', 'buildEngine: using cached engine');
     return state.cachedEngine;
   }
-
   log('info', `buildEngine: provider=${cfg.provider} standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'}`);
 
   if (cfg.provider === 'openrouter') {
@@ -466,12 +451,7 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
       );
       throw new Error(`No API key configured for provider "${cfg.provider}"`);
     }
-    // Resolve the model's real input context length so the analyzer scales its
-    // document budget instead of falling back to the 200K-char default.
-    const resolvedCtx = await resolveContextLength(cfg.model || '');
-    const contextLength = resolvedCtx?.contextLength;
-
-    const base = new OpenRouterProvider({
+    const provider = new OpenRouterProvider({
       apiKey,
       model: cfg.model || '',
       deepModel: cfg.deepModel || undefined,
@@ -483,47 +463,8 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
       adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
       structuredOutput: cfg.externalStructuredOutput,
       requestTimeoutMs: cfg.externalRequestTimeoutMs,
-      contextLength,
     });
     log('info', `buildEngine: using external provider ${cfg.provider} model=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(same as model)'} fixModel=${cfg.fixModel || '(same as model)'}`);
-    state!.currentVsCodeLmProvider = undefined;
-    state!.cachedEngine = new Engine(base, cfg);
-    state!.cachedEngineConfigHash = hash;
-    return state!.cachedEngine;
-  }
-
-  if (cfg.provider === 'copilot') {
-    // Copilot API provider: uses a GitHub token (GITHUB_TOKEN env or the
-    // stored API key) against api.githubcopilot.com — no separate API key.
-    const copilotToken = apiKey || process.env.GITHUB_TOKEN?.trim() || process.env.COPILOT_TOKEN?.trim();
-    if (!copilotToken) {
-      log('warn', `buildEngine: copilot selected but no token — aborting`);
-      vscode.window.showErrorMessage(
-        `Skills Review: provider is "copilot" but no GitHub token is available. ` +
-          'Set GITHUB_TOKEN, or run "Skills Review: Set API Key".',
-      );
-      throw new Error('No GitHub token configured for the copilot provider');
-    }
-    // Resolve context length from the live Copilot /models API (new models
-    // picked up automatically), falling back to the OpenRouter catalog.
-    const copilotCtx = await resolveCopilotContextLength(cfg.model || '', copilotToken);
-    const resolvedCtx = copilotCtx ? { contextLength: copilotCtx } : await resolveContextLength(cfg.model || '');
-    const contextLength = resolvedCtx?.contextLength;
-    const provider = new CopilotProvider({
-      apiKey: copilotToken,
-      model: cfg.model || '',
-      deepModel: cfg.deepModel || undefined,
-      fixModel: cfg.fixModel || undefined,
-      maxTokens: cfg.externalMaxResponseTokens,
-      adaptiveMaxTokens: cfg.externalAdaptiveResponseTokens,
-      adaptiveMaxTokensCap: cfg.externalAdaptiveMaxResponseTokens,
-      minAdaptiveTokens: cfg.externalMinAdaptiveResponseTokens,
-      adaptiveCharsPerToken: cfg.externalAdaptiveCharsPerToken,
-      structuredOutput: cfg.externalStructuredOutput,
-      requestTimeoutMs: cfg.externalRequestTimeoutMs,
-      contextLength,
-    });
-    log('info', `buildEngine: using copilot provider model=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(same as model)'} fixModel=${cfg.fixModel || '(same as model)'}`);
     state!.currentVsCodeLmProvider = undefined;
     state!.cachedEngine = new Engine(provider, cfg);
     state!.cachedEngineConfigHash = hash;
@@ -711,14 +652,21 @@ async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
     return;
   }
 
-  // Pass the selected waves/mode as a per-run config override instead of
-  // mutating Global settings (which would persist on crash and fire config
-  // change events). analyzeDocument applies the override for this run only.
-  const override: Partial<EngineConfig> = {
-    enabledWaves: selectedWaves,
-    analysisMode: modePick.mode,
-  };
-  await analyzeDocument(document, undefined, 'manual', override);
+  const originalWaves = cfg.enabledWaves;
+  const originalMode = cfg.analysisMode;
+  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+    .update('enabledWaves', selectedWaves, vscode.ConfigurationTarget.Global);
+  await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+    .update('analysisMode', modePick.mode, vscode.ConfigurationTarget.Global);
+
+  try {
+    await analyzeDocument(document);
+  } finally {
+    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+      .update('enabledWaves', originalWaves, vscode.ConfigurationTarget.Global);
+    await vscode.workspace.getConfiguration('skillsReviewAndPolish')
+      .update('analysisMode', originalMode, vscode.ConfigurationTarget.Global);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -742,7 +690,7 @@ async function selectProvider(): Promise<void> {
       picked: current === 'openrouter',
     },
     {
-      label: '🟣 Copilot API',
+      label: '� Copilot API',
       description: 'Uses api.githubcopilot.com with a GitHub token — no separate API key',
       value: 'copilot',
       picked: current === 'copilot',
@@ -778,8 +726,8 @@ async function toggleLogLevel(): Promise<void> {
   // Update the runtime transport immediately (no reload needed)
   setLogLevel(newLevel === 'trace' ? 'trace' : newLevel === 'debug' ? 'debug' : 'info');
   if ((newLevel === 'debug' || newLevel === 'trace') && !state?.logFilePath) {
-    state!.logFilePath = debugLogFilePath();
-    try { fs.writeFileSync(state!.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`, { mode: 0o600 }); } catch { /* ignore */ }
+    state!.logFilePath = os.tmpdir() + '/skills-review-debug.log';
+    try { fs.writeFileSync(state!.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
   }
   setTransport((line) => {
     state?.out?.appendLine(line);
@@ -788,11 +736,10 @@ async function toggleLogLevel(): Promise<void> {
     }
   });
 
-  const logPath = state?.logFilePath ?? debugLogFilePath();
   const msg = newLevel === 'trace'
-    ? `Skills Review: Trace logging enabled — raw LLM responses visible. Check Output panel or ${logPath}`
+    ? 'Skills Review: Trace logging enabled — raw LLM responses visible. Check Output panel or /tmp/skills-review-debug.log'
     : newLevel === 'debug'
-    ? `Skills Review: Debug logging enabled. Check Output panel or ${logPath}`
+    ? 'Skills Review: Debug logging enabled. Check Output panel or /tmp/skills-review-debug.log'
     : 'Skills Review: Debug logging disabled.';
   vscode.window.showInformationMessage(msg);
   log('info', `toggleLogLevel: → ${newLevel}`);
@@ -812,12 +759,9 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   const cfg = readConfig();
   // Use configured include patterns + common prompt directory patterns + direct .md files.
   // findFiles doesn't support brace expansion {a,b} — query each pattern separately.
-  // The effective include list is used for BOTH discovery and filtering so an
-  // empty `include` config falls back to defaults consistently.
-  const effectiveInclude = cfg.include.length ? cfg.include : [
+  const namePatterns = cfg.include.length ? cfg.include : [
     '**/SKILL.md', '**/*.prompt.md', '**/*.agent.md', '**/*.instructions.md', '**/AGENTS.md',
   ];
-  const namePatterns = effectiveInclude;
   // Catch .md files in common prompt directories AND directly in the selected folder
   const dirPatterns = [
     '*.md',
@@ -827,14 +771,8 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
     '**/skills/**/*.md',
   ];
   const allPatterns = [...new Set([...namePatterns, ...dirPatterns])];
-  // Exclude node_modules AND the user's configured exclude patterns so we
-  // don't enumerate huge trees just to discard them. Guard against a
-  // non-array exclude config (a common user error) so the spread doesn't
-  // explode a string into characters.
-  const userExcludes = Array.isArray(cfg.exclude) ? cfg.exclude : [];
-  const excludePattern = ['**/node_modules/**', ...userExcludes];
   const fileSets = await Promise.all(
-    allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p), `{${excludePattern.join(',')}}`)),
+    allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p), '**/node_modules/**')),
   );
   // Deduplicate and filter to .md files only
   const seen = new Set<string>();
@@ -842,7 +780,7 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   for (const set of fileSets) {
     for (const uri of set) {
       if (!seen.has(uri.toString()) && uri.fsPath.endsWith('.md') &&
-          isCustomizationPath(uri.fsPath, effectiveInclude)) {
+          isCustomizationPath(uri.fsPath, cfg.include)) {
         seen.add(uri.toString());
         files.push(uri);
       }
@@ -855,63 +793,19 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   }
 
   log('info', `runAnalyzeFolder: found ${files.length} files in ${folderPath}`);
-
-  // Folder scans always run synchronously (single-request analysis).
-  // Bound concurrency so a large folder doesn't fire hundreds of simultaneous
-  // 6-wave analyses (quota exhaustion, event-loop saturation). Process files
-  // in small batches, await each batch, and publish results per-batch so we
-  // don't accumulate every result in memory for a huge tree.
-  const CONCURRENCY = 3;
-  let succeeded = 0;
-
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `Skills Review: Analyzing ${files.length} file(s)…`, cancellable: true },
     async (progress, token) => {
-      // Build the engine ONCE (not per file) — buildEngine can do expensive
-      // provider/model/catalog setup, and doing it per file would defeat the
-      // concurrency limit with unbounded setup work.
-      const engine = await buildEngine(state?.extensionContext);
-      let processed = 0;
-      for (let i = 0; i < files.length; i += CONCURRENCY) {
+      for (let i = 0; i < files.length; i++) {
         if (token.isCancellationRequested) break;
-        const batch = files.slice(i, i + CONCURRENCY);
-        const batchJobs = await Promise.all(
-          batch.map(async (file) => {
-            const doc = await vscode.workspace.openTextDocument(file);
-            processed++;
-            progress.report({ message: `${processed}/${files.length}: ${doc.fileName}`, increment: 100 / files.length });
-            const job = engine.analyze(
-              { text: doc.getText(), filePath: doc.uri.fsPath, acceptedFindingsPath: getAcceptedFindingsPath(), token },
-            );
-            return { doc, job };
-          }),
-        );
-        // Await this batch's analyses before starting the next, so we never
-        // have more than CONCURRENCY in flight.
-        const settled = await Promise.allSettled(batchJobs.map(({ job }) => job));
-        // Publish this batch's results immediately (don't accumulate).
-        batchJobs.forEach(({ doc, job }, idx) => {
-          const outcome = settled[idx];
-          if (outcome.status === 'rejected') {
-            log('warn', `runAnalyzeFolder: analysis failed for ${doc.uri.fsPath}: ${outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)}`);
-            return;
-          }
-          const results = outcome.value;
-          if (!results) return;
-          succeeded++;
-          publishDiagnostics(state!.diagnostics, doc.uri, results, cfg.severityOverrides, cfg.maxDiagnostics);
-          state?.lastResults.set(doc.uri.toString(), results);
-          const lineCount = doc.getText().split('\n').length;
-          const score = scoreSkill(results, lineCount, parseSkillType(doc.getText()));
-          if (cfg.showScoreCodeLens) state?.codeLensProvider.update(doc.uri, score, results.length);
-        });
+        const doc = await vscode.workspace.openTextDocument(files[i]);
+        progress.report({ message: `${i + 1}/${files.length}: ${doc.fileName}`, increment: 100 / files.length });
+        await analyzeDocument(doc, token);
       }
     },
   );
 
-  vscode.window.showInformationMessage(
-    `Skills Review: Finished analyzing ${succeeded}/${files.length} file(s).`,
-  );
+  vscode.window.showInformationMessage(`Skills Review: Finished analyzing ${files.length} file(s).`);
 }
 
 type TriggerSource = 'manual' | 'onSave' | 'onType';
@@ -1209,13 +1103,6 @@ async function runFixIssue(
 
         // Count occurrences to avoid replacing the wrong instance.
         const anchorCount = anchor ? text.split(anchor).length - 1 : 0;
-        if (anchor && anchorCount !== 1) {
-          log('warn', `runFixIssue: anchor appears ${anchorCount} times — refusing to apply ambiguous fix`);
-          vscode.window.showWarningMessage(
-            `Skills Review: The flagged text appears ${anchorCount} times in the document, so the fix could not be applied safely. Re-analyze or fix a more specific fragment.`,
-          );
-          return;
-        }
         const fixedText = anchor && anchorCount === 1
           ? text.replace(anchor, () => fixResult.fixed)
           : text;
@@ -1289,21 +1176,9 @@ async function runAcceptFinding(
     vscode.window.showWarningMessage('Skills Review: No workspace folder open — cannot persist accepted findings.');
     return;
   }
-  // Validate the text pattern like the MCP path does: a too-long or empty
-  // pattern would over-suppress unrelated findings via substring containment.
-  // Reject (not truncate) so the accept store isn't silently corrupted.
-  const textPattern = (result.relevantText ?? result.message ?? '').trim();
-  if (textPattern.length < 5) {
-    vscode.window.showWarningMessage('Skills Review: Cannot accept this finding — its text is too short to match safely.');
-    return;
-  }
-  if (textPattern.length > 200) {
-    vscode.window.showWarningMessage('Skills Review: Cannot accept this finding — its text is too long to match safely. Use a shorter, more specific fragment.');
-    return;
-  }
   acceptFinding(acceptedFindingsPath, fileName, {
     code: result.code,
-    textPattern,
+    textPattern: result.relevantText ?? result.message,
     acceptedAt: new Date().toISOString(),
   });
 
@@ -1420,9 +1295,6 @@ async function showFixDiff(
 
   state!.fixPreviewContent.set(beforeKey, { text: originalDoc.getText(), ts: Date.now() });
   state!.fixPreviewContent.set(afterKey, { text: fixedText, ts: Date.now() });
-  // Capture the snapshot the fix was computed against, so the staleness guard
-  // in applyFixToDocument can detect edits made during the diff-review window.
-  const snapshotText = originalDoc.getText();
   const beforeUri = vscode.Uri.parse(`${FIX_SCHEME}:${beforeKey}`);
   const afterUri  = vscode.Uri.parse(`${FIX_SCHEME}:${afterKey}`);
   log('info', `showFixDiff: opening diff view "${title}"`);
@@ -1441,7 +1313,7 @@ async function showFixDiff(
     'Discard',
   );
   if (choice === 'Apply Fix') {
-    await applyFixToDocument(originalDoc, snapshotText, fixedText);
+    await applyFixToDocument(originalDoc, originalDoc.getText(), fixedText);
   } else {
     log('info', 'showFixDiff: user discarded the fix');
   }
@@ -1457,16 +1329,6 @@ async function applyFixToDocument(
   originalText: string,
   fixedText: string,
 ): Promise<void> {
-  // Staleness check: the fix was computed from a snapshot. If the document has
-  // changed since (user edited between analysis and apply), applying the full
-  // replacement would silently destroy those edits. Refuse and ask to re-run.
-  const currentText = doc.getText();
-  if (currentText !== originalText) {
-    const msg = 'Fix refused: the document changed since this fix was computed. Re-analyze to get a fresh fix.';
-    log('warn', `applyFixToDocument: ${msg}`);
-    vscode.window.showWarningMessage(`Skills Review: ${msg}`);
-    return;
-  }
   // Safety guard: refuse to overwrite with empty content.
   if (fixedText.trim().length === 0) {
     const msg = 'Fix refused: proposed result is empty.';
@@ -1523,7 +1385,12 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
   let externalModels: Array<{ id: string; name: string }> = [];
   if (lmModels.length === 0 && state?.extensionContext?.secrets) {
     const apiKey = await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey');
-    if (apiKey && cfg.provider === 'openrouter') {
+    // Only send the key to OpenRouter when it's actually an OpenRouter key
+    // (sk-or-v1- prefix). The same SecretStorage slot can hold a GitHub token
+    // for the Copilot provider — sending that to openrouter.ai would leak a
+    // privileged credential to a third party.
+    const isOpenRouterKey = !!apiKey && /^sk-or-v1-/.test(apiKey.trim());
+    if (cfg.provider === 'openrouter' && isOpenRouterKey) {
       try {
         const models = await fetchExternalModels(cfg.provider, apiKey);
         externalModels = models;
@@ -1770,7 +1637,6 @@ async function syncMcpConfig(silent = false): Promise<void> {
     requestTimeoutMs: cfg.externalRequestTimeoutMs,
     analysisMode: cfg.analysisMode,
     logLevel: cfg.logLevel,
-    maxTokensPerSession: cfg.mcpMaxTokensPerSession,
   };
   // Atomic write: write to temp file first, then rename to avoid corruption
   // on crash/disk-full.  Node's rename(2) is atomic on the same filesystem.
@@ -1904,7 +1770,7 @@ async function testModelSimplePrompt(): Promise<void> {
         systemPrompt: 'You are a helpful assistant. Respond only with valid JSON.',
       });
       if (result.error) {
-        vscode.window.showErrorMessage(`❌ Provider error: ${redactSecrets(result.error)}`);
+        vscode.window.showErrorMessage(`❌ Provider error: ${result.error}`);
         return;
       }
       // Try parsing the response as JSON
@@ -1920,11 +1786,8 @@ async function testModelSimplePrompt(): Promise<void> {
       log('info', `testModelSimplePrompt: ${statusMsg}`);
       vscode.window.showInformationMessage(statusMsg);
     } catch (err) {
-      // Redact the error before showing it to the user — a provider error body
-      // could echo back a token.
-      const errMsg = redactSecrets(err instanceof Error ? err.message : String(err));
-      log('error', `testModelSimplePrompt error: ${errMsg}`);
-      vscode.window.showErrorMessage(`Test failed: ${errMsg}`);
+      log('error', `testModelSimplePrompt error: ${err}`);
+      vscode.window.showErrorMessage(`Test failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     return;
   }
@@ -1954,11 +1817,8 @@ async function testModelSimplePrompt(): Promise<void> {
     
     vscode.window.showInformationMessage(statusMsg);
   } catch (err) {
-    // Redact the error before showing it to the user (consistent with the
-    // external-provider branch).
-    const errMsg = redactSecrets(err instanceof Error ? err.message : String(err));
-    log('error', `testModelSimplePrompt error: ${errMsg}`);
-    vscode.window.showErrorMessage(`Test failed: ${errMsg}`);
+    log('error', `testModelSimplePrompt error: ${err}`);
+    vscode.window.showErrorMessage(`Test failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -2014,22 +1874,14 @@ async function fetchExternalModels(
   apiKey: string,
 ): Promise<Array<{ id: string; name: string }>> {
   if (provider === 'openrouter') {
-    // Timeout so a stalled network call can't hang the model picker (every
-    // other network call in this codebase has a timeout).
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
-    try {
-      const resp = await fetch('https://openrouter.ai/api/v1/models', {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: controller.signal,
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = (await resp.json()) as { data?: Array<{ id: string; name?: string }> };
-      return (json.data ?? []).map(m => ({ id: m.id, name: m.name ?? m.id }));
-    } finally {
-      clearTimeout(timer);
-    }
+    const resp = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const json = (await resp.json()) as { data?: Array<{ id: string; name?: string }> };
+    return (json.data ?? []).map(m => ({ id: m.id, name: m.name ?? m.id }));
   }
+  // GitHub Models — placeholder until we have a models list endpoint
   return [];
 }
 
@@ -2053,8 +1905,7 @@ export function registerLanguageModelTools(
           const engine = await buildEngineFn();
           // Validate filePath against the workspace root — the LM tool is
           // agent-driven, so an attacker-controlled path could read arbitrary
-          // .md files via reference grounding. Fail loudly on rejection (like
-          // the MCP server) rather than silently degrading to no references.
+          // .md files via reference grounding. Fail loudly on rejection.
           const safePath = safeResolveFilePathForTools(filePath);
           if (filePath && safePath === undefined) {
             return new vscode.LanguageModelToolResult([
