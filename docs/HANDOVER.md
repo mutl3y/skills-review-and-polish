@@ -1,6 +1,11 @@
 
 # Handover Update — 2026-07-13: v0.1.37/v0.1.38 Released
 
+> **Latest handover (2026-08-05):** See
+> `docs/plan/archive/releases/20260805-gilfoyle-loop-to-iter20/HANDOVER.md` for
+> the Gilfoyle review loop (iterations 17–20), the independent 2026-08-05 review
+> remediation, the bounded-review approach, and the pending v0.1.50 publish.
+
 ## Current State (Updated)
 
 - **Branch:** main (HEAD: d0aa476)
