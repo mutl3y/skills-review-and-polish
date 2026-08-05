@@ -618,7 +618,7 @@ describe('testModelSimplePrompt', () => {
     mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'openrouter', model: 'gpt-4o' });
     mocks2.mockExternalProvider.complete.mockResolvedValue({ text: '{"greeting":"hello"}', error: undefined });
 
-    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('test-key') } } as any);
+    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('sk-or-v1-testkey') } } as any);
 
     const testCmd = mocks.registerCommand.mock.calls.find(
       ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',
@@ -634,7 +634,7 @@ describe('testModelSimplePrompt', () => {
     mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'openrouter', model: 'gpt-4o' });
     mocks2.mockExternalProvider.complete.mockResolvedValue({ text: '', error: 'rate limited' });
 
-    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('test-key') } } as any);
+    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('sk-or-v1-testkey') } } as any);
 
     const testCmd = mocks.registerCommand.mock.calls.find(
       ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',
@@ -665,7 +665,7 @@ describe('testModelSimplePrompt', () => {
     mocks.readConfig.mockReturnValue({ ...DEFAULT_CONFIG, provider: 'openrouter', model: 'gpt-4o' });
     mocks2.mockExternalProvider.complete.mockRejectedValue(new Error('network timeout'));
 
-    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('test-key') } } as any);
+    activate({ subscriptions: [], secrets: { get: vi.fn().mockResolvedValue('sk-or-v1-testkey') } } as any);
 
     const testCmd = mocks.registerCommand.mock.calls.find(
       ([name]) => name === 'skillsReviewAndPolish.testModelSimplePrompt',

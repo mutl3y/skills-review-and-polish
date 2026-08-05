@@ -1355,15 +1355,24 @@ export class Analyzer {
       // Reject symlinks — a malicious skill could point a symlink at /etc/passwd etc.
       // lstat only catches a symlink at the FINAL path; a symlinked parent
       // directory in the chain (e.g. docDir/refs -> /etc) would slip through.
-      // realpath resolves the full chain, which we re-check against docDir.
+      // realpath resolves the full chain, which we re-check against the
+      // realpath of docDir (canonical-to-canonical, so a symlinked skill dir
+      // doesn't false-reject legitimate references).
       try {
         const stat = await fs.promises.lstat(resolved);
         if (stat.isSymbolicLink()) {
           this.log.info('[WARN] readLinkedPromptFiles: rejected symlink', { target, resolved });
           continue;
         }
+        const realDocDir = await fs.promises.realpath(docDir);
         const real = await fs.promises.realpath(resolved);
-        if (!real.startsWith(docDir + path.sep) && real !== docDir) {
+        // Case-insensitive prefix check on Windows.
+        const within = (base: string, p: string) => {
+          const b = process.platform === 'win32' ? base.toLowerCase() : base;
+          const q = process.platform === 'win32' ? p.toLowerCase() : p;
+          return q === b || q.startsWith(b + path.sep);
+        };
+        if (!within(realDocDir, real)) {
           this.log.info('[WARN] readLinkedPromptFiles: rejected symlink chain escaping skill directory', { target, resolved, real });
           continue;
         }

@@ -37,19 +37,30 @@ function safeResolveFilePathForTools(filePath: string | undefined): string | und
   if (!filePath || filePath.trim() === '') return undefined;
   const root = path.resolve(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd());
   const resolved = path.resolve(root, filePath);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+  // Case-insensitive prefix check on Windows (path.resolve doesn't normalize case).
+  const isWithin = (base: string, p: string) => {
+    const b = process.platform === 'win32' ? base.toLowerCase() : base;
+    const q = process.platform === 'win32' ? p.toLowerCase() : p;
+    return q === b || q.startsWith(b + path.sep);
+  };
+  if (!isWithin(root, resolved)) {
     return undefined;
   }
-  // Resolve symlinks and re-check the realpath against the root (mirrors the
-  // MCP server) — a symlink inside the workspace could point outside it.
+  // Resolve symlinks and re-check the realpath against the REALPATH of the
+  // root (mirrors the MCP server) — a symlink inside the workspace could point
+  // outside it. Compare canonical-to-canonical so a symlinked workspace root
+  // doesn't false-reject every legitimate file.
   try {
+    const realRoot = fs.realpathSync(root);
     const real = fs.realpathSync(resolved);
-    if (real !== root && !real.startsWith(root + path.sep)) {
+    if (!isWithin(realRoot, real)) {
       return undefined;
     }
     return real;
   } catch {
-    return resolved;
+    // realpath failed (file doesn't exist / permission) — reject rather than
+    // returning the unresolved path, so the symlink-escape check isn't skipped.
+    return undefined;
   }
 }
 
@@ -450,6 +461,17 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
           'Run "Skills Review: Set API Key" first, or switch provider to "vscode-lm".',
       );
       throw new Error(`No API key configured for provider "${cfg.provider}"`);
+    }
+    // The shared SecretStorage slot can hold a GitHub/Copilot token. Only send
+    // it to openrouter.ai when it's actually an OpenRouter key — never leak a
+    // privileged GitHub token to a third party.
+    if (!/^sk-or-v1-/.test(apiKey.trim())) {
+      log('warn', `buildEngine: openrouter selected but stored key is not an OpenRouter key (sk-or-v1-) — aborting`);
+      vscode.window.showErrorMessage(
+        `Skills Review: provider is "openrouter" but the stored key is not an OpenRouter key (sk-or-v1-...). ` +
+          'Run "Skills Review: Set API Key" with a valid OpenRouter key, or switch provider.',
+      );
+      throw new Error('Stored key is not an OpenRouter key');
     }
     const provider = new OpenRouterProvider({
       apiKey,
@@ -1748,6 +1770,13 @@ async function testModelSimplePrompt(): Promise<void> {
       );
       return;
     }
+    // Never send a non-OpenRouter key (e.g. a GitHub token) to openrouter.ai.
+    if (cfg.provider === 'openrouter' && !/^sk-or-v1-/.test(token.trim())) {
+      vscode.window.showErrorMessage(
+        'Cannot test "openrouter" provider — the stored key is not an OpenRouter key (sk-or-v1-...). Run "Skills Review: Set API Key" with a valid OpenRouter key.',
+      );
+      return;
+    }
     const model = cfg.model || '';
     const provider = cfg.provider === 'copilot'
       ? new CopilotProvider({
@@ -1933,7 +1962,14 @@ export function registerLanguageModelTools(
           const cfg = readConfigFn();
           const engine = await buildEngineFn();
           // Validate filePath against the workspace root (agent-driven tool).
-          const safePath = safeResolveFilePathForTools(filePath) ?? '';
+          // Fail loudly on escape (like the analyze tool) rather than silently
+          // downgrading to no file context.
+          const safePath = safeResolveFilePathForTools(filePath);
+          if (filePath && safePath === undefined) {
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify({ error: `filePath "${filePath}" is outside the workspace root and was rejected.` })),
+            ]);
+          }
           const syntheticDiag: AnalysisResult = {
             code: diagnosticCode,
             message: relevantText,
@@ -1943,7 +1979,7 @@ export function registerLanguageModelTools(
             relevantText,
           };
           const fixer = new SurgicalFixer(engine.provider);
-          const result = await fixer.fixIssue(text, safePath, syntheticDiag, {
+          const result = await fixer.fixIssue(text, safePath ?? '', syntheticDiag, {
             additive: cfg.fixStrategy === 'additive',
             semanticCheck: cfg.fixSemanticCheck,
             selfCritique: cfg.fixSelfCritique,
