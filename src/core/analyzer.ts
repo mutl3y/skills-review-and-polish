@@ -162,6 +162,14 @@ export class AnalysisHistoryStore {
       this.history.delete(oldestKey);
       this.accessTimestamps.delete(oldestKey);
     }
+    // Prune any accessTimestamps entries whose history entry was evicted in a
+    // prior pass (e.g. via update() or a direct history.delete) — otherwise
+    // the timestamp map grows unboundedly over a long session.
+    if (this.accessTimestamps.size > this.history.size) {
+      for (const key of this.accessTimestamps.keys()) {
+        if (!this.history.has(key)) this.accessTimestamps.delete(key);
+      }
+    }
   }
 }
 

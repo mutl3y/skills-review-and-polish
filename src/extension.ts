@@ -20,6 +20,7 @@ import { SuggestionHoverProvider } from './ui/hover';
 import { createInlineRewriteProvider } from './ui/inlineRewrites';
 import { fetchPricing, formatPricing, normalizeModelName, ModelPricing } from './pricing';
 import { fetchContextLengths, formatContextLength, resolveContextLength, resolveCopilotContextLength } from './modelCatalog';
+import { redactSecrets } from './core/redact';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -152,17 +153,38 @@ class ExtensionState {
 /** Active extension state — set by activate(), cleared by deactivate(). */
 let state: ExtensionState | undefined;
 
+/**
+ * Per-process debug log path. Uses a PID suffix so concurrent extension hosts
+ * don't clobber each other's logs, and a mode-0600 file so other local users
+ * can't read raw LLM responses / provider errors that may contain secrets.
+ */
+function debugLogFilePath(): string {
+  return `${os.tmpdir()}/skills-review-debug-${process.pid}.log`;
+}
+
+function initDebugLogFile(): void {
+  const p = debugLogFilePath();
+  try {
+    fs.writeFileSync(p, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`, { mode: 0o600 });
+  } catch { /* ignore */ }
+  state!.logFilePath = p;
+}
+
 /** Append a timestamped line to both the VS Code output channel and the log file. */
 function log(level: 'info' | 'warn' | 'error' | 'debug', message: string): void {
   const cfg = readConfig();
   if (level === 'debug' && cfg.logLevel !== 'debug') return;
 
   const ts = new Date().toISOString();
-  const line = `${ts} [${level.toUpperCase().padEnd(5)}] ${message}`;
-  if (level === 'error') state?.out?.error(message);
-  else if (level === 'warn') state?.out?.warn(message);
-  else if (level === 'debug') state?.out?.debug(message);
-  else state?.out?.info(message);
+  // Redact secrets before the line reaches any transport (output channel or
+  // the plaintext debug log file) so provider errors / LLM responses that
+  // echo back tokens can't leak.
+  const safe = redactSecrets(message);
+  const line = `${ts} [${level.toUpperCase().padEnd(5)}] ${safe}`;
+  if (level === 'error') state?.out?.error(safe);
+  else if (level === 'warn') state?.out?.warn(safe);
+  else if (level === 'debug') state?.out?.debug(safe);
+  else state?.out?.info(safe);
   if (level === 'debug' && cfg.logLevel === 'debug' && state?.logFilePath) {
     try { fs.appendFileSync(state.logFilePath, line + '\n'); } catch { /* ignore */ }
   }
@@ -250,8 +272,7 @@ export function activate(context: vscode.ExtensionContext): void {
   state.codeLensProvider = new ScoreCodeLensProvider();
 
   if (cfg.logLevel === 'debug' || cfg.logLevel === 'trace') {
-    state.logFilePath = os.tmpdir() + '/skills-review-debug.log';
-    try { fs.writeFileSync(state.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
+    initDebugLogFile();
   }
 
   setLogLevel(cfg.logLevel === 'trace' ? 'trace' : cfg.logLevel === 'debug' ? 'debug' : 'info');
@@ -524,6 +545,7 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
       structuredOutput: cfg.externalStructuredOutput,
       requestTimeoutMs: cfg.externalRequestTimeoutMs,
       contextLength,
+      editorVersion: `vscode/${vscode.version}`,
     });
     log('info', `buildEngine: using copilot provider model=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(same as model)'} fixModel=${cfg.fixModel || '(same as model)'}`);
     state!.currentVsCodeLmProvider = undefined;
@@ -783,8 +805,7 @@ async function toggleLogLevel(): Promise<void> {
   // Update the runtime transport immediately (no reload needed)
   setLogLevel(newLevel === 'trace' ? 'trace' : newLevel === 'debug' ? 'debug' : 'info');
   if ((newLevel === 'debug' || newLevel === 'trace') && !state?.logFilePath) {
-    state!.logFilePath = os.tmpdir() + '/skills-review-debug.log';
-    try { fs.writeFileSync(state!.logFilePath, `--- Skills Review debug log started ${new Date().toISOString()} ---\n`); } catch { /* ignore */ }
+    initDebugLogFile();
   }
   setTransport((line) => {
     state?.out?.appendLine(line);
@@ -838,6 +859,8 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
     allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p))),
   );
   // Deduplicate, filter to .md files, and apply the exclude patterns.
+  // A file is kept if it matches the configured include patterns OR one of
+  // the common prompt-directory patterns (so those dir patterns aren't dead).
   const seen = new Set<string>();
   const files: vscode.Uri[] = [];
   for (const set of fileSets) {
@@ -845,7 +868,9 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
       if (seen.has(uri.toString())) continue;
       if (!uri.fsPath.endsWith('.md')) continue;
       if (excludePatterns.some((g) => picomatch.isMatch(uri.fsPath, g, { dot: true }))) continue;
-      if (!isCustomizationPath(uri.fsPath, cfg.include)) continue;
+      const matchesInclude = isCustomizationPath(uri.fsPath, cfg.include);
+      const matchesDir = dirPatterns.some((g) => picomatch.isMatch(uri.fsPath, g, { dot: true }));
+      if (!matchesInclude && !matchesDir) continue;
       seen.add(uri.toString());
       files.push(uri);
     }
@@ -988,7 +1013,7 @@ async function analyzeDocument(
             vscode.window.showInformationMessage(`Skills Review: ${issueLabel}`);
           }
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = redactSecrets(err instanceof Error ? err.message : String(err));
           log('error', `analyzeDocument: ERROR — ${message}`);
           state?.statusBar.showError(message);
           vscode.window.showWarningMessage(`Skills Review: ${message}`);
@@ -1630,6 +1655,20 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
       currentProvider = vscode.workspace.getConfiguration('skillsReviewAndPolish').get('provider', 'vscode-lm');
     } catch { /* mock may not have get() — safe fallback */ }
     if (detectedProvider !== currentProvider) {
+      // When auto-switching to openrouter, verify the stored key is actually
+      // an OpenRouter key first. A GitHub token (used for the copilot
+      // provider) must never be sent to openrouter.ai — buildEngine guards
+      // this, but we warn loudly here so the user isn't left with a broken
+      // config and no explanation.
+      if (detectedProvider === 'openrouter' && state?.extensionContext?.secrets) {
+        const storedKey = await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey');
+        if (storedKey && !/^sk-or-v1-/.test(storedKey.trim())) {
+          vscode.window.showWarningMessage(
+            `Selected model "${picked.modelId}" requires the "openrouter" provider, but the stored API key is not an OpenRouter key (sk-or-v1-...). ` +
+            `Run "Skills Review: Set API Key" with a valid OpenRouter key before using this model.`,
+          );
+        }
+      }
       await wsCfg.update('provider', detectedProvider, targetScope);
       log('info', `selectModel: auto-switched provider from ${currentProvider} to ${detectedProvider}`);
     }
@@ -1707,6 +1746,7 @@ async function syncMcpConfig(silent = false): Promise<void> {
     requestTimeoutMs: cfg.externalRequestTimeoutMs,
     analysisMode: cfg.analysisMode,
     logLevel: cfg.logLevel,
+    maxTokensPerSession: cfg.mcpMaxTokensPerSession,
   };
   // Atomic write: write to temp file first, then rename to avoid corruption
   // on crash/disk-full.  Node's rename(2) is atomic on the same filesystem.
@@ -1832,6 +1872,7 @@ async function testModelSimplePrompt(): Promise<void> {
           model,
           structuredOutput: cfg.externalStructuredOutput,
           requestTimeoutMs: cfg.externalRequestTimeoutMs,
+          editorVersion: `vscode/${vscode.version}`,
         })
       : new OpenRouterProvider({
           apiKey: token,
@@ -1951,9 +1992,20 @@ async function fetchExternalModels(
   apiKey: string,
 ): Promise<Array<{ id: string; name: string }>> {
   if (provider === 'openrouter') {
-    const resp = await fetch('https://openrouter.ai/api/v1/models', {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    // Timeout so a stalled OpenRouter endpoint can't hang the model picker.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let resp: Response;
+    try {
+      resp = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw new Error(`Failed to fetch OpenRouter models: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      clearTimeout(timer);
+    }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const json = (await resp.json()) as { data?: Array<{ id: string; name?: string }> };
     return (json.data ?? []).map(m => ({ id: m.id, name: m.name ?? m.id }));

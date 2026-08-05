@@ -12,6 +12,7 @@
  */
 
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { promises as fsPromises } from 'fs';
 import { AnalysisResult, LlmProvider, LlmRequest } from './types';
 import { loadPrompt } from './prompts';
@@ -326,6 +327,7 @@ export function buildSurgicalFixPrompt(
   domain: string | null = null,
   additive = false,
   grounding: string | null = null,
+  anchorId?: string,
 ): string {
   const code = diagnostic.code ?? '';
   const suggestion =
@@ -373,9 +375,9 @@ export function buildSurgicalFixPrompt(
     grounding
       ? 'Skill references (READ-ONLY grounding — use ONLY to verify facts already present in the fragment; do NOT import new facts unless the exact added claim is traceable here):'
       : null,
-    grounding ? '<<<REFERENCES' : null,
+    grounding ? `<<<REFERENCES_${anchorId ?? 'X'}` : null,
     grounding ? grounding : null,
-    grounding ? 'REFERENCES>>>' : null,
+    grounding ? `REFERENCES_${anchorId ?? 'X'}>>>` : null,
     '',
     'Fragment to fix (return ONLY a corrected version of THIS exact text, or [[ABSTAIN]]):',
     '"""',
@@ -725,10 +727,14 @@ export class SurgicalFixer {
     const context = surroundingContext(text, targetText);
     const domain = skillDomainHint(text);
     const grounding = await loadReferenceGrounding(filePath, targetText, options.referenceGrounding ?? true);
+    // Random anchor for the reference data zone — prevents an attacker who
+    // knows the delimiter from breaking out of the data zone and injecting
+    // instructions into the fix prompt.
+    const anchorId = crypto.randomUUID();
 
     // Call fixer LLM - use 'fix' tier to get the dedicated fix model
     const req: LlmRequest = {
-      prompt: buildSurgicalFixPrompt(targetText, diagnostic, context, domain, additive, grounding),
+      prompt: buildSurgicalFixPrompt(targetText, diagnostic, context, domain, additive, grounding, anchorId),
       systemPrompt: surgicalFixSystemPrompt({ additive }),
       modelTier: 'fix',
     };

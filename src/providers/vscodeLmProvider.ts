@@ -297,9 +297,11 @@ export class VsCodeLmProvider implements LlmProvider {
 
     const cts = new vscode.CancellationTokenSource();
     // Compose the caller's cancellation token with our internal timeout.
-    // If either fires, the request is aborted.
+    // If either fires, the request is aborted. Dispose the listener in the
+    // finally block so long-lived caller tokens don't accumulate listeners.
+    let cancelListener: vscode.Disposable | undefined;
     if (request.token) {
-      request.token.onCancellationRequested(() => cts.cancel());
+      cancelListener = request.token.onCancellationRequested(() => cts.cancel());
     }
     const timeout = setTimeout(() => cts.cancel(), 90_000);
 
@@ -335,8 +337,9 @@ export class VsCodeLmProvider implements LlmProvider {
         // failed the whole analysis wave with no retry (rate limits, by contrast,
         // get a full retry chain).
         const retryCts = new vscode.CancellationTokenSource();
+        let retryCancelListener: vscode.Disposable | undefined;
         if (request.token) {
-          request.token.onCancellationRequested(() => retryCts.cancel());
+          retryCancelListener = request.token.onCancellationRequested(() => retryCts.cancel());
         }
         const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
         try {
@@ -356,6 +359,7 @@ export class VsCodeLmProvider implements LlmProvider {
           return { text: streamed.text, error: streamed.error, isRateLimit: isRateLimitError(retryMsg) };
         } finally {
           clearTimeout(retryTimeout);
+          retryCancelListener?.dispose();
           retryCts.dispose();
         }
       }
@@ -427,6 +431,7 @@ export class VsCodeLmProvider implements LlmProvider {
       }
     } finally {
       clearTimeout(timeout);
+      cancelListener?.dispose();
       cts.dispose();
     }
   }

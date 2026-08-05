@@ -83,6 +83,14 @@ export interface ExternalProviderOptions {
   /** Sampling controls. Defaults favor determinism for analyzer use. */
   temperature?: number;
   topP?: number;
+  /**
+   * Real editor version string for the Copilot `Editor-Version` header
+   * (e.g. `vscode/1.90.0`). When omitted, falls back to the
+   * `COPILOT_EDITOR_VERSION` env var, then a current default. Supplied by the
+   * extension host from `vscode.version` so we don't spoof a version we don't
+   * have.
+   */
+  editorVersion?: string;
 }
 
 /** Match the VS Code LM provider budget to reduce mid-JSON truncation. */
@@ -328,6 +336,7 @@ export class CopilotProvider implements LlmProvider {
   private readonly contextLength?: number;
   private readonly temperature: number;
   private readonly topP: number;
+  private readonly editorVersion: string;
   private static readonly BASE_URL = 'https://api.githubcopilot.com/chat/completions';
 
   constructor(opts: ExternalProviderOptions) {
@@ -346,6 +355,7 @@ export class CopilotProvider implements LlmProvider {
     this.contextLength = opts.contextLength;
     this.temperature = opts.temperature ?? 0;
     this.topP = opts.topP ?? 0;
+    this.editorVersion = opts.editorVersion ?? process.env.COPILOT_EDITOR_VERSION ?? 'vscode/1.90.0';
   }
 
   getContextLength(): number | undefined {
@@ -365,10 +375,10 @@ export class CopilotProvider implements LlmProvider {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
         'Copilot-Integration-Id': 'vscode-chat',
-        // The Copilot API feature-gates on the editor version. Default to a
-        // current version; override via COPILOT_EDITOR_VERSION if the API
-        // starts rejecting it.
-        'Editor-Version': process.env.COPILOT_EDITOR_VERSION ?? 'vscode/1.90.0',
+        // The Copilot API feature-gates on the editor version. Use the real
+        // editor version from the extension host (or COPILOT_EDITOR_VERSION
+        // override) rather than spoofing a fixed version.
+        'Editor-Version': this.editorVersion,
       },
       this.maxRetries,
       this.requestTimeoutMs,
@@ -448,20 +458,26 @@ function resolveMaxTokens(
 ): number {
   const { prompt, multiplier, adaptiveMaxTokens, adaptiveMaxTokensCap, adaptiveCharsPerToken, minAdaptiveTokens, maxTokens, contextLength } = opts;
   const scaledCap = Math.round(adaptiveMaxTokensCap * multiplier);
-  if (!adaptiveMaxTokens) return Math.round(maxTokens * multiplier);
-  const desired = Math.max(
-    Math.ceil(prompt.length / adaptiveCharsPerToken) * multiplier,
-    scaledCap,
-  );
-  const floor = Math.min(minAdaptiveTokens * multiplier, scaledCap);
-  const cap = Math.max(maxTokens * multiplier, scaledCap);
-  let result = clamp(desired, floor, cap);
+  let result: number;
+  if (!adaptiveMaxTokens) {
+    result = Math.round(maxTokens * multiplier);
+  } else {
+    const desired = Math.max(
+      Math.ceil(prompt.length / adaptiveCharsPerToken) * multiplier,
+      scaledCap,
+    );
+    const floor = Math.min(minAdaptiveTokens * multiplier, scaledCap);
+    const cap = Math.max(maxTokens * multiplier, scaledCap);
+    result = clamp(desired, floor, cap);
+  }
   // Bound output by the model's context window so input + output fit, or the
   // provider returns a hard error / truncates. Reserve headroom for the system
   // prompt + framing. The bound is a hard ceiling: never send more than the
   // window allows, even if that means going below the adaptive floor (sending
   // an oversized max_tokens would error/truncate, which is worse than a small
-  // response). Only apply when it meaningfully reduces the result.
+  // response). Only apply when it meaningfully reduces the result. Applied in
+  // BOTH adaptive and non-adaptive modes — a large multiplier on a small
+  // context model can otherwise exceed the window.
   if (contextLength && contextLength > 0) {
     const inputTokens = Math.ceil(prompt.length / 4);
     const maxOutput = Math.max(1, contextLength - inputTokens - CONTEXT_HEADROOM_TOKENS);

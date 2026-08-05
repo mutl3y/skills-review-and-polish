@@ -1,4 +1,32 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+// The MCP server resolves file paths against the workspace root (process.cwd()
+// or MCP_SERVER_WORKSPACE). The C1 security fix rejects non-existent paths for
+// read operations (fix/analyze/score) to close a TOCTOU hole. Tests that pass
+// a filePath to those tools must therefore create the file on disk first.
+// We create a temp workspace root and point MCP_SERVER_WORKSPACE at it so the
+// tests don't touch the real repo.
+const TEST_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-server-test-'));
+
+beforeAll(() => {
+  process.env.MCP_SERVER_WORKSPACE = TEST_ROOT;
+});
+
+afterAll(() => {
+  try { fs.rmSync(TEST_ROOT, { recursive: true, force: true }); } catch { /* ignore */ }
+  delete process.env.MCP_SERVER_WORKSPACE;
+});
+
+/** Create a file under the test workspace root and return its absolute path. */
+function createTestFile(relPath: string, content = ''): string {
+  const abs = path.join(TEST_ROOT, relPath);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, content, 'utf8');
+  return abs;
+}
 
 vi.mock('../core/index', () => ({
   Engine: vi.fn(),
@@ -185,6 +213,9 @@ describe('createMcpToolRegistry', () => {
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ analyze: vi.fn(), provider: {} })) as any,
     });
+
+    // The fix tool reads reference grounding from disk, so the file must exist.
+    createTestFile('SKILL.md', 'bad');
 
     const result = await registry.callTool('fix', {
       text: 'bad',
@@ -479,6 +510,9 @@ describe('createMcpToolRegistry', () => {
         config: { provider: 'test', model: 'test', configSource: 'test' },
       })) as any,
     });
+
+    // The fix tool reads reference grounding from disk, so the file must exist.
+    createTestFile('test.md', 'Bad text here.');
 
     await registry.callTool('fix', {
       text: 'Bad text here.',

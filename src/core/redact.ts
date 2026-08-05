@@ -36,5 +36,13 @@ export function redactSecrets(text: string): string {
   // Strip JWT-shaped tokens. Require the header to start with eyJ (base64url of
   // '{"') so we don't over-redact legitimate dotted identifiers/version strings.
   out = out.replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gi, '[REDACTED]');
+  // Strip AWS access keys (AKIA... / ASIA...)
+  out = out.replace(/\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[A-Z0-9]{16}\b/gi, '[REDACTED]');
+  // Strip Google API keys (AIza...)
+  out = out.replace(/\bAIza[0-9A-Za-z_-]{35}\b/gi, '[REDACTED]');
+  // Strip Slack tokens (xoxb-/xoxp-/xoxa-/xoxr-)
+  out = out.replace(/\bxox[baprs]-[0-9A-Za-z-]{10,}\b/gi, '[REDACTED]');
+  // Strip PEM private key blocks
+  out = out.replace(/-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/gi, '[REDACTED PRIVATE KEY]');
   return out;
 }

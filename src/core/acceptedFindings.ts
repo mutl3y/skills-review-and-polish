@@ -104,13 +104,23 @@ export function loadAcceptedFindings(storePath: string): AcceptedFindingsStore {
 
 /**
  * Save the accepted findings store to disk.
+ * Uses an atomic write (temp file + rename) so a crash mid-write can't
+ * corrupt the store.
  */
 export function saveAcceptedFindings(storePath: string, store: AcceptedFindingsStore): void {
   const dir = path.dirname(storePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(storePath, JSON.stringify(store, null, 2) + '\n', 'utf8');
+  const tmpPath = storePath + '.tmp';
+  fs.writeFileSync(tmpPath, JSON.stringify(store, null, 2) + '\n', 'utf8');
+  try {
+    fs.renameSync(tmpPath, storePath);
+  } catch (err) {
+    // Clean up the temp file if rename failed, then rethrow.
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 /**

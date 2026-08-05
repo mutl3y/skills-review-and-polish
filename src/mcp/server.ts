@@ -125,6 +125,20 @@ function chargeTokens(inputChars: number, outputText: string, inputWaves = 1): b
 }
 
 /**
+ * Reserve the estimated cost of a multi-call operation BEFORE it runs, so a
+ * single `fix` (which makes up to 3 LLM calls) can't blow through the entire
+ * remaining budget. Returns true when the reservation fits within the cap.
+ * The reservation is a soft pre-check — the actual charge happens after the
+ * call via `chargeTokens` — but it prevents starting an operation that is
+ * guaranteed to exceed the budget.
+ */
+function reserveTokens(inputChars: number, inputWaves: number): boolean {
+  if (_maxTokensPerSession <= 0) return true; // guard disabled
+  const inputCost = Math.ceil(inputChars / CHARS_PER_TOKEN) * inputWaves;
+  return _sessionTokens + inputCost <= _maxTokensPerSession;
+}
+
+/**
  * Estimate how many LLM waves an analysis will run, so the cost budget
  * charges the input per wave (not a flat 6). Mirrors the engine's mode logic:
  * single=1, focused=2, multiWave=enabledWaves.length (default 6). A direct
@@ -207,10 +221,21 @@ function resolveWorkspaceRoot(): string {
  * rejects anything that escapes it (absolute paths, `..`, and symlinks that
  * point outside the root).
  *
- * Returns the resolved absolute path, or `undefined` when the path is missing
- * or escapes the workspace root.
+ * `requireExists` controls whether the path must exist on disk:
+ *   - `true` (default): reject non-existent paths. Used by read operations
+ *     (fix/analyze/score) where the path is later read from disk — returning
+ *     an unresolved lexical path would open a TOCTOU hole (an attacker could
+ *     create a symlink at that path between check and use).
+ *   - `false`: resolve lexically against the root and reject escapes, but do
+ *     NOT require the file to exist. Used by store-key operations
+ *     (accept_finding / list_accepted_findings) where the path is only a key
+ *     into the accepted-findings store and is never read from disk — an agent
+ *     may legitimately accept a finding for a proposed/unsaved path.
+ *
+ * Returns the resolved absolute path, or `undefined` when the path escapes the
+ * workspace root (or, when `requireExists`, is missing).
  */
-function safeResolveFilePath(filePath: string | undefined): string | undefined {
+function safeResolveFilePath(filePath: string | undefined, requireExists = true): string | undefined {
   if (!filePath || filePath.trim() === '') return undefined;
   const root = path.resolve(resolveWorkspaceRoot());
   const resolved = path.resolve(root, filePath);
@@ -219,10 +244,17 @@ function safeResolveFilePath(filePath: string | undefined): string | undefined {
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     return undefined;
   }
+  // Store-key operations don't read the path from disk, so the lexical check
+  // above is sufficient — no need to require existence or resolve symlinks.
+  if (!requireExists) {
+    return resolved;
+  }
   // Resolve symlinks: a symlink inside the workspace could point outside it
   // (e.g. workspace/references -> /etc). realpath resolves the final target,
-  // which we re-check against the root. Only applies when the path exists —
-  // a non-existent path can't be read, so the lexical check above suffices.
+  // which we re-check against the root. If realpath fails (path missing or
+  // permission denied), reject rather than returning the unresolved lexical
+  // path — a TOCTOU attacker could create a symlink at that path between the
+  // check and the caller's subsequent read, bypassing the guard.
   try {
     const real = fs.realpathSync(resolved);
     if (real !== root && !real.startsWith(root + path.sep)) {
@@ -230,8 +262,7 @@ function safeResolveFilePath(filePath: string | undefined): string | undefined {
     }
     return real;
   } catch {
-    // Path doesn't exist (or realpath failed) — return the lexical path.
-    return resolved;
+    return undefined;
   }
 }
 
@@ -557,6 +588,16 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   // weaker. additive is the safe default for ambiguity fixes. Pass the line
   // so the fixer resolves the anchor at that line (disambiguating duplicates).
   const fixCfg = ctx.resolvedConfig?.engineConfig ?? DEFAULT_ENGINE_CONFIG;
+  // The fixer makes up to 3 LLM calls: the fix itself, plus the semantic
+  // check and self-critique gates when enabled. Reserve the input cost up
+  // front so a single fix can't exceed the entire remaining budget.
+  const fixWaves = 1 + (fixCfg.fixSemanticCheck ? 1 : 0) + (fixCfg.fixSelfCritique ? 1 : 0);
+  if (!reserveTokens(text.length, fixWaves)) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }],
+      isError: true,
+    };
+  }
   const result = await fixer.fixIssue(text, requireSafeFilePath(args) ?? '', syntheticDiag, {
     // Respect the configured fix strategy (additive only for ambiguity-llm),
     // matching the interactive path — not a hardcoded additive for all codes.
@@ -568,10 +609,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   });
 
   const body = JSON.stringify(result, null, 2);
-  // The fixer makes up to 3 LLM calls: the fix itself, plus the semantic
-  // check and self-critique gates when enabled. Charge the input per call so
-  // the budget reflects actual spend.
-  const fixWaves = 1 + (fixCfg.fixSemanticCheck ? 1 : 0) + (fixCfg.fixSelfCritique ? 1 : 0);
+  // Charge the input per call so the budget reflects actual spend.
   chargeTokens(text.length, body, fixWaves);
   return { content: [{ type: 'text', text: body }] };
 }
@@ -583,7 +621,10 @@ async function handleAcceptFinding(args: Record<string, unknown>, _ctx: ToolHand
   // Throw on escape (like requireSafeFilePath) rather than falling back to the
   // raw attacker-controlled string.
   const rawFilePath = requireString(args, 'filePath');
-  const filePath = safeResolveFilePath(rawFilePath);
+  // filePath is a store key here, not a path read from disk — resolve
+  // lexically against the root (rejecting escapes) but don't require the file
+  // to exist, since an agent may accept a finding for a proposed/unsaved path.
+  const filePath = safeResolveFilePath(rawFilePath, false);
   if (filePath === undefined) {
     throw new Error(`filePath "${rawFilePath}" is outside the MCP workspace root and was rejected.`);
   }
@@ -731,10 +772,11 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
 
 async function handleListAcceptedFindings(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
   // Validate the filePath filter against the workspace root for consistency.
-  // Throw on escape rather than falling back to the raw attacker-controlled
-  // string.
+  // filePath is a store-key filter here, not a path read from disk — resolve
+  // lexically against the root (rejecting escapes) but don't require the file
+  // to exist.
   const rawFilePath = optionalString(args, 'filePath');
-  const filePath = rawFilePath ? safeResolveFilePath(rawFilePath) : undefined;
+  const filePath = rawFilePath ? safeResolveFilePath(rawFilePath, false) : undefined;
   if (rawFilePath && filePath === undefined) {
     throw new Error(`filePath "${rawFilePath}" is outside the MCP workspace root and was rejected.`);
   }
