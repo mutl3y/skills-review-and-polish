@@ -503,9 +503,23 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
       : undefined;
 
   // Bounds-check the line against the document's actual line count so an
-  // out-of-range line can't anchor the fix to the wrong location.
+  // out-of-range line can't anchor the fix to the wrong location. If a line
+  // was explicitly provided but is out of range, reject loudly rather than
+  // silently falling back to first-match.
   const lineCount = text.split('\n').length;
-  const validLine = line !== undefined && line >= 0 && line < lineCount ? line : undefined;
+  if (line !== undefined && (line < 0 || line >= lineCount)) {
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          status: 'error',
+          error: `line ${line} is out of range (document has ${lineCount} lines).`,
+        }, null, 2),
+      }],
+      isError: true,
+    };
+  }
+  const validLine = line;
 
   // Duplicate-anchor guard: count occurrences of the RAW relevantText (matching
   // the interactive path) so a fragment that appears multiple times is refused
@@ -522,6 +536,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
             error: `relevantText appears ${occurrences} times in the document. Provide a "line" argument to disambiguate which occurrence to fix.`,
           }, null, 2),
         }],
+        isError: true,
       };
     }
   }
@@ -565,8 +580,13 @@ async function handleAcceptFinding(args: Record<string, unknown>, _ctx: ToolHand
   // filePath is used as a store key, but validate it against the workspace
   // root for consistency with the other tools — an agent shouldn't be able to
   // write accepted-findings entries under arbitrary keys (e.g. /etc/passwd).
+  // Throw on escape (like requireSafeFilePath) rather than falling back to the
+  // raw attacker-controlled string.
   const rawFilePath = requireString(args, 'filePath');
-  const filePath = safeResolveFilePath(rawFilePath) ?? rawFilePath;
+  const filePath = safeResolveFilePath(rawFilePath);
+  if (filePath === undefined) {
+    throw new Error(`filePath "${rawFilePath}" is outside the MCP workspace root and was rejected.`);
+  }
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const rawRelevantText = requireString(args, 'relevantText');
 
@@ -711,8 +731,13 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
 
 async function handleListAcceptedFindings(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
   // Validate the filePath filter against the workspace root for consistency.
+  // Throw on escape rather than falling back to the raw attacker-controlled
+  // string.
   const rawFilePath = optionalString(args, 'filePath');
-  const filePath = rawFilePath ? (safeResolveFilePath(rawFilePath) ?? rawFilePath) : undefined;
+  const filePath = rawFilePath ? safeResolveFilePath(rawFilePath) : undefined;
+  if (rawFilePath && filePath === undefined) {
+    throw new Error(`filePath "${rawFilePath}" is outside the MCP workspace root and was rejected.`);
+  }
   const store = loadAcceptedFindings(resolveAcceptedFindingsPath());
 
   if (filePath) {

@@ -140,7 +140,7 @@ describe('MCP stdio transport', () => {
     const result = await callMcp('tools/call', {
       name: 'accept_finding',
       arguments: {
-        filePath: '/tmp/stdio-test.md',
+        filePath: 'test/stdio-test.md',
         diagnosticCode: 'ambiguity-llm',
         relevantText: 'vague stdio test',
         reason: 'stdio integration test',

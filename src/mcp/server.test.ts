@@ -38,7 +38,7 @@ describe('accept_finding input validation', () => {
     });
 
     const result = await registry.callTool('accept_finding', {
-      filePath: '/test/file.md',
+      filePath: 'test/file.md',
       diagnosticCode: 'ambiguity-llm',
       relevantText: 'ab',
     });
@@ -56,7 +56,7 @@ describe('accept_finding input validation', () => {
     // Generic single words are all < 5 chars, so they're rejected by the
     // minimum-length guard (which also prevents over-suppression).
     const result = await registry.callTool('accept_finding', {
-      filePath: '/test/file.md',
+      filePath: 'test/file.md',
       diagnosticCode: 'ambiguity-llm',
       relevantText: 'the',
     });
@@ -73,7 +73,7 @@ describe('accept_finding input validation', () => {
 
     const longText = 'a'.repeat(201);
     const result = await registry.callTool('accept_finding', {
-      filePath: '/test/file.md',
+      filePath: 'test/file.md',
       diagnosticCode: 'ambiguity-llm',
       relevantText: longText,
     });
@@ -89,7 +89,7 @@ describe('accept_finding input validation', () => {
     });
 
     const result = await registry.callTool('accept_finding', {
-      filePath: '/tmp/test-validation.json',
+      filePath: 'test/test-validation.json',
       diagnosticCode: 'ambiguity-llm',
       relevantText: '  vague or underspecified  ',
     });
@@ -587,13 +587,13 @@ describe('createMcpToolRegistry', () => {
     });
 
     await registry.callTool('accept_finding', {
-      filePath: '/tmp/test-reason.md',
+      filePath: 'test/test-reason.md',
       diagnosticCode: 'coverage-gap',
       relevantText: 'missing info',
       reason: 'This is intentional',
     });
 
-    const result = await registry.callTool('list_accepted_findings', { filePath: '/tmp/test-reason.md' });
+    const result = await registry.callTool('list_accepted_findings', { filePath: 'test/test-reason.md' });
     const parsed = JSON.parse(result.content[0].text);
 
     expect(parsed.entries.length).toBeGreaterThanOrEqual(1);

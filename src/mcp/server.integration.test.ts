@@ -87,7 +87,7 @@ describe('MCP server integration', () => {
   });
 
   it('accept_finding + list_accepted_findings round-trip', async () => {
-    const testFile = '/tmp/mcp-integration-test.md';
+    const testFile = 'test/mcp-integration-test.md';
     await client.callTool({
       name: 'accept_finding',
       arguments: {
@@ -103,7 +103,8 @@ describe('MCP server integration', () => {
       arguments: { filePath: testFile },
     });
     const parsed = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
-    expect(parsed.filePath).toBe(testFile);
+    // filePath is resolved against the workspace root.
+    expect(parsed.filePath).toMatch(/mcp-integration-test\.md$/);
     expect(parsed.entries.length).toBeGreaterThanOrEqual(1);
     expect(parsed.entries[0].code).toBe('ambiguity-llm');
   });
@@ -166,10 +167,10 @@ describe('MCP server integration', () => {
       // Query a file that should have no entries
       const result = await client.callTool({
         name: 'list_accepted_findings',
-        arguments: { filePath: '/tmp/mcp-nonexistent-file.md' },
+        arguments: { filePath: 'test/mcp-nonexistent-file.md' },
       });
       const parsed = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
-      expect(parsed.filePath).toBe('/tmp/mcp-nonexistent-file.md');
+      expect(parsed.filePath).toMatch(/mcp-nonexistent-file\.md$/);
       expect(parsed.entries).toEqual([]);
     });
   });

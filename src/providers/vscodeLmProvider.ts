@@ -101,12 +101,17 @@ export class VsCodeLmProvider implements LlmProvider {
   }
 
   /**
-   * The smallest input context length across the three configured tiers.
-   * Returns the most conservative value so the analyzer's document budget
-   * fits every model the provider might serve. When no tier has been
-   * resolved yet (cold cache), returns `undefined`.
+   * The input context length of the STANDARD (analysis) model. The analyzer's
+   * document budget should be sized to the model that actually runs the
+   * analysis — not the fix model (which is often smaller and would needlessly
+   * constrain the budget). Falls back to the min over all resolved tiers when
+   * the standard tier isn't resolved yet. Returns `undefined` when nothing is
+   * resolved (cold cache).
    */
   getContextLength(): number | undefined {
+    if (this.cachedStandard && typeof this.cachedStandard.maxInputTokens === 'number') {
+      return this.cachedStandard.maxInputTokens;
+    }
     const contexts = [this.cachedStandard, this.cachedDeep, this.cachedFix]
       .filter((m): m is vscode.LanguageModelChat => !!m && typeof m.maxInputTokens === 'number')
       .map(m => m.maxInputTokens);
@@ -134,23 +139,27 @@ export class VsCodeLmProvider implements LlmProvider {
       }
     }
     if (!this.cachedDeep && this.deepModelId && this.deepModelId !== this.standardModelId) {
-      this.cachedDeep = await this.selectModel(this.deepModelId);
+      // Silent: deep/fix are optional tiers — don't surface an error popup if
+      // they're unavailable during warm-up.
+      this.cachedDeep = await this.selectModel(this.deepModelId, true);
     }
     if (!this.cachedFix && this.fixModelId && this.fixModelId !== this.standardModelId) {
-      this.cachedFix = await this.selectModel(this.fixModelId);
+      this.cachedFix = await this.selectModel(this.fixModelId, true);
     }
   }
 
-  private async selectModel(modelId: string): Promise<vscode.LanguageModelChat | undefined> {
+  private async selectModel(modelId: string, silent = false): Promise<vscode.LanguageModelChat | undefined> {
     const allModels = await vscode.lm.selectChatModels();
     this.log.debug('models available', { count: allModels.length, ids: allModels.map(m => m.id).join(', ') });
     this.log.debug('model vendors', { vendors: allModels.map(m => `${m.id}:${m.vendor}`).join(', ') });
 
     if (allModels.length === 0) {
       this.log.info('no models available');
-      vscode.window.showErrorMessage(
-        'No language models available. Please sign in to GitHub Copilot or configure a specific model in Settings.',
-      );
+      if (!silent) {
+        vscode.window.showErrorMessage(
+          'No language models available. Please sign in to GitHub Copilot or configure a specific model in Settings.',
+        );
+      }
       return undefined;
     }
 

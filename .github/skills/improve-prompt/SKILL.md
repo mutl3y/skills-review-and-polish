@@ -71,7 +71,7 @@ To prevent infinite loops, over-correction, and prompt degradation, you must mon
     2. Output the current best draft of the file.
     3. **Determine Environment:**
         *  **Detect interactive human presence by checking:** TOOL_NON_INTERACTIVE or CI env vars, or whether stdin/stdout is a TTY (e.g. isatty(stdin) === true). Treat the user as present if TOOL_NON_INTERACTIVE is unset AND CI is unset AND either HUMAN_SESSION=true is set or stdin/stdout are TTYs.
-        *   **If an interactive human user is present:** Present a brief, bulleted list highlighting the remaining stubborn warnings, explaining the cause, and requesting manual intervention.
+        *   **If a interactive human user is present:** Present a brief, bulleted list highlighting the remaining stubborn warnings, explaining the cause, and requesting manual intervention.
         *   **If running in a headless/autonomous environment:** Write a failure log to `stderr` detailing the remaining warnings, save the current draft to a `.failed-lint` backup file, and exit the process with exit code `1`.
 
 ---
