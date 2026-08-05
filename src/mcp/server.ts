@@ -611,9 +611,13 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   // so the fixer resolves the anchor at that line (disambiguating duplicates).
   const fixCfg = ctx.resolvedConfig?.engineConfig ?? DEFAULT_ENGINE_CONFIG;
   // The fixer makes up to 3 LLM calls: the fix itself, plus the semantic
-  // check and self-critique gates when enabled. Reserve the input cost up
-  // front so a single fix can't exceed the entire remaining budget.
-  const fixWaves = 1 + (fixCfg.fixSemanticCheck ? 1 : 0) + (fixCfg.fixSelfCritique ? 1 : 0);
+  // check and self-critique gates when enabled. The fixer FORCES self-critique
+  // for additive ambiguity fixes even when fixSelfCritique is off, so account
+  // for that here or the budget under-reserves/under-charges the common
+  // additive path.
+  const isAdditiveFix = fixCfg.fixStrategy === 'additive';
+  const selfCritiqueCalls = (fixCfg.fixSelfCritique || isAdditiveFix) ? 1 : 0;
+  const fixWaves = 1 + (fixCfg.fixSemanticCheck ? 1 : 0) + selfCritiqueCalls;
   if (!reserveTokens(text.length, fixWaves)) {
     return {
       content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }],
@@ -623,7 +627,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   const result = await fixer.fixIssue(text, requireSafeFilePath(args) ?? '', syntheticDiag, {
     // Respect the configured fix strategy (additive only for ambiguity-llm),
     // matching the interactive path — not a hardcoded additive for all codes.
-    additive: fixCfg.fixStrategy === 'additive',
+    additive: isAdditiveFix,
     semanticCheck: fixCfg.fixSemanticCheck,
     selfCritique: fixCfg.fixSelfCritique,
     referenceGrounding: fixCfg.fixReferenceGrounding,
@@ -758,7 +762,10 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
     return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
   }
   const diagnosticCode = requireString(args, 'diagnosticCode');
-  const relevantText = requireString(args, 'relevantText');
+  // Validate relevantText with the same length floor as accept_finding — a
+  // short pattern would otherwise always match nothing and report fixed:true
+  // even when the issue is still present.
+  const relevantText = validateRelevantText(requireString(args, 'relevantText'));
 
   // Re-analyze with the same wave set the user analyzed with (if provided),
   // so verification is consistent with the analysis it's verifying.

@@ -259,7 +259,9 @@ interface CopilotModelsResponse {
   }>;
 }
 
-let copilotCache: { models: Map<string, number>; fetchedAt: number; apiKey: string } | null = null;
+// Completed Copilot catalog caches, keyed by token so alternating tokens don't
+// thrash a single global cache (each token's result is reused independently).
+const copilotCache = new Map<string, { models: Map<string, number>; fetchedAt: number }>();
 // In-flight Copilot catalog fetches, keyed by token so concurrent callers with
 // different tokens don't share (and observe the wrong) fetch.
 const copilotFetchInFlight = new Map<string, Promise<Map<string, number>>>();
@@ -279,8 +281,9 @@ const copilotFetchInFlight = new Map<string, Promise<Map<string, number>>>();
 export async function fetchCopilotContextLengths(
   apiKey: string,
 ): Promise<Map<string, number>> {
-  if (copilotCache && copilotCache.apiKey === apiKey && Date.now() - copilotCache.fetchedAt < COPILOT_CACHE_TTL_MS) {
-    return copilotCache.models;
+  const cached = copilotCache.get(apiKey);
+  if (cached && Date.now() - cached.fetchedAt < COPILOT_CACHE_TTL_MS) {
+    return cached.models;
   }
   // Key the in-flight fetch by token so a second caller with a DIFFERENT token
   // doesn't await the first caller's fetch (which would observe the wrong
@@ -293,7 +296,7 @@ export async function fetchCopilotContextLengths(
   // Disk cache for offline resilience (mirrors the OpenRouter path).
   const disk = readCopilotDiskCache(apiKey);
   if (disk && Date.now() - disk.fetchedAt < COPILOT_DISK_CACHE_TTL_MS) {
-    copilotCache = { models: disk.models, fetchedAt: disk.fetchedAt, apiKey };
+    copilotCache.set(apiKey, { models: disk.models, fetchedAt: disk.fetchedAt });
     return disk.models;
   }
 
@@ -318,8 +321,8 @@ export async function fetchCopilotContextLengths(
         models.set(normalizeModelId(entry.id), ctx);
       }
     }
-    copilotCache = { models, fetchedAt: Date.now(), apiKey };
-    writeCopilotDiskCache(copilotCache);
+    copilotCache.set(apiKey, { models, fetchedAt: Date.now() });
+    writeCopilotDiskCache({ models, fetchedAt: Date.now(), apiKey });
     return models;
   })();
   copilotFetchInFlight.set(apiKey, promise);
@@ -360,7 +363,7 @@ function writeCopilotDiskCache(cache: { models: Map<string, number>; fetchedAt: 
 
 /** @internal Reset the Copilot context cache (for tests). */
 export function _resetCopilotContextCache(): void {
-  copilotCache = null;
+  copilotCache.clear();
   copilotFetchInFlight.clear();
   try {
     const dir = os.tmpdir();
