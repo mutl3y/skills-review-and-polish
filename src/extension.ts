@@ -2046,8 +2046,10 @@ export function registerLanguageModelTools(
             new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
           ]);
         } catch (e) {
+          // Redact before returning to the calling agent — a provider error
+          // body could echo back a token.
           return new vscode.LanguageModelToolResult([
-            new vscode.LanguageModelTextPart(JSON.stringify({ error: String(e) })),
+            new vscode.LanguageModelTextPart(JSON.stringify({ error: redactSecrets(String(e)) })),
           ]);
         }
       },
@@ -2092,8 +2094,10 @@ export function registerLanguageModelTools(
             new vscode.LanguageModelTextPart(JSON.stringify(result, null, 2)),
           ]);
         } catch (e) {
+          // Redact before returning to the calling agent — a provider error
+          // body could echo back a token.
           return new vscode.LanguageModelToolResult([
-            new vscode.LanguageModelTextPart(JSON.stringify({ error: String(e) })),
+            new vscode.LanguageModelTextPart(JSON.stringify({ error: redactSecrets(String(e)) })),
           ]);
         }
       },

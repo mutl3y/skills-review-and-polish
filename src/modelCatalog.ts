@@ -296,7 +296,10 @@ export async function fetchCopilotContextLengths(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Copilot-Integration-Id': 'vscode-chat',
-        'Editor-Version': 'vscode/1.90.0',
+        // Use the real editor version when provided (extension host passes it
+        // via COPILOT_EDITOR_VERSION), falling back to a current default —
+        // don't hardcode a spoofed version here.
+        'Editor-Version': process.env.COPILOT_EDITOR_VERSION ?? 'vscode/1.90.0',
       },
     });
     if (!resp.ok) throw new Error(`Copilot context fetch failed: HTTP ${resp.status}`);
