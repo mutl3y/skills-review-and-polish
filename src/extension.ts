@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
+import * as picomatch from 'picomatch';
 import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
@@ -18,7 +19,7 @@ import { SkillsCodeActionProvider } from './ui/codeActions';
 import { SuggestionHoverProvider } from './ui/hover';
 import { createInlineRewriteProvider } from './ui/inlineRewrites';
 import { fetchPricing, formatPricing, normalizeModelName, ModelPricing } from './pricing';
-import { fetchContextLengths, formatContextLength, resolveContextLength } from './modelCatalog';
+import { fetchContextLengths, formatContextLength, resolveContextLength, resolveCopilotContextLength } from './modelCatalog';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -58,10 +59,10 @@ function safeResolveFilePathForTools(filePath: string | undefined): string | und
     }
     return real;
   } catch {
-    // realpath failed (file doesn't exist / permission). A non-existent file
-    // can't be read, so the lexical path (already verified within root) is
-    // safe to return — this lets the LM tools analyze unsaved/proposed paths.
-    return resolved;
+    // realpath failed (file doesn't exist / permission). Reject rather than
+    // returning the unresolved lexical path — a TOCTOU attacker could create
+    // a symlink at that path between check and use, bypassing the guard.
+    return undefined;
   }
 }
 
@@ -506,8 +507,10 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
       );
       throw new Error('No GitHub token configured for the copilot provider');
     }
-    const resolvedCtx = await resolveContextLength(cfg.model || '');
-    const contextLength = resolvedCtx?.contextLength;
+    // Resolve context length from the live Copilot /models API (not the
+    // OpenRouter catalog) so Copilot model IDs resolve correctly.
+    const copilotCtx = await resolveCopilotContextLength(cfg.model || '', copilotToken);
+    const contextLength = copilotCtx ?? (await resolveContextLength(cfg.model || ''))?.contextLength;
     const provider = new CopilotProvider({
       apiKey: copilotToken,
       model: cfg.model || '',
@@ -713,9 +716,12 @@ async function analyzeWithOptions(uri?: vscode.Uri): Promise<void> {
   // Pass the selected waves/mode as a per-run config override instead of
   // mutating Global settings (which would persist on crash and fire config
   // change events). analyzeDocument applies the override for this run only.
+  // Explicitly clear analysisWaves so a stale config value can't bypass the
+  // modal's mode selection (analysisWaves has higher priority than analysisMode).
   const override: Partial<EngineConfig> = {
     enabledWaves: selectedWaves,
     analysisMode: modePick.mode,
+    analysisWaves: undefined,
   };
   await analyzeDocument(document, undefined, 'manual', override);
 }
@@ -824,21 +830,24 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   const allPatterns = [...new Set([...namePatterns, ...dirPatterns])];
   // Exclude node_modules AND the user's configured exclude patterns so files
   // the user explicitly asked to skip aren't analyzed (burning LLM tokens).
+  // findFiles' exclude param is a single glob and doesn't support brace
+  // expansion, so we filter the results in JS instead.
   const userExcludes = Array.isArray(cfg.exclude) ? cfg.exclude : [];
-  const excludePattern = ['**/node_modules/**', ...userExcludes];
+  const excludePatterns = ['**/node_modules/**', ...userExcludes];
   const fileSets = await Promise.all(
-    allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p), `{${excludePattern.join(',')}}`)),
+    allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p))),
   );
-  // Deduplicate and filter to .md files only
+  // Deduplicate, filter to .md files, and apply the exclude patterns.
   const seen = new Set<string>();
   const files: vscode.Uri[] = [];
   for (const set of fileSets) {
     for (const uri of set) {
-      if (!seen.has(uri.toString()) && uri.fsPath.endsWith('.md') &&
-          isCustomizationPath(uri.fsPath, cfg.include)) {
-        seen.add(uri.toString());
-        files.push(uri);
-      }
+      if (seen.has(uri.toString())) continue;
+      if (!uri.fsPath.endsWith('.md')) continue;
+      if (excludePatterns.some((g) => picomatch.isMatch(uri.fsPath, g, { dot: true }))) continue;
+      if (!isCustomizationPath(uri.fsPath, cfg.include)) continue;
+      seen.add(uri.toString());
+      files.push(uri);
     }
   }
 
@@ -1621,7 +1630,7 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
       currentProvider = vscode.workspace.getConfiguration('skillsReviewAndPolish').get('provider', 'vscode-lm');
     } catch { /* mock may not have get() — safe fallback */ }
     if (detectedProvider !== currentProvider) {
-      await wsCfg.update('provider', detectedProvider, vscode.ConfigurationTarget.Global);
+      await wsCfg.update('provider', detectedProvider, targetScope);
       log('info', `selectModel: auto-switched provider from ${currentProvider} to ${detectedProvider}`);
     }
 

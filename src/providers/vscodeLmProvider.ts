@@ -453,7 +453,7 @@ export class VsCodeLmProvider implements LlmProvider {
     try {
       const response = await model.sendRequest(
         [vscode.LanguageModelChatMessage.User(combinedPrompt)],
-        {},
+        { modelOptions: { max_tokens: resolveMaxTokens(undefined) } },
         cts.token,
       );
 
