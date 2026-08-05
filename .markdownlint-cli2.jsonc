@@ -4,7 +4,9 @@
     "src/core/prompts/**",
     "docs/plan/archive/**",
     ".github/experiments/**",
-    ".github/skills/**"
+    ".github/skills/**",
+    ".github/agents/**",
+    "docs/reviews/**"
   ],
   "config": {
     "default": true,
