@@ -859,9 +859,10 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   // Folder scans always run synchronously (single-request analysis).
   // Bound concurrency so a large folder doesn't fire hundreds of simultaneous
   // 6-wave analyses (quota exhaustion, event-loop saturation). Process files
-  // in small batches and await each batch before starting the next.
+  // in small batches, await each batch, and publish results per-batch so we
+  // don't accumulate every result in memory for a huge tree.
   const CONCURRENCY = 3;
-  const jobs: Array<{ doc: vscode.TextDocument; job: Promise<AnalysisResult[]> }> = [];
+  let succeeded = 0;
 
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `Skills Review: Analyzing ${files.length} file(s)…`, cancellable: true },
@@ -885,31 +886,28 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
             return { doc, job };
           }),
         );
-        jobs.push(...batchJobs);
         // Await this batch's analyses before starting the next, so we never
         // have more than CONCURRENCY in flight.
-        await Promise.allSettled(batchJobs.map(({ job }) => job));
+        const settled = await Promise.allSettled(batchJobs.map(({ job }) => job));
+        // Publish this batch's results immediately (don't accumulate).
+        batchJobs.forEach(({ doc, job }, idx) => {
+          const outcome = settled[idx];
+          if (outcome.status === 'rejected') {
+            log('warn', `runAnalyzeFolder: analysis failed for ${doc.uri.fsPath}: ${outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)}`);
+            return;
+          }
+          const results = outcome.value;
+          if (!results) return;
+          succeeded++;
+          publishDiagnostics(state!.diagnostics, doc.uri, results, cfg.severityOverrides, cfg.maxDiagnostics);
+          state?.lastResults.set(doc.uri.toString(), results);
+          const lineCount = doc.getText().split('\n').length;
+          const score = scoreSkill(results, lineCount, parseSkillType(doc.getText()));
+          if (cfg.showScoreCodeLens) state?.codeLensProvider.update(doc.uri, score, results.length);
+        });
       }
     },
   );
-
-  // Publish results as each job completes. Handle rejections so a failed
-  // analysis doesn't become an unhandled rejection or a false "Finished".
-  let succeeded = 0;
-  for (const { doc, job } of jobs) {
-    try {
-      const results = await job;
-      if (!results) continue;
-      succeeded++;
-      publishDiagnostics(state!.diagnostics, doc.uri, results, cfg.severityOverrides, cfg.maxDiagnostics);
-      state?.lastResults.set(doc.uri.toString(), results);
-      const lineCount = doc.getText().split('\n').length;
-      const score = scoreSkill(results, lineCount, parseSkillType(doc.getText()));
-      if (cfg.showScoreCodeLens) state?.codeLensProvider.update(doc.uri, score, results.length);
-    } catch (err) {
-      log('warn', `runAnalyzeFolder: analysis failed for ${doc.uri.fsPath}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
 
   vscode.window.showInformationMessage(
     `Skills Review: Finished analyzing ${succeeded}/${files.length} file(s).`,
@@ -2016,12 +2014,21 @@ async function fetchExternalModels(
   apiKey: string,
 ): Promise<Array<{ id: string; name: string }>> {
   if (provider === 'openrouter') {
-    const resp = await fetch('https://openrouter.ai/api/v1/models', {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const json = (await resp.json()) as { data?: Array<{ id: string; name?: string }> };
-    return (json.data ?? []).map(m => ({ id: m.id, name: m.name ?? m.id }));
+    // Timeout so a stalled network call can't hang the model picker (every
+    // other network call in this codebase has a timeout).
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const resp = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = (await resp.json()) as { data?: Array<{ id: string; name?: string }> };
+      return (json.data ?? []).map(m => ({ id: m.id, name: m.name ?? m.id }));
+    } finally {
+      clearTimeout(timer);
+    }
   }
   return [];
 }

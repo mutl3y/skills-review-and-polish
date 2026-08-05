@@ -122,11 +122,22 @@ export class VsCodeLmProvider implements LlmProvider {
    * Failures are non-fatal — `complete()` will surface a user-facing error.
    */
   async warmUp(): Promise<void> {
+    // Resolve ALL tiers (standard, deep, fix) so getContextLength() returns a
+    // real value before the first analysis wave builds its prompt. Previously
+    // only the standard tier was warmed, so getContextLength() (which takes
+    // the min over all cached tiers) returned undefined on the first run and
+    // every wave fell back to the 200K-char budget.
     if (!this.cachedStandard) {
       this.cachedStandard = await this.selectModel(this.standardModelId);
       if (this.cachedStandard && this.onModelSelected) {
         this.onModelSelected(this.cachedStandard.id);
       }
+    }
+    if (!this.cachedDeep && this.deepModelId && this.deepModelId !== this.standardModelId) {
+      this.cachedDeep = await this.selectModel(this.deepModelId);
+    }
+    if (!this.cachedFix && this.fixModelId && this.fixModelId !== this.standardModelId) {
+      this.cachedFix = await this.selectModel(this.fixModelId);
     }
   }
 

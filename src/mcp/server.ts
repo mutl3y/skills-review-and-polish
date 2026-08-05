@@ -6,7 +6,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
-import { SurgicalFixer, expandToParagraph } from '../core/fixer';
+import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { redactSecrets } from '../core/redact';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
@@ -507,14 +507,12 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   const lineCount = text.split('\n').length;
   const validLine = line !== undefined && line >= 0 && line < lineCount ? line : undefined;
 
-  // Duplicate-anchor guard: the fixer may expand a short relevantText to its
-  // surrounding paragraph (expandToParagraph), so count occurrences of the
-  // RESOLVED anchor — not the raw fragment — to avoid replacing the wrong
-  // instance. If no explicit line was provided and the anchor is ambiguous,
-  // refuse to fix.
+  // Duplicate-anchor guard: count occurrences of the RAW relevantText (matching
+  // the interactive path) so a fragment that appears multiple times is refused
+  // unless a line disambiguates. The fixer would otherwise silently target the
+  // first occurrence.
   if (validLine === undefined) {
-    const anchor = text.includes(relevantText) ? relevantText : expandToParagraph(text, relevantText);
-    const occurrences = anchor ? text.split(anchor).length - 1 : 0;
+    const occurrences = relevantText ? text.split(relevantText).length - 1 : 0;
     if (occurrences > 1) {
       return {
         content: [{
@@ -545,7 +543,9 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   // so the fixer resolves the anchor at that line (disambiguating duplicates).
   const fixCfg = ctx.resolvedConfig?.engineConfig ?? DEFAULT_ENGINE_CONFIG;
   const result = await fixer.fixIssue(text, requireSafeFilePath(args) ?? '', syntheticDiag, {
-    additive: true,
+    // Respect the configured fix strategy (additive only for ambiguity-llm),
+    // matching the interactive path — not a hardcoded additive for all codes.
+    additive: fixCfg.fixStrategy === 'additive',
     semanticCheck: fixCfg.fixSemanticCheck,
     selfCritique: fixCfg.fixSelfCritique,
     referenceGrounding: fixCfg.fixReferenceGrounding,
@@ -562,8 +562,11 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
 }
 
 async function handleAcceptFinding(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
-  // filePath is used as a store key (not a file read), so it's kept as-is.
-  const filePath = requireString(args, 'filePath');
+  // filePath is used as a store key, but validate it against the workspace
+  // root for consistency with the other tools — an agent shouldn't be able to
+  // write accepted-findings entries under arbitrary keys (e.g. /etc/passwd).
+  const rawFilePath = requireString(args, 'filePath');
+  const filePath = safeResolveFilePath(rawFilePath) ?? rawFilePath;
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const rawRelevantText = requireString(args, 'relevantText');
 
@@ -707,7 +710,9 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
 }
 
 async function handleListAcceptedFindings(args: Record<string, unknown>, _ctx: ToolHandlerContext): Promise<McpToolCallResult> {
-  const filePath = optionalString(args, 'filePath');
+  // Validate the filePath filter against the workspace root for consistency.
+  const rawFilePath = optionalString(args, 'filePath');
+  const filePath = rawFilePath ? (safeResolveFilePath(rawFilePath) ?? rawFilePath) : undefined;
   const store = loadAcceptedFindings(resolveAcceptedFindingsPath());
 
   if (filePath) {

@@ -384,7 +384,9 @@ describe('createMcpToolRegistry', () => {
     const result = await registry.callTool('list_accepted_findings', { filePath: 'test.md' });
     const parsed = JSON.parse(result.content[0].text);
 
-    expect(parsed).toHaveProperty('filePath', 'test.md');
+    // filePath is resolved against the workspace root for trust-boundary
+    // consistency.
+    expect(parsed).toHaveProperty('filePath', expect.stringMatching(/test\.md$/));
     expect(parsed).toHaveProperty('entries');
   });
 
@@ -505,7 +507,7 @@ describe('createMcpToolRegistry', () => {
         },
       }),
       expect.objectContaining({
-        additive: true,
+        additive: false,
         semanticCheck: true,
         selfCritique: true,
         referenceGrounding: true,
