@@ -149,18 +149,22 @@ export function acceptFinding(
     // Enforce max entries — evict oldest across all files when cap exceeded
     const totalEntries = Object.values(store.entries).reduce((sum, arr) => sum + arr.length, 0);
     if (totalEntries > MAX_ACCEPTED_ENTRIES) {
-      const flat: Array<{ fileKey: string; index: number; acceptedAt: string }> = [];
+      // Flatten with a stable identity (the entry object itself) so eviction
+      // deletes the exact row we ranked — NOT a stale array index. Splicing by
+      // original index after sorting is wrong: removing index 0 then index 5
+      // deletes whatever slid into slot 5, not the row we ranked.
+      const flat: Array<{ fileKey: string; entry: AcceptedFinding; acceptedAt: string }> = [];
       for (const [fk, entries] of Object.entries(store.entries)) {
-        for (let i = 0; i < entries.length; i++) {
-          flat.push({ fileKey: fk, index: i, acceptedAt: entries[i].acceptedAt });
+        for (const entry of entries) {
+          flat.push({ fileKey: fk, entry, acceptedAt: entry.acceptedAt });
         }
       }
       flat.sort((a, b) => (a.acceptedAt < b.acceptedAt ? -1 : a.acceptedAt > b.acceptedAt ? 1 : 0));
       const toRemove = totalEntries - MAX_ACCEPTED_ENTRIES;
-      for (let i = 0; i < toRemove && i < flat.length; i++) {
-        const { fileKey, index } = flat[i];
-        store.entries[fileKey]?.splice(index, 1);
-        if (store.entries[fileKey]?.length === 0) delete store.entries[fileKey];
+      const removeSet = new Set<AcceptedFinding>(flat.slice(0, toRemove).map((f) => f.entry));
+      for (const [fk, entries] of Object.entries(store.entries)) {
+        store.entries[fk] = entries.filter((e) => !removeSet.has(e));
+        if (store.entries[fk].length === 0) delete store.entries[fk];
       }
       log.debug('Accepted findings store evicted oldest entries', { removed: toRemove });
     }

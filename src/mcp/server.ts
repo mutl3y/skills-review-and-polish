@@ -239,9 +239,17 @@ function safeResolveFilePath(filePath: string | undefined, requireExists = true)
   if (!filePath || filePath.trim() === '') return undefined;
   const root = path.resolve(resolveWorkspaceRoot());
   const resolved = path.resolve(root, filePath);
+  // Case-insensitive prefix check on Windows (path.resolve doesn't normalize
+  // case) — mirrors the extension's safeResolveFilePathForTools so both doors
+  // enforce the same trust boundary.
+  const within = (base: string, p: string) => {
+    const b = process.platform === 'win32' ? base.toLowerCase() : base;
+    const q = process.platform === 'win32' ? p.toLowerCase() : p;
+    return q === b || q.startsWith(b + path.sep);
+  };
   // Reject paths that escape the workspace root lexically (absolute paths,
   // .. traversal).
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+  if (!within(root, resolved)) {
     return undefined;
   }
   // Store-key operations don't read the path from disk, so the lexical check
@@ -257,7 +265,7 @@ function safeResolveFilePath(filePath: string | undefined, requireExists = true)
   // check and the caller's subsequent read, bypassing the guard.
   try {
     const real = fs.realpathSync(resolved);
-    if (real !== root && !real.startsWith(root + path.sep)) {
+    if (!within(root, real)) {
       return undefined;
     }
     return real;
@@ -459,6 +467,20 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
 
   // Cost guard: refuse new analysis once the session budget is exhausted.
   if (budgetExhausted()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
+  }
+
+  // Reserve the estimated input cost up front so a single analyze (which runs
+  // multiple waves) can't blow through the entire remaining budget. The actual
+  // charge happens after the call; this prevents starting an operation that is
+  // guaranteed to exceed the cap.
+  const wavesArg0 = args['analysisWaves'] ?? args['enabledWaves'];
+  const validWaves0 = new Set<string>(['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene']);
+  const waves0: string[] | undefined = Array.isArray(wavesArg0)
+    ? (wavesArg0 as string[]).filter(w => validWaves0.has(w))
+    : undefined;
+  const reserveWaves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, waves0);
+  if (!reserveTokens(text.length, reserveWaves)) {
     return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
   }
 
@@ -711,6 +733,13 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
   if (budgetExhausted()) {
     return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
   }
+  // Reserve the estimated input cost up front (score runs scoreSamples × waves).
+  const rawSamples = ctx.resolvedConfig?.engineConfig?.scoreSamples ?? 1;
+  const samples = Math.max(1, Math.min(5, Math.floor(rawSamples)));
+  const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, undefined);
+  if (!reserveTokens(text.length, waves * samples)) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
+  }
   const result = await engine.score({
     text,
     filePath: requireSafeFilePath(args),
@@ -718,9 +747,6 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
   const body = JSON.stringify(result, null, 2);
   // score runs scoreSamples analyses × the configured wave count each. Clamp
   // samples to the engine's 1-5 range so the charge matches actual work.
-  const rawSamples = ctx.resolvedConfig?.engineConfig?.scoreSamples ?? 1;
-  const samples = Math.max(1, Math.min(5, Math.floor(rawSamples)));
-  const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, undefined);
   chargeTokens(text.length, body, waves * samples);
   return { content: [{ type: 'text', text: body }] };
 }
@@ -745,6 +771,12 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
     ? { analysisWaves: analysisWaves as WaveName[], analysisMode: 'multiWave' as const }
     : undefined;
 
+  // Reserve the estimated input cost up front (verify_fix re-runs analysis).
+  const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, analysisWaves);
+  if (!reserveTokens(text.length, waves)) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
+  }
+
   // 1. Re-analyze (the only LLM cost)
   const results = await engine.analyze({
     text,
@@ -765,7 +797,6 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
     issueCount: results.length,
   }, null, 2);
   // verify_fix re-runs the analysis (wave count from config override).
-  const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, analysisWaves);
   chargeTokens(text.length, body, waves);
   return { content: [{ type: 'text', text: body }] };
 }

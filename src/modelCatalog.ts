@@ -260,7 +260,9 @@ interface CopilotModelsResponse {
 }
 
 let copilotCache: { models: Map<string, number>; fetchedAt: number; apiKey: string } | null = null;
-let copilotFetchInFlight: Promise<Map<string, number>> | null = null;
+// In-flight Copilot catalog fetches, keyed by token so concurrent callers with
+// different tokens don't share (and observe the wrong) fetch.
+const copilotFetchInFlight = new Map<string, Promise<Map<string, number>>>();
 
 /**
  * Fetch and cache all model context lengths from the GitHub Copilot API.
@@ -280,8 +282,12 @@ export async function fetchCopilotContextLengths(
   if (copilotCache && copilotCache.apiKey === apiKey && Date.now() - copilotCache.fetchedAt < COPILOT_CACHE_TTL_MS) {
     return copilotCache.models;
   }
-  if (copilotFetchInFlight) {
-    return copilotFetchInFlight;
+  // Key the in-flight fetch by token so a second caller with a DIFFERENT token
+  // doesn't await the first caller's fetch (which would observe the wrong
+  // catalog completion or stick to the first failure).
+  const inFlight = copilotFetchInFlight.get(apiKey);
+  if (inFlight) {
+    return inFlight;
   }
 
   // Disk cache for offline resilience (mirrors the OpenRouter path).
@@ -291,7 +297,7 @@ export async function fetchCopilotContextLengths(
     return disk.models;
   }
 
-  copilotFetchInFlight = (async () => {
+  const promise = (async () => {
     const resp = await fetchWithTimeout(COPILOT_MODELS_URL, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -316,11 +322,12 @@ export async function fetchCopilotContextLengths(
     writeCopilotDiskCache(copilotCache);
     return models;
   })();
+  copilotFetchInFlight.set(apiKey, promise);
 
   try {
-    return await copilotFetchInFlight;
+    return await promise;
   } finally {
-    copilotFetchInFlight = null;
+    copilotFetchInFlight.delete(apiKey);
   }
 }
 
@@ -354,7 +361,7 @@ function writeCopilotDiskCache(cache: { models: Map<string, number>; fetchedAt: 
 /** @internal Reset the Copilot context cache (for tests). */
 export function _resetCopilotContextCache(): void {
   copilotCache = null;
-  copilotFetchInFlight = null;
+  copilotFetchInFlight.clear();
   try {
     const dir = os.tmpdir();
     for (const f of fs.readdirSync(dir)) {

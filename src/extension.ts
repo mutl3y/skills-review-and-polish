@@ -28,6 +28,45 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
 }
 
 /**
+ * Accept-list validator for provider API keys.
+ *
+ * Each provider declares which key formats it accepts. This is an ACCEPT list
+ * (not a reject list): a key is only sent to a provider when it matches that
+ * provider's accepted shape. As providers are added, you add one entry here —
+ * you never write bespoke "reject this format" logic at each call site.
+ *
+ * Returns an error message when the key is not acceptable for the provider,
+ * or null when it is safe to send.
+ */
+function validateKeyForProvider(
+  provider: 'openrouter' | 'copilot',
+  key: string | undefined,
+): string | null {
+  if (!key || key.trim() === '') {
+    return `provider "${provider}" requires an API key. Run "Skills Review: Set API Key" first.`;
+  }
+  const trimmed = key.trim();
+  switch (provider) {
+    case 'openrouter':
+      // OpenRouter keys are sk-or-v1-... — never send a GitHub/Copilot token
+      // to openrouter.ai.
+      if (!/^sk-or-v1-/.test(trimmed)) {
+        return `provider "openrouter" requires an OpenRouter key (sk-or-v1-...). Run "Skills Review: Set API Key" with a valid OpenRouter key.`;
+      }
+      return null;
+    case 'copilot':
+      // Copilot uses a GitHub token against api.githubcopilot.com — never send
+      // an OpenRouter key there.
+      if (/^sk-or-v1-/.test(trimmed)) {
+        return `provider "copilot" requires a GitHub token, not an OpenRouter key (sk-or-v1-...). Run "Skills Review: Set API Key" with a GitHub token.`;
+      }
+      return null;
+    default:
+      return `unknown provider "${provider}"`;
+  }
+}
+
+/**
  * Validate a `filePath` against the workspace root before it reaches the
  * analyzer/fixer. The LM tools are driven by an LLM agent, so `filePath` is
  * attacker-controlled — a malicious document could point it at `/` or an
@@ -37,7 +76,8 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
  */
 function safeResolveFilePathForTools(filePath: string | undefined): string | undefined {
   if (!filePath || filePath.trim() === '') return undefined;
-  const root = path.resolve(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd());
+  const folder = workspaceFolderForPath(filePath);
+  const root = path.resolve(folder?.uri.fsPath ?? process.cwd());
   const resolved = path.resolve(root, filePath);
   // Case-insensitive prefix check on Windows (path.resolve doesn't normalize case).
   const isWithin = (base: string, p: string) => {
@@ -129,7 +169,6 @@ class ExtensionState {
   lastResults = new Map<string, AnalysisResult[]>();
   analysisLocks = new Map<string, Promise<void>>();
   disposed = false;
-  debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   fixPreviewContent = new Map<string, { text: string; ts: number }>();
   cachedEngine: Engine | undefined;
   cachedEngineConfigHash = '';
@@ -140,8 +179,6 @@ class ExtensionState {
     this.statusBar?.dispose();
     this.codeLensProvider?.dispose();
     this.out?.dispose();
-    for (const t of this.debounceTimers.values()) clearTimeout(t);
-    this.debounceTimers.clear();
     this.lastResults.clear();
     this.analysisLocks.clear();
     this.fixPreviewContent.clear();
@@ -204,11 +241,36 @@ function evictStaleFixPreviews(docPath?: string): void {
   }
 }
 
-/** Resolve the accepted-findings path from the workspace root (not process.cwd()). */
-function getAcceptedFindingsPath(): string {
+/**
+ * Resolve the workspace folder that contains the given file path, falling back
+ * to the first folder. In a multi-root workspace this matters: a document in
+ * folder B must key its accepted-findings / MCP config / path checks against
+ * folder B's root, not folder A's.
+ */
+function workspaceFolderForPath(filePath?: string): vscode.WorkspaceFolder | undefined {
   const folders = vscode.workspace.workspaceFolders;
-  if (folders && folders.length > 0) {
-    return path.join(folders[0].uri.fsPath, '.accepted-findings.json');
+  if (!folders || folders.length === 0) return undefined;
+  if (filePath) {
+    const abs = path.resolve(filePath);
+    const match = folders.find((f) => {
+      const root = path.resolve(f.uri.fsPath);
+      const within = (base: string, p: string) => {
+        const b = process.platform === 'win32' ? base.toLowerCase() : base;
+        const q = process.platform === 'win32' ? p.toLowerCase() : p;
+        return q === b || q.startsWith(b + path.sep);
+      };
+      return within(root, abs);
+    });
+    if (match) return match;
+  }
+  return folders[0];
+}
+
+/** Resolve the accepted-findings path from the workspace root (not process.cwd()). */
+function getAcceptedFindingsPath(filePath?: string): string {
+  const folder = workspaceFolderForPath(filePath);
+  if (folder) {
+    return path.join(folder.uri.fsPath, '.accepted-findings.json');
   }
   // Fallback: empty string signals caller to skip accepted-findings lookup
   return '';
@@ -406,24 +468,6 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.workspace.onDidChangeTextDocument((e) => {
-      const cfg = readConfig();
-      if (!cfg.enable || cfg.runOn !== 'onType') return;
-      if (!isCustomizationPath(e.document.uri.fsPath, cfg.include)) return;
-      const key = e.document.uri.toString();
-      const existing = state?.debounceTimers.get(key);
-      if (existing !== undefined) clearTimeout(existing);
-      state?.debounceTimers.set(
-        key,
-        setTimeout(() => {
-          state?.debounceTimers.delete(key);
-          void analyzeDocument(e.document, undefined, 'onType');
-        }, 2000),
-      );
-    }),
-  );
-
-  context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument((doc) => {
       const key = doc.uri.toString();
       state?.lastResults.delete(key);
@@ -477,27 +521,14 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
   log('info', `buildEngine: provider=${cfg.provider} standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'}`);
 
   if (cfg.provider === 'openrouter') {
-    if (!apiKey) {
-      log('warn', `buildEngine: ${cfg.provider} selected but no API key — aborting`);
-      vscode.window.showErrorMessage(
-        `Skills Review: provider is "${cfg.provider}" but no API key is stored. ` +
-          'Run "Skills Review: Set API Key" first, or switch provider to "vscode-lm".',
-      );
-      throw new Error(`No API key configured for provider "${cfg.provider}"`);
-    }
-    // The shared SecretStorage slot can hold a GitHub/Copilot token. Only send
-    // it to openrouter.ai when it's actually an OpenRouter key — never leak a
-    // privileged GitHub token to a third party.
-    if (!/^sk-or-v1-/.test(apiKey.trim())) {
-      log('warn', `buildEngine: openrouter selected but stored key is not an OpenRouter key (sk-or-v1-) — aborting`);
-      vscode.window.showErrorMessage(
-        `Skills Review: provider is "openrouter" but the stored key is not an OpenRouter key (sk-or-v1-...). ` +
-          'Run "Skills Review: Set API Key" with a valid OpenRouter key, or switch provider.',
-      );
-      throw new Error('Stored key is not an OpenRouter key');
+    const keyError = validateKeyForProvider('openrouter', apiKey);
+    if (keyError) {
+      log('warn', `buildEngine: openrouter key validation failed — aborting`);
+      vscode.window.showErrorMessage(`Skills Review: ${keyError}`);
+      throw new Error(keyError);
     }
     const provider = new OpenRouterProvider({
-      apiKey,
+      apiKey: apiKey!,
       model: cfg.model || '',
       deepModel: cfg.deepModel || undefined,
       fixModel: cfg.fixModel || undefined,
@@ -520,20 +551,18 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     // Copilot API provider: uses a GitHub token (stored key or env) against
     // api.githubcopilot.com — no separate API key.
     const copilotToken = apiKey || process.env.GITHUB_TOKEN?.trim() || process.env.COPILOT_TOKEN?.trim();
-    if (!copilotToken) {
-      log('warn', `buildEngine: copilot selected but no token — aborting`);
-      vscode.window.showErrorMessage(
-        `Skills Review: provider is "copilot" but no GitHub token is available. ` +
-          'Set GITHUB_TOKEN, or run "Skills Review: Set API Key".',
-      );
-      throw new Error('No GitHub token configured for the copilot provider');
+    const keyError = validateKeyForProvider('copilot', copilotToken);
+    if (keyError) {
+      log('warn', `buildEngine: copilot key validation failed — aborting`);
+      vscode.window.showErrorMessage(`Skills Review: ${keyError}`);
+      throw new Error(keyError);
     }
     // Resolve context length from the live Copilot /models API (not the
     // OpenRouter catalog) so Copilot model IDs resolve correctly.
-    const copilotCtx = await resolveCopilotContextLength(cfg.model || '', copilotToken);
+    const copilotCtx = await resolveCopilotContextLength(cfg.model || '', copilotToken!);
     const contextLength = copilotCtx ?? (await resolveContextLength(cfg.model || ''))?.contextLength;
     const provider = new CopilotProvider({
-      apiKey: copilotToken,
+      apiKey: copilotToken!,
       model: cfg.model || '',
       deepModel: cfg.deepModel || undefined,
       fixModel: cfg.fixModel || undefined,
@@ -584,7 +613,7 @@ async function runAnalyze(_force: boolean): Promise<void> {
   const path = editor.document.uri.fsPath;
 
   // When triggered manually via command, analyse any file — the user explicitly asked for it.
-  // The gate only applies to automatic triggers (onSave/onType) which call analyzeDocument directly.
+  // The gate only applies to automatic triggers (onSave) which call analyzeDocument directly.
   if (!isCustomizationPath(path, cfg.include)) {
     log('info', `runAnalyze: ${path} is not a standard customization file — analysing anyway (manual trigger).`);
   }
@@ -897,7 +926,7 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   vscode.window.showInformationMessage(`Skills Review: Finished analyzing ${files.length} file(s).`);
 }
 
-type TriggerSource = 'manual' | 'onSave' | 'onType';
+type TriggerSource = 'manual' | 'onSave';
 
 async function analyzeDocument(
   doc: vscode.TextDocument,
@@ -926,7 +955,7 @@ async function analyzeDocument(
       return;
     }
     log('info', `analyzeDocument: START ${filePath} (${doc.getText().length} chars)`);
-    // Only reveal output panel for manual triggers — onType/onSave should not steal focus or cause layout flicker.
+    // Only reveal output panel for manual triggers — onSave should not steal focus or cause layout flicker.
     if (triggerSource === 'manual') {
       state?.out?.show(false);
     }
@@ -941,7 +970,7 @@ async function analyzeDocument(
           const effectiveToken = token ?? progressToken;
           if (effectiveToken?.isCancellationRequested) return;
           log('info', `analyzeDocument: calling engine.analyze on ${text.length} chars`);
-          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: effectiveToken }, undefined, undefined, configOverride);
+          const results = await engine.analyze({ text, filePath, acceptedFindingsPath: getAcceptedFindingsPath(filePath), token: effectiveToken }, undefined, undefined, configOverride);
           if (token?.isCancellationRequested) return;
           log('info', `analyzeDocument: got ${results.length} results`);
           for (const r of results) {
@@ -1063,35 +1092,68 @@ async function runFixAll(): Promise<void> {
     async () => {
       try {
         const engine = await buildEngine();
-        const text = doc.getText();
-        log('info', `runFixAll: ${fixable.length} fixable issues on ${doc.uri.fsPath}`);
-        const { fixedText, applied, skipped, skippedReasons } = await engine.surgicalFix(
-          { text, filePath: doc.uri.fsPath },
-          fixable,
-        );
-        log('info', `runFixAll: applied=${applied} skipped=${skipped} originalLen=${text.length} fixedLen=${fixedText.length}`);
-        if (skippedReasons.length > 0) {
-          log('info', `runFixAll: skipped reasons: ${skippedReasons.join('; ')}`);
+        let text = doc.getText();
+        let totalApplied = 0;
+        let totalSkipped = 0;
+        const allSkippedReasons: string[] = [];
+        let currentFixable = fixable;
+
+        // 'loop' mode: re-analyze and re-fix up to fixLoopMaxIterations times
+        // until no fixable issues remain. 'diff' and 'chat' run a single pass.
+        const maxIterations = cfg.fixMode === 'loop' ? Math.max(1, cfg.fixLoopMaxIterations) : 1;
+
+        for (let iter = 0; iter < maxIterations; iter++) {
+          if (currentFixable.length === 0) break;
+          log('info', `runFixAll: iteration ${iter + 1}/${maxIterations} — ${currentFixable.length} fixable issues`);
+          const { fixedText, applied, skipped, skippedReasons } = await engine.surgicalFix(
+            { text, filePath: doc.uri.fsPath },
+            currentFixable,
+          );
+          totalApplied += applied;
+          totalSkipped += skipped;
+          allSkippedReasons.push(...skippedReasons);
+          log('info', `runFixAll: iter ${iter + 1} applied=${applied} skipped=${skipped} originalLen=${text.length} fixedLen=${fixedText.length}`);
+
+          if (applied === 0) {
+            // No progress — stop looping to avoid an infinite loop.
+            break;
+          }
+          text = fixedText;
+
+          if (cfg.fixMode === 'loop' && iter < maxIterations - 1) {
+            // Re-analyze the updated text to find remaining fixable issues.
+            const reResults = await engine.analyze({ text, filePath: doc.uri.fsPath });
+            currentFixable = reResults.filter((r) => SURGICAL_FIXABLE_CODES.has(r.code ?? ''));
+          }
         }
 
-        if (applied === 0) {
-          log('info', `runFixAll: no fixes accepted (all ${skipped} skipped by safety guards)`);
-          const humanReasons = skippedReasons.map(humanizeSkipReason).slice(0, 3).join('; ');
+        if (totalApplied === 0) {
+          log('info', `runFixAll: no fixes accepted (all ${totalSkipped} skipped by safety guards)`);
+          const humanReasons = allSkippedReasons.map(humanizeSkipReason).slice(0, 3).join('; ');
           vscode.window.showInformationMessage(
-            `Skills Review: No fixes accepted (${skipped} skipped). ${humanReasons ? `Reasons: ${humanReasons}` : ''}`,
+            `Skills Review: No fixes accepted (${totalSkipped} skipped). ${humanReasons ? `Reasons: ${humanReasons}` : ''}`,
           );
           return;
         }
 
         if (cfg.fixMode === 'diff') {
-          log('info', `runFixAll: showing diff preview for ${applied} fixes`);
-          await showFixDiff(doc, fixedText, `Fix All — ${applied} change(s)`);
-        } else {
-          log('info', `runFixAll: applying ${applied} fixes directly`);
-          await applyFixToDocument(doc, text, fixedText);
-          const humanReasons = skippedReasons.map(humanizeSkipReason).slice(0, 2).join('; ');
+          log('info', `runFixAll: showing diff preview for ${totalApplied} fixes`);
+          await showFixDiff(doc, text, `Fix All — ${totalApplied} change(s)`);
+        } else if (cfg.fixMode === 'chat') {
+          // 'chat' mode is not implemented — fall back to a clear message
+          // rather than silently applying (the old behavior was a silent
+          // one-shot apply, which was product fiction).
+          log('warn', `runFixAll: fixMode 'chat' is not implemented — applying directly instead`);
+          await applyFixToDocument(doc, doc.getText(), text);
           vscode.window.showInformationMessage(
-            `Skills Review: Applied ${applied} fix(es)${skipped ? `. ${skipped} skipped: ${humanReasons}` : ''}.`,
+            `Skills Review: Applied ${totalApplied} fix(es) directly (fixMode 'chat' is not yet implemented).`,
+          );
+        } else {
+          log('info', `runFixAll: applying ${totalApplied} fixes directly`);
+          await applyFixToDocument(doc, doc.getText(), text);
+          const humanReasons = allSkippedReasons.map(humanizeSkipReason).slice(0, 2).join('; ');
+          vscode.window.showInformationMessage(
+            `Skills Review: Applied ${totalApplied} fix(es)${totalSkipped ? `. ${totalSkipped} skipped: ${humanReasons}` : ''}.`,
           );
         }
       } catch (err) {
@@ -1211,6 +1273,9 @@ async function runFixIssue(
             fixResult.risks.length > 0 ? ` [${fixResult.risks.join('; ')}]` : '';
           await showFixDiff(doc, fixedText, `Fix "${result.code}"${riskNote}`);
         } else {
+          if (cfg.fixMode === 'chat') {
+            log('warn', `runFixIssue: fixMode 'chat' is not implemented — applying directly instead`);
+          }
           log('info', `runFixIssue: applying fix directly`);
           await applyFixToDocument(doc, text, fixedText);
           if (fixResult.risks.length > 0) {
@@ -1260,7 +1325,7 @@ async function runAcceptFinding(
   }
 
   const fileName = uri.fsPath;
-  const acceptedFindingsPath = getAcceptedFindingsPath();
+  const acceptedFindingsPath = getAcceptedFindingsPath(fileName);
   if (!acceptedFindingsPath) {
     vscode.window.showWarningMessage('Skills Review: No workspace folder open — cannot persist accepted findings.');
     return;
@@ -1731,12 +1796,12 @@ async function selectPickerSortOrder(): Promise<void> {
 
 async function syncMcpConfig(silent = false): Promise<void> {
   const cfg = readConfig();
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) {
+  const folder = workspaceFolderForPath();
+  if (!folder) {
     if (!silent) vscode.window.showWarningMessage('Skills Review: No workspace folder open — cannot write .skills-review.json.');
     return;
   }
-  const configPath = path.join(folders[0].uri.fsPath, '.skills-review.json');
+  const configPath = path.join(folder.uri.fsPath, '.skills-review.json');
   const mcpConfig = {
     provider: cfg.provider,
     model: cfg.model,
@@ -1852,30 +1917,25 @@ async function testModelSimplePrompt(): Promise<void> {
     const apiKey = state?.extensionContext ? await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
     const copilotToken = apiKey || process.env.GITHUB_TOKEN?.trim() || process.env.COPILOT_TOKEN?.trim();
     const token = cfg.provider === 'copilot' ? copilotToken : apiKey;
-    if (!token) {
-      vscode.window.showErrorMessage(
-        `Cannot test "${cfg.provider}" provider — no API key stored. Run "Skills Review: Set API Key" first.`,
-      );
-      return;
-    }
-    // Never send a non-OpenRouter key (e.g. a GitHub token) to openrouter.ai.
-    if (cfg.provider === 'openrouter' && !/^sk-or-v1-/.test(token.trim())) {
-      vscode.window.showErrorMessage(
-        'Cannot test "openrouter" provider — the stored key is not an OpenRouter key (sk-or-v1-...). Run "Skills Review: Set API Key" with a valid OpenRouter key.',
-      );
+    // Accept-list validation: only send a key to a provider when it matches
+    // that provider's accepted shape (never a GitHub token to openrouter.ai,
+    // never an OpenRouter key to api.githubcopilot.com).
+    const keyError = validateKeyForProvider(cfg.provider as 'openrouter' | 'copilot', token);
+    if (keyError) {
+      vscode.window.showErrorMessage(`Cannot test "${cfg.provider}" provider — ${keyError}`);
       return;
     }
     const model = cfg.model || '';
     const provider = cfg.provider === 'copilot'
       ? new CopilotProvider({
-          apiKey: token,
+          apiKey: token!,
           model,
           structuredOutput: cfg.externalStructuredOutput,
           requestTimeoutMs: cfg.externalRequestTimeoutMs,
           editorVersion: `vscode/${vscode.version}`,
         })
       : new OpenRouterProvider({
-          apiKey: token,
+          apiKey: token!,
           model,
           structuredOutput: cfg.externalStructuredOutput,
           requestTimeoutMs: cfg.externalRequestTimeoutMs,
@@ -2041,7 +2101,7 @@ export function registerLanguageModelTools(
               new vscode.LanguageModelTextPart(JSON.stringify({ error: `filePath "${filePath}" is outside the workspace root and was rejected.` })),
             ]);
           }
-          const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(), token: _token });
+          const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(safePath), token: _token });
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
           ]);

@@ -139,7 +139,9 @@ describe('MCP server integration', () => {
     });
 
     it('accept_finding persists and list_accepted_findings retrieves with live provider', async () => {
-      const testFile = '/tmp/mcp-integration-live-test.md';
+      // Use a path within the workspace root (cwd) — an absolute /tmp path
+      // escapes the trust boundary and is correctly rejected.
+      const testFile = 'mcp-integration-live-test.md';
       const code = 'coverage-gap';
       const text = 'live provider acceptance test';
 
@@ -157,7 +159,7 @@ describe('MCP server integration', () => {
         arguments: { filePath: testFile },
       });
       const listParsed = JSON.parse((listResult.content as Array<{ type: string; text: string }>)[0].text);
-      expect(listParsed.filePath).toBe(testFile);
+      expect(listParsed.filePath).toMatch(/mcp-integration-live-test\.md$/);
       expect(listParsed.entries.length).toBeGreaterThanOrEqual(1);
       const match = listParsed.entries.find((e: { code: string; textPattern: string }) => e.code === code && e.textPattern === text);
       expect(match).toBeDefined();

@@ -54,7 +54,7 @@ export interface ExtensionConfig extends EngineConfig {
   externalRequestTimeoutMs: number;
   /** Cumulative output-token budget for the MCP server per session. 0 disables the guard. */
   mcpMaxTokensPerSession: number;
-  runOn: 'manual' | 'onSave' | 'onType';
+  runOn: 'manual' | 'onSave';
   include: string[];
   exclude: string[];
   fixMode: 'diff' | 'loop' | 'chat';

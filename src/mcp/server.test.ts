@@ -306,9 +306,13 @@ describe('createMcpToolRegistry', () => {
   it('refuses analyze once the session output-token budget is exhausted', async () => {
     // Import the budget reset helper (added for testability).
     const { _resetSessionBudget, _setSessionBudgetCap } = await import('./server.js');
+    const { _resetAnalyzeCooldown } = await import('./server.js');
     _resetSessionBudget();
-    // Set a tiny cap so a single analyze call exhausts it.
-    _setSessionBudgetCap(1);
+    _resetAnalyzeCooldown();
+    // Set a cap large enough for the first call's input reserve to pass, but
+    // small enough that the post-call charge exhausts it. Input is ~6 tokens ×
+    // 6 waves = ~36; the output charge pushes it over 40.
+    _setSessionBudgetCap(40);
     const analyze = vi.fn(async () => [{ code: 'ambiguity-llm', message: 'x'.repeat(200) }]);
     const registry = createMcpToolRegistry({
       buildEngine: vi.fn(async () => ({ engine: { analyze }, config: { provider: 'test', model: 'test', configSource: 'test' } })) as any,
@@ -319,6 +323,9 @@ describe('createMcpToolRegistry', () => {
     expect(JSON.parse(first.content[0].text)).toEqual([{ code: 'ambiguity-llm', message: 'x'.repeat(200) }]);
     expect(analyze).toHaveBeenCalledTimes(1);
 
+    // Reset the cooldown so the second call reaches the budget check (which
+    // refuses it) instead of sleeping on the 5s analyze cooldown.
+    _resetAnalyzeCooldown();
     // Second call is refused because the budget is now exhausted.
     const second = await registry.callTool('analyze', { text: 'Use explicit wording.' });
     const parsed = JSON.parse(second.content[0].text);

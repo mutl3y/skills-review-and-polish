@@ -657,7 +657,7 @@ describe('testModelSimplePrompt', () => {
     await testCmd();
 
     expect(mocks.showErrorMessage).toHaveBeenCalledWith(
-      expect.stringContaining('no API key'),
+      expect.stringContaining('requires an API key'),
     );
   });
 
@@ -714,13 +714,6 @@ describe('event handler wiring', () => {
     activate(context);
 
     expect(mocks.onDidSaveTextDocument).toHaveBeenCalled();
-  });
-
-  it('registers onDidChangeTextDocument', () => {
-    const context = { subscriptions: [] as any[] } as any;
-    activate(context);
-
-    expect(mocks.onDidChangeTextDocument).toHaveBeenCalled();
   });
 
   it('registers onDidCloseTextDocument', () => {

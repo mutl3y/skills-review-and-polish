@@ -188,6 +188,28 @@ export async function loadReferenceGrounding(
   }
   if (!stat.isDirectory()) return null;
 
+  // Reject a symlinked `references/` directory outright. `access`/`stat`
+  // follow symlinks, so a `references -> /etc` symlink would pass the checks
+  // above and let readdir/readFile escape the workspace. realpath the dir and
+  // confirm it is not a symlink and stays within the document's directory.
+  let realRefDir: string;
+  try {
+    const lstatDir = await fsPromises.lstat(refDir);
+    if (lstatDir.isSymbolicLink()) return null;
+    realRefDir = await fsPromises.realpath(refDir);
+  } catch {
+    return null;
+  }
+  const docDirReal = await fsPromises.realpath(path.dirname(filePath)).catch(() => null);
+  if (docDirReal) {
+    const within = (base: string, p: string) => {
+      const b = process.platform === 'win32' ? base.toLowerCase() : base;
+      const q = process.platform === 'win32' ? p.toLowerCase() : p;
+      return q === b || q.startsWith(b + path.sep);
+    };
+    if (!within(docDirReal, realRefDir)) return null;
+  }
+
   const allNames = await fsPromises.readdir(refDir);
   const files = allNames
     .filter((name) => /\.(md|mdx|txt|json|yaml|yml)$/i.test(name))
@@ -226,6 +248,20 @@ export async function loadReferenceGrounding(
     const refDirResolved = path.resolve(refDir);
     const sep = path.sep;
     if (!resolved.startsWith(refDirResolved + sep) && resolved !== refDirResolved) continue;
+    // Canonical containment: realpath the file and re-check against the
+    // realpath of refDir, so a symlinked file (or a symlink introduced
+    // between lstat and read) can't escape the references directory.
+    try {
+      const realFile = await fsPromises.realpath(full);
+      const within = (base: string, p: string) => {
+        const b = process.platform === 'win32' ? base.toLowerCase() : base;
+        const q = process.platform === 'win32' ? p.toLowerCase() : p;
+        return q === b || q.startsWith(b + path.sep);
+      };
+      if (!within(realRefDir, realFile)) continue;
+    } catch {
+      continue;
+    }
     let text: string;
     try {
       text = (await fsPromises.readFile(full, 'utf8')).trim();
@@ -590,7 +626,7 @@ async function fixPreservesMeaning(
   targetText: string,
   fixed: string,
   provider: LlmProvider,
-): Promise<boolean> {
+): Promise<{ ok: boolean; failedOpen: boolean }> {
   try {
     const req: LlmRequest = {
       systemPrompt:
@@ -615,10 +651,10 @@ async function fixPreservesMeaning(
       ].join('\n'),
     };
     const res = await provider.complete(req);
-    if (res.error) return true;
-    return /^\s*yes\b/i.test(res.text ?? '');
+    if (res.error) return { ok: true, failedOpen: true };
+    return { ok: /^\s*yes\b/i.test(res.text ?? ''), failedOpen: false };
   } catch {
-    return true; // fail-open
+    return { ok: true, failedOpen: true }; // fail-open
   }
 }
 
@@ -626,7 +662,7 @@ async function fixIntroducesFact(
   targetText: string,
   fixed: string,
   provider: LlmProvider,
-): Promise<string> {
+): Promise<{ drift: string; failedOpen: boolean }> {
   try {
     const req: LlmRequest = {
       systemPrompt:
@@ -640,11 +676,11 @@ async function fixIntroducesFact(
       ].join('\n'),
     };
     const res = await provider.complete(req);
-    if (res.error) return '';
+    if (res.error) return { drift: '', failedOpen: true };
     const m = (res.text ?? '').trim().match(/^DRIFT:\s*(.+)$/i);
-    return m ? m[1].trim().slice(0, 60) : '';
+    return { drift: m ? m[1].trim().slice(0, 60) : '', failedOpen: false };
   } catch {
-    return ''; // fail-open
+    return { drift: '', failedOpen: true }; // fail-open
   }
 }
 
@@ -771,22 +807,27 @@ export class SurgicalFixer {
 
     // Optional self-critique (factual drift)
     const gates = shouldRunOptionalFixGate(code, targetText, fixed, additive, options);
+    const riskFlags: string[] = [];
     if (gates.selfCritique) {
-      const critiqueReason = await fixIntroducesFact(targetText, fixed, this.provider);
-      if (critiqueReason) {
+      const critique = await fixIntroducesFact(targetText, fixed, this.provider);
+      if (critique.failedOpen) {
+        riskFlags.push('self-critique skipped (LLM unavailable)');
+      } else if (critique.drift) {
         return {
           accepted: false,
           fixed: '',
           risks: [],
-          rejectReason: `self-critique: ${critiqueReason}`,
+          rejectReason: `self-critique: ${critique.drift}`,
         };
       }
     }
 
     // Optional semantic judge
     if (gates.semanticCheck) {
-      const ok = await fixPreservesMeaning(targetText, fixed, this.provider);
-      if (!ok) {
+      const meaning = await fixPreservesMeaning(targetText, fixed, this.provider);
+      if (meaning.failedOpen) {
+        riskFlags.push('semantic-check skipped (LLM unavailable)');
+      } else if (!meaning.ok) {
         return {
           accepted: false,
           fixed: '',
@@ -796,7 +837,7 @@ export class SurgicalFixer {
       }
     }
 
-    const risks = classifyEditRisk(code, targetText, fixed);
+    const risks = [...classifyEditRisk(code, targetText, fixed), ...riskFlags];
     return { accepted: true, fixed, risks };
   }
 
