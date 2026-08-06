@@ -372,6 +372,18 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       await expect(streamed).resolves.toEqual({ text: '{"ok":true}' });
     });
+
+    it('does not inject literal "undefined" when a stream part has no value', async () => {
+      const streamed = (provider as any).collectStreamText({
+        stream: (async function* () {
+          yield { value: '{"ok":' };
+          yield { value: undefined }; // must not become the string "undefined"
+          yield 'true}';
+        })(),
+      });
+
+      await expect(streamed).resolves.toEqual({ text: '{"ok":true}' });
+    });
   });
 
   describe('cost multiplier enforcement', () => {

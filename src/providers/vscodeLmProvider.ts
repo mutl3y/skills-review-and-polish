@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
 import { createLogger, Logger } from '../core/logger';
 import { stripCodeFences } from '../core/llmText';
+import { CHARS_PER_TOKEN } from '../core/tokenBudget';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -29,16 +30,32 @@ function isRateLimitError(msg: string): boolean {
 /** Base max_tokens for vscode.lm requests. */
 const BASE_MAX_TOKENS = 16384;
 
+/** Headroom (tokens) reserved for system prompt + framing when bounding output by context. */
+const CONTEXT_HEADROOM_TOKENS = 2048;
+
 /**
  * Resolve the max_tokens for a vscode.lm request, honoring the analyzer's
  * per-wave `maxTokensMultiplier` (ambiguities/contradiction waves request
  * extra headroom so they don't truncate mid-JSON). The external providers
  * honor this via resolveMaxTokens; vscode.lm must too, or the default
  * provider silently truncates large waves.
+ *
+ * When a context length (model maxInputTokens) is provided, the output is
+ * bounded so input + output fit the window — mirroring the external
+ * providers' context ceiling. A large multiplier on a small-context model
+ * would otherwise exceed the window and error/truncate.
  */
-function resolveMaxTokens(multiplier: number | undefined): number {
+function resolveMaxTokens(multiplier: number | undefined, contextLength?: number, promptLength = 0): number {
   const m = multiplier && multiplier > 0 ? multiplier : 1;
-  return Math.round(BASE_MAX_TOKENS * m);
+  let result = Math.round(BASE_MAX_TOKENS * m);
+  if (contextLength && contextLength > 0) {
+    const inputTokens = Math.ceil(promptLength / CHARS_PER_TOKEN);
+    const maxOutput = Math.max(1, contextLength - inputTokens - CONTEXT_HEADROOM_TOKENS);
+    if (maxOutput < result) {
+      result = Math.min(result, maxOutput);
+    }
+  }
+  return result;
 }
 
 /**
@@ -147,18 +164,22 @@ export class VsCodeLmProvider implements LlmProvider {
       if (byId.length > 0) {
         // Pricing guard only applies to Copilot models with known pricing.
         // Models without pricing data (OpenRouter, etc.) pass through — the user explicitly chose them.
-        const multiplier = modelToMultiplier.get(trimmed);
-        if (multiplier !== undefined && !safeTierIds.has(trimmed)) {
-          this.log.info('model rejected: expensive', { modelId: trimmed, multiplier });
+        // Look up the multiplier by the ACTUAL returned model id (not the raw
+        // `trimmed` string) so a case/format mismatch between the setting and
+        // the live model id can't silently bypass the guard.
+        const preferred = this.findPreferredCopilotModel(byId);
+        const guardId = preferred?.id ?? byId[0]?.id ?? trimmed;
+        const multiplier = modelToMultiplier.get(guardId);
+        if (multiplier !== undefined && !safeTierIds.has(guardId)) {
+          this.log.info('model rejected: expensive', { modelId: guardId, multiplier });
           vscode.window.showErrorMessage(
-            `Model "${trimmed}" is not in the safe tier (multiplier ${multiplier}x > 1x). ` +
+            `Model "${guardId}" is not in the safe tier (multiplier ${multiplier}x > 1x). ` +
               `Please select a model ≤1x in Settings.`,
           );
           return undefined;
         }
 
         this.log.debug('found model instances', { modelId: trimmed, count: byId.length });
-        const preferred = this.findPreferredCopilotModel(byId);
         if (!preferred) {
           this.log.info('model rejected: copilotcli vendor only', { modelId: trimmed });
           vscode.window.showErrorMessage(
@@ -206,7 +227,12 @@ export class VsCodeLmProvider implements LlmProvider {
         if (typeof part === 'string') {
           partStr = part;
         } else if (part && typeof part === 'object') {
-          partStr = 'value' in part ? String((part as StreamPartWithValue).value) : String(part);
+          // Guard against a `.value` that is undefined — String(undefined)
+          // would inject the literal "undefined" into the JSON text and
+          // corrupt the output. Skip such parts entirely.
+          const value = (part as StreamPartWithValue).value;
+          if ('value' in part && value === undefined) continue;
+          partStr = 'value' in part ? String(value) : String(part);
         } else {
           partStr = String(part);
         }
@@ -316,7 +342,7 @@ export class VsCodeLmProvider implements LlmProvider {
         messages,
         { 
           modelOptions: { 
-            max_tokens: resolveMaxTokens(request.maxTokensMultiplier),
+            max_tokens: resolveMaxTokens(request.maxTokensMultiplier, model.maxInputTokens, combinedPrompt.length),
           }
         },
         cts.token,
@@ -344,7 +370,7 @@ export class VsCodeLmProvider implements LlmProvider {
         }
         const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
         try {
-          const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } }, retryCts.token);
+          const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier, model.maxInputTokens, combinedPrompt.length) } }, retryCts.token);
           if (!retryResponse.text) {
             return { text: streamed.text, error: streamed.error };
           }
@@ -409,7 +435,7 @@ export class VsCodeLmProvider implements LlmProvider {
         try {
           const retryResponse = await freshModel.sendRequest(
             messages,
-            { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier) } },
+            { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier, freshModel.maxInputTokens, combinedPrompt.length) } },
             retryCts.token,
           );
           if (!retryResponse.text) {
@@ -459,7 +485,7 @@ export class VsCodeLmProvider implements LlmProvider {
     try {
       const response = await model.sendRequest(
         [vscode.LanguageModelChatMessage.User(combinedPrompt)],
-        { modelOptions: { max_tokens: resolveMaxTokens(undefined) } },
+        { modelOptions: { max_tokens: resolveMaxTokens(undefined, model.maxInputTokens, combinedPrompt.length) } },
         cts.token,
       );
 

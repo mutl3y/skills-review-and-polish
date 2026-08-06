@@ -227,6 +227,29 @@ describe('parseOpenRouterResponse', () => {
     // normalizeModelName strips vendor prefix with colon, converting to spaces
     expect(result.has('laguna m.1')).toBe(true);
   });
+
+  it('skips entries with non-numeric pricing instead of storing NaN', () => {
+    const json = {
+      data: [
+        {
+          id: 'bad/model',
+          name: 'Bad Model',
+          pricing: { prompt: 'N/A', completion: '0.00000060' },
+        },
+        {
+          id: 'good/model',
+          name: 'Good Model',
+          pricing: { prompt: '0.00000015', completion: '0.00000060' },
+        },
+      ],
+    };
+    const result = _parseOpenRouterResponse(json);
+    // The malformed entry must not be cached (would propagate NaN cost).
+    expect(result.has('bad/model')).toBe(false);
+    expect(result.has('Bad Model')).toBe(false);
+    // The valid entry is still parsed.
+    expect(result.has('good/model')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

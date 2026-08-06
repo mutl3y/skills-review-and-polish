@@ -1,12 +1,12 @@
 # Loop State
 
-- **Current iteration:** 22
+- **Current iteration:** 23
 - **Target:** 30 (then reassess with user)
-- **Last review scope:** Bounded review — `src/core/analyzer.ts` + `src/core/scoring.ts` + `src/core/findingFilter.ts` + `src/core/fixer.ts` + `src/core/types.ts`
-- **Last findings:** No critical/high. 2 Medium + 5 Low + 3 Nit remediated.
-- **Next action:** Run iteration 23 — bounded review of a subsystem not yet covered this pass (e.g. `src/providers/*` + `src/pricing.ts`, or `src/ui/*`).
+- **Last review scope:** Bounded review — `src/providers/*` + `src/pricing.ts` + `src/core/tokenBudget.ts` + `src/core/modelNames.ts`
+- **Last findings:** No critical/high. 1 Medium + 6 Low + 1 Nit remediated.
+- **Next action:** Run iteration 24 — bounded review of a subsystem not yet covered this pass (e.g. `src/ui/*`, or `src/mcp/*` + `src/extension.ts` together).
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `48ffdb7` (docs(skill): add token-efficiency guidance to review loop)
+- **Last commit:** `ef35e69` (fix(iter22): remediate bounded review of analyzer/scoring/fixer/findingFilter)
 
 ## How to resume
 
@@ -24,28 +24,27 @@
 | 20 | bounded (fixer, acceptedFindings, mcp, modelCatalog, extension) | 0 | 3 Medium/Low fixed |
 | 21 | duplication audit (MCP+ext+core) | 0 | 5 clusters consolidated |
 | 22 | bounded (analyzer, scoring, findingFilter, fixer, types) | 0 | 2M/5L/3N fixed |
+| 23 | bounded (providers, pricing, tokenBudget, modelNames) | 0 | 1M/6L/1N fixed |
 
-## Iter 22 remediation summary
+## Iter 23 remediation summary
 
-- **M1:** rate-limit summary diagnostic shared the `llm-rate-limited` code with
-  per-wave diagnostics → `rateLimitedWaveCount` reported N+1. Gave the summary
-  a distinct `llm-rate-limited-summary` code; added to `INFRA_SKIP`.
-- **M2:** `frontmatterRange`/`skillDomainHint` stopped at the first `\n---` even
-  inside a multi-line frontmatter value. Added shared `findFrontmatterEnd` that
-  only matches a standalone `---` line (also handles EOF without trailing NL).
-- **L1:** redundant-instruction deletion could leave orphan blank lines — now
-  deletes the exact span with surrounding newlines deterministically.
-- **L2:** contradiction findings carried no `relevantText` (fixer relied on a
-  fragile regex) — analyzer now sets `relevantText: c.instruction1`.
-- **L3:** `contradictionCrossReferenceRule` used case-sensitive containment —
-  now case-insensitive.
-- **L4:** `findTextRange` fuzzy fallback reported `endChar` from fragment length
-  instead of the actual matched span — now measures the real span.
-- **N1:** partial-word match only sorted by hintLine when >1 match — now always.
-- **N2:** `parseSkillType` failed on BOM/leading blank line — now trims them.
-- **N3:** `convertResultsToRecommendations` now excludes all infra codes
-  (incl. `llm-rate-limited`, `llm-loop-detected`, `high-complexity`,
-  `limited-coverage`) from the recommendation stream.
+- **M1:** a 400/422 response body without an `error` key was treated as success
+  (empty text returned silently). `fetchJson` now throws `HttpError` for a
+  4xx body lacking an `error` key, so it flows through the retry/error path.
+- **L1:** external `resolveMaxTokens` hardcoded `/4` chars-per-token — now uses
+  shared `CHARS_PER_TOKEN` from `tokenBudget.ts`.
+- **L2:** `isRetryable` did `Number(code)`; string codes like
+  `"rate_limit_exceeded"` became NaN and never matched — now also matches text.
+- **L3:** `collectStreamText` injected literal `"undefined"` when a stream
+  part's `.value` was undefined — now skips such parts.
+- **L4:** `selectModel` pricing guard looked up `trimmed` against
+  `modelToMultiplier` keyed by model.id — now looks up the actual returned
+  model's id so a case/format mismatch can't bypass the guard.
+- **L5:** `parseOpenRouterResponse` stored NaN for non-numeric pricing strings —
+  now skips non-finite entries.
+- **L6:** vscodeLm `resolveMaxTokens` had no context-window bound — now bounds
+  output by `model.maxInputTokens` (mirrors external providers).
+- **N1:** `formatPerMillion` had redundant branches — collapsed.
 
 ## Key lessons (see skill)
 

@@ -10,6 +10,7 @@
 import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
 import { LLM_RESPONSE_JSON_SCHEMA_BODY } from './llmResponseSchema';
 import { redactSecrets } from '../core/redact';
+import { CHARS_PER_TOKEN } from '../core/tokenBudget';
 
 /**
  * HTTP error with status code — allows retry logic to distinguish
@@ -479,7 +480,7 @@ function resolveMaxTokens(
   // BOTH adaptive and non-adaptive modes — a large multiplier on a small
   // context model can otherwise exceed the window.
   if (contextLength && contextLength > 0) {
-    const inputTokens = Math.ceil(prompt.length / 4);
+    const inputTokens = Math.ceil(prompt.length / CHARS_PER_TOKEN);
     const maxOutput = Math.max(1, contextLength - inputTokens - CONTEXT_HEADROOM_TOKENS);
     if (maxOutput < result) {
       result = Math.min(result, maxOutput);
@@ -567,7 +568,15 @@ async function fetchJson(
   }
   if (!response.ok && (response.status === 400 || response.status === 422)) {
     try {
-      return (await response.json()) as Record<string, unknown>;
+      const body = (await response.json()) as Record<string, unknown>;
+      // If the body carries an `error` key, return it so fetchWithRetry can
+      // inspect it (e.g. for the structured-output fallback). Otherwise the
+      // response is a client error with no usable error payload — throw so it
+      // is surfaced as a failure rather than silently treated as success.
+      if (body && typeof body === 'object' && 'error' in body) {
+        return body;
+      }
+      throw new HttpError(`HTTP ${response.status}`, response.status);
     } catch {
       throw new HttpError(`HTTP ${response.status}`, response.status);
     }
@@ -596,7 +605,16 @@ function getApiError(resp: Record<string, unknown>): ApiError | undefined {
 
 function isRetryable(code: number | string | undefined): boolean {
   const n = Number(code);
-  return n === 429 || n === 500 || n === 502 || n === 503 || n === 504;
+  if (n === 429 || n === 500 || n === 502 || n === 503 || n === 504) return true;
+  // Some providers return a string code (e.g. "rate_limit_exceeded") that
+  // Number() turns into NaN. Match the text so those rate limits are retried
+  // instead of being treated as permanent failures.
+  if (typeof code === 'string') {
+    const lower = code.toLowerCase();
+    return lower.includes('rate') || lower.includes('429') || lower.includes('timeout')
+      || lower.includes('overloaded') || lower.includes('unavailable');
+  }
+  return false;
 }
 
 function shouldRetryWithoutStructuredOutput(

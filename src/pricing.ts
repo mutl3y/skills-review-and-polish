@@ -430,6 +430,11 @@ function parseOpenRouterResponse(json: OpenRouterModelsResponse): Map<string, Mo
     const promptPrice = parseFloat(entry.pricing.prompt ?? '0');
     const completionPrice = parseFloat(entry.pricing.completion ?? '0');
 
+    // A non-numeric pricing string (e.g. "N/A" or a malformed value) yields
+    // NaN, which would propagate as NaN cost. Skip such entries rather than
+    // caching a poisoned price.
+    if (!Number.isFinite(promptPrice) || !Number.isFinite(completionPrice)) continue;
+
     // OpenRouter pricing is per-token in dollars → convert to per-million
     const input = promptPrice * 1_000_000;
     const output = completionPrice * 1_000_000;
@@ -513,8 +518,6 @@ function parseDollarAmount(text: string): number | null {
 function formatPerMillion(price: number): string {
   if (price === 0) return '$0.00';
   if (price < 0.01) return `$${price.toFixed(4)}`;
-  if (price < 1) return `$${price.toFixed(2)}`;
-  if (price < 100) return `$${price.toFixed(2)}`;
   return `$${price.toFixed(2)}`;
 }
 
