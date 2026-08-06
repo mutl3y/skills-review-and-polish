@@ -236,11 +236,10 @@
           "type": "string",
           "enum": [
             "subtractive",
-            "additive",
-            "improved"
+            "additive"
           ],
           "default": "subtractive",
-          "description": "'subtractive' tightens by removing vagueness; 'additive' appends a concrete clause (append-only); 'improved' is scope-capped."
+          "description": "'subtractive' tightens by removing vagueness; 'additive' appends a concrete clause (append-only)."
         },
         "skillsReviewAndPolish.fixLoopMaxIterations": {
           "type": "number",
