@@ -428,8 +428,13 @@ function parseOpenRouterResponse(json: OpenRouterModelsResponse): Map<string, Mo
   for (const entry of json.data ?? []) {
     if (!entry.pricing) continue;
 
-    const promptPrice = parseFloat(entry.pricing.prompt ?? '0');
-    const completionPrice = parseFloat(entry.pricing.completion ?? '0');
+    // A model whose pricing object omits `prompt` or `completion` is
+    // incomplete — skip it rather than defaulting the missing field to $0
+    // (which would under-report cost as free-input).
+    if (entry.pricing.prompt === undefined || entry.pricing.completion === undefined) continue;
+
+    const promptPrice = parseFloat(entry.pricing.prompt);
+    const completionPrice = parseFloat(entry.pricing.completion);
 
     // A non-numeric pricing string (e.g. "N/A" or a malformed value) yields
     // NaN, which would propagate as NaN cost. Skip such entries rather than

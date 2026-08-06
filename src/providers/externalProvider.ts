@@ -663,9 +663,14 @@ function shouldRetryWithoutStructuredOutputOnFinishReason(
 /** Check if an error message indicates rate limiting. */
 function isRateLimitError(msg: string): boolean {
   const lower = msg.toLowerCase();
+  // NOTE: bare 'exceeded' is intentionally NOT matched — "max_tokens exceeded"
+  // or "context_length exceeded" are output-cap errors, not rate limits, and
+  // misclassifying them would trigger wrong backoff/retry handling. Only
+  // rate-limit-specific "exceeded" phrases count.
   return lower.includes('rate limit') || lower.includes('429') || lower.includes('too many requests')
     || lower.includes('userconcurrentrequests') || lower.includes('userbymodelbyminute')
-    || lower.includes('exceeded');
+    || lower.includes('rate limit exceeded') || lower.includes('quota exceeded')
+    || lower.includes('requests exceeded');
 }
 
 function isTimeoutOrCancellationError(msg: string): boolean {

@@ -250,6 +250,29 @@ describe('parseOpenRouterResponse', () => {
     // The valid entry is still parsed.
     expect(result.has('good/model')).toBe(true);
   });
+
+  it('skips entries with a missing prompt/completion field instead of defaulting to $0', () => {
+    const json = {
+      data: [
+        {
+          id: 'incomplete/model',
+          name: 'Incomplete Model',
+          pricing: { completion: '0.00000060' }, // prompt missing
+        },
+        {
+          id: 'complete/model',
+          name: 'Complete Model',
+          pricing: { prompt: '0.00000015', completion: '0.00000060' },
+        },
+      ],
+    };
+    const result = _parseOpenRouterResponse(json);
+    // The incomplete entry must not be recorded as free-input.
+    expect(result.has('incomplete/model')).toBe(false);
+    expect(result.has('Incomplete Model')).toBe(false);
+    // The complete entry is still parsed.
+    expect(result.has('complete/model')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

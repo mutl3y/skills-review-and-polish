@@ -1,12 +1,12 @@
 # Loop State
 
-- **Current iteration:** 29
-- **Target:** 30 (then reassess with user)
-- **Last review scope:** Bounded review — `src/core/analyzer.ts` + `src/core/scoring.ts` (rotation restart, item 1)
-- **Last findings:** No critical/high. 3 Medium + 2 Low remediated.
-- **Next action:** Run iteration 30 — bounded review of `src/providers/*` + `src/pricing.ts` + `src/modelCatalog.ts` (rotation item 2). At 30, reassess with the user.
+- **Current iteration:** 30 (TARGET REACHED — reassess with user)
+- **Target:** 30
+- **Last review scope:** Bounded review — `src/providers/*` + `src/pricing.ts` + `src/modelCatalog.ts` (rotation item 2)
+- **Last findings:** No critical/high. 2 Medium + 3 Low remediated.
+- **Next action:** Reassess with the user. The loop has run 30 iterations with no critical/high findings since iter 20. Recommend: (a) stop and consider the loop converged, or (b) run an independent verification pass on the highest-risk subsystems (MCP+extension, providers) with a different scoped prompt to catch false negatives, per the stopping-rule guidance.
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `3ad44fe` (fix(iter28): remediate cross-subsystem joint review)
+- **Last commit:** `0fa1187` (fix(iter29): remediate bounded review of analyzer/scoring)
 
 ## How to resume
 
@@ -31,25 +31,22 @@
 | 27 | bounded (tests, CI, release) | 0 | 1H/2M/2L fixed |
 | 28 | cross-subsystem joint (provider→core, ext→MCP) | 0 | 2M/3L fixed |
 | 29 | bounded (analyzer, scoring) | 0 | 3M/2L fixed |
+| 30 | bounded (providers, pricing, modelCatalog) | 0 | 2M/3L fixed |
 
-## Iter 29 remediation summary
+## Iter 30 remediation summary
 
-- **M1:** `textSimilarity` computed Levenshtein distance on 100-char-truncated
-  strings but divided by full-length `maxLen`, inflating similarity for long
-  messages and causing false `llm-loop-detected` hits. Now divides by the
-  truncated length.
-- **M2:** `llm-rate-limited-summary` was not in `INCOMPLETE_ANALYSIS_CODES`, so
-  a fully rate-limited run scored ~100 (grade Ungraded) instead of score 0.
-  Added the summary code to `INCOMPLETE_ANALYSIS_CODES`.
-- **M3:** the finish-reason retry reused the stale `disableStructuredOutput`
-  value computed before the first call, so after an `error` finish set the
-  wave flag the retry still ran in schema mode. Now recomputes the flag.
-- **L1:** `processHygiene` set `relevantText` to `text_to_fix` while the range
-  was anchored on `relevant_text` — fixer target diverged from the span. Now
-  anchors both on `relevant_text`.
-- **L2:** `AnalysisHistoryStore.set()` never recorded an access timestamp, so a
-  store filled purely via `set()` had an empty timestamp map and never evicted.
-  Now `set()` calls `touch()`.
+- **M1:** OpenRouter context disk cache lacked the `isRealPricingCache`
+  content-quality check (a test mock writing 1000+ sequential entries was
+  trusted as real). Added `isRealContextCache` mirroring pricing.ts.
+- **M2:** static fallback table keys were raw spaced-hyphen form, so the
+  `normalizeModelId` lookup branch never matched. Keys now stored in
+  normalized form; removed the now-redundant `gpt-4o-mini` entry (it's in the
+  catalog and the normalized lookup finds it there).
+- **L1:** `isRateLimitError` matched bare `'exceeded'`, misclassifying
+  "max_tokens exceeded"/"context_length exceeded" as rate limits. Narrowed to
+  rate-limit-specific phrases (externalProvider + vscodeLmProvider).
+- **L2:** `parseOpenRouterResponse` defaulted a missing `prompt`/`completion`
+  field to $0 (under-reporting cost). Now skips entries with a missing field.
 
 ## Recurrence map (all iterations)
 
@@ -65,6 +62,7 @@
 | Provider/core contract mismatch (finishReason) | 28 |
 | Extension/MCP context-length fallback divergence | 28 |
 | Analyzer/scoring contract mismatch (rate-limit summary code) | 29 |
+| Disk-cache content-quality check (pricing vs catalog) | 30 |
 
 ## Notes / latent issues
 

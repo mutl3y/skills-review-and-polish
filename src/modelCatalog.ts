@@ -143,7 +143,9 @@ export async function fetchContextLengths(): Promise<Map<string, number>> {
 
   const diskCache = readDiskCache();
   if (diskCache && Date.now() - diskCache.fetchedAt < OPENROUTER_DISK_CACHE_TTL_MS) {
-    if (diskCache.models.size >= MIN_OPENROUTER_ENTRIES) {
+    // Require both a sufficient count AND real-looking model IDs — a test mock
+    // writing 1000+ sequential entries would otherwise be trusted as real.
+    if (diskCache.models.size >= MIN_OPENROUTER_ENTRIES && isRealContextCache(diskCache.models)) {
       catalogCache = diskCache;
       return diskCache.models;
     }
@@ -423,9 +425,17 @@ export interface ResolvedContextLength {
  * static entry if the model is genuinely not available there.
  */
 const STATIC_CONTEXT_LENGTHS = new Map<string, number>([
-  ['gpt-4o mini',                   128_000],
-  ['gemini 2.0 flash',             1_000_000],
-  ['gemini 3.0 pro',               1_000_000],
+  // Keys are stored in NORMALIZED form (normalizeModelId output: separators
+  // collapsed to spaces) so BOTH lookup branches — raw modelId and
+  // normalizeModelId(modelId) — can hit. Previously these were raw
+  // spaced-hyphen keys ('gpt-4o mini'), which the normalized branch
+  // ('gpt 4o mini') could never match.
+  //
+  // NOTE: `gpt-4o-mini` is NOT listed here — it IS in the OpenRouter catalog,
+  // and the normalized lookup finds it there. Only models genuinely absent
+  // from the catalog belong in this table.
+  ['gemini 2 0 flash', 1_000_000],
+  ['gemini 3 0 pro',   1_000_000],
 ]);
 
 /**
@@ -529,6 +539,38 @@ function readDiskCache(): CatalogCache | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Content-quality check for a cached OpenRouter context-length map.
+ *
+ * Mirrors pricing.ts's `isRealPricingCache`: the count check alone is not
+ * enough — a test mock can write 1000+ sequential `Model 0` /
+ * `vendor/model-1` entries that pass the count check but are fake. Real
+ * OpenRouter model IDs contain a known vendor slug and a descriptive name.
+ * This rejects a cache that is mostly sequential test data.
+ */
+function isRealContextCache(models: Map<string, number>): boolean {
+  const KNOWN_VENDORS = /^(openai|anthropic|google|microsoft|meta|mistral|poolside|nvidia|deepseek|qwen|cohere|amazon|tencent|bytedance|upstage|arcee|inception|minimax|moonshot|ibm|liquid|inclusion|rekaai|stepfun|ai21|xai|aion|zai|sakana|thedrummer|kwaipilot)\//;
+  // Sequential test data patterns: `vendor/model-0`, `Model 0`, `model 0`.
+  const SEQUENTIAL = /(?:^|\/)model[- ]\d+$/i;
+  const keys = Array.from(models.keys());
+  let real = 0;
+  let sampled = 0;
+  for (const key of keys) {
+    if (SEQUENTIAL.test(key)) continue; // sequential test data
+    if (KNOWN_VENDORS.test(key)) { real++; sampled++; continue; }
+    // Non-vendor-prefixed keys (display names / normalized). Count these toward
+    // real only if they don't look sequential.
+    if (/^\d+$/.test(key)) continue;
+    sampled++;
+    real++;
+    if (sampled >= 200) break;
+  }
+  // Require that essentially all sampled keys look real (allow a tiny noise
+  // margin). If nothing was sampled (all keys were sequential test data), the
+  // cache is fake.
+  return sampled > 0 && (real / sampled) > 0.9;
 }
 
 function writeDiskCache(cache: CatalogCache): void {

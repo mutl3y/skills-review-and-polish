@@ -69,9 +69,8 @@ describe('static context-length table', () => {
     // OpenRouter catalog grows to cover these, the static table can
     // shrink further.
     const expected = [
-      'gpt-4o mini',                    // Copilot display name (space, not hyphen)
-      'gemini 2.0 flash',               // deprecated Gemini
-      'gemini 3.0 pro',                 // future Gemini
+      'gemini 2 0 flash',               // deprecated Gemini (normalized)
+      'gemini 3 0 pro',                 // future Gemini (normalized)
     ];
     for (const id of expected) {
       expect(_STATIC_CONTEXT_LENGTHS.has(id), `static table missing '${id}'`).toBe(true);
