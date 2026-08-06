@@ -539,6 +539,7 @@
     "test:e2e:log": "node scripts/run-with-log.mjs e2e -- playwright test --config tests/playwright.config.ts",
     "vitest:log": "node scripts/run-with-log.mjs vitest -- vitest run --config tests/vitest.config.ts",
     "package:vsce": "npx @vscode/vsce package",
+    "rebuild": "bash scripts/rebuild-ext.sh",
     "verify:vsix": "node scripts/verify-vsix-deps.mjs",
     "mcp": "node out/mcp/server.js",
     "clean": "rm -rf out",
