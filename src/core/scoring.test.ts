@@ -230,4 +230,20 @@ describe('scoreSkill', () => {
     expect(result.incomplete).toBe(true);
     expect(result.grade).toBe('Ungraded');
   });
+
+  it('returns score 0 when the ONLY results are rate-limit failures (incl. summary)', () => {
+    // A fully rate-limited run emits per-wave llm-rate-limited codes PLUS a
+    // llm-rate-limited-summary. The summary must count as a true-failure code
+    // so the all-failure early return fires (score 0), not a ~100 score with
+    // grade Ungraded.
+    const result = scoreSkill([
+      makeResult('llm-rate-limited', 'warning'),
+      makeResult('llm-rate-limited', 'warning'),
+      makeResult('llm-rate-limited-summary', 'warning'),
+    ], 40, 'standard');
+
+    expect(result.incomplete).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.grade).toBe('Ungraded');
+  });
 });

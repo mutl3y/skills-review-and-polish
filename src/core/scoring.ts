@@ -115,6 +115,7 @@ export function classifyCode(code: string): CodePillar | null {
  */
 const INCOMPLETE_ANALYSIS_CODES = new Set([
   'llm-error', 'llm-parse-error', 'llm-disabled', 'llm-rate-limited',
+  'llm-rate-limited-summary',
 ]);
 
 /** Maximum grade when analysis is incomplete. */

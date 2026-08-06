@@ -998,6 +998,25 @@ describe('analysis history and resilience', () => {
     expect((analyzer as any).detectLoops('doc.md', [{ timestamp: 2, issueCode: 'hygiene-over-specification', relevantText: 'Never use this', issueHash: 'y', severity: 'info', suggestion: 'Remove it' }]).isLoop).toBe(false);
   });
 
+  it('evicts oldest entries when the store is filled purely via set()', () => {
+    // Regression: set() must record an access timestamp so eviction can rank
+    // entries even when none are ever read via get(). Previously a store
+    // filled only via set() had an empty timestamp map and never evicted.
+    const s = new AnalysisHistoryStore();
+    const record = (i: number) => ({
+      uri: `doc-${i}.md`,
+      recommendations: [],
+      lastFingerprint: `fp-${i}`,
+      skillMetadata: { useCaseKeywords: [], isSkill: false },
+    });
+    // Fill past MAX_HISTORY_ENTRIES (100).
+    for (let i = 0; i < 105; i++) {
+      s.set(`doc-${i}.md`, record(i));
+    }
+    // The store must have been capped at MAX_HISTORY_ENTRIES.
+    expect((s as any).history.size).toBeLessThanOrEqual(100);
+  });
+
   it('deduplicates repeated findings during the consolidation pass', () => {
     const analyzer = new Analyzer({ complete: async () => ({ text: '{}' }), getContextLength: () => undefined });
 

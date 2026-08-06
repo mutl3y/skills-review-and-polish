@@ -1,12 +1,12 @@
 # Loop State
 
-- **Current iteration:** 28
+- **Current iteration:** 29
 - **Target:** 30 (then reassess with user)
-- **Last review scope:** Cross-subsystem joint review — provider→core data flow + extension→MCP shared logic (every-3-iterations check)
-- **Last findings:** No critical/high. 2 Medium + 3 Low remediated (1 Low documented as intentional).
-- **Next action:** Run iteration 29 — bounded review of a subsystem (rotation restarts: `src/core/analyzer.ts` + `src/core/scoring.ts`).
+- **Last review scope:** Bounded review — `src/core/analyzer.ts` + `src/core/scoring.ts` (rotation restart, item 1)
+- **Last findings:** No critical/high. 3 Medium + 2 Low remediated.
+- **Next action:** Run iteration 30 — bounded review of `src/providers/*` + `src/pricing.ts` + `src/modelCatalog.ts` (rotation item 2). At 30, reassess with the user.
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `a18fe75` (fix(iter27): remediate bounded review of tests/CI/release)
+- **Last commit:** `3ad44fe` (fix(iter28): remediate cross-subsystem joint review)
 
 ## How to resume
 
@@ -30,26 +30,26 @@
 | 26 | bounded (ui, config) | 0 | 2M/4N fixed |
 | 27 | bounded (tests, CI, release) | 0 | 1H/2M/2L fixed |
 | 28 | cross-subsystem joint (provider→core, ext→MCP) | 0 | 2M/3L fixed |
+| 29 | bounded (analyzer, scoring) | 0 | 3M/2L fixed |
 
-## Iter 28 remediation summary
+## Iter 29 remediation summary
 
-- **M1:** `VsCodeLmProvider` never set `finishReason`, so the analyzer's
-  finish-reason retry and schema-mode hardening were dead code for the
-  vscode-lm door. Success paths now return `finishReason: 'stop'`.
-- **M2:** MCP `CopilotProvider` built without `editorVersion` (defaulted to
-  `vscode/1.90.0`) while the extension passes the real version. MCP now passes
-  `process.env.COPILOT_EDITOR_VERSION` so the two doors send the same
-  Editor-Version header when the env var is set.
-- **L1:** Copilot context-length fallback diverged: MCP picked the smallest
-  across all three models, extension only resolved the standard model. The
-  extension now mirrors the multi-model fallback.
-- **L2:** deep→standard fallback in `callLLM` omitted `maxTokensMultiplier`
-  (and its retry) — now passed through so a headroom-requesting wave doesn't
-  lose output budget on the fallback path.
-- **L3:** budget accounting exists only on the MCP door (reserve/charge/
-  cooldown); the extension has no quota guard. Documented as intentional —
-  the extension is interactive with HITL confirmation; the MCP is agent-driven
-  and needs the guard. No code change.
+- **M1:** `textSimilarity` computed Levenshtein distance on 100-char-truncated
+  strings but divided by full-length `maxLen`, inflating similarity for long
+  messages and causing false `llm-loop-detected` hits. Now divides by the
+  truncated length.
+- **M2:** `llm-rate-limited-summary` was not in `INCOMPLETE_ANALYSIS_CODES`, so
+  a fully rate-limited run scored ~100 (grade Ungraded) instead of score 0.
+  Added the summary code to `INCOMPLETE_ANALYSIS_CODES`.
+- **M3:** the finish-reason retry reused the stale `disableStructuredOutput`
+  value computed before the first call, so after an `error` finish set the
+  wave flag the retry still ran in schema mode. Now recomputes the flag.
+- **L1:** `processHygiene` set `relevantText` to `text_to_fix` while the range
+  was anchored on `relevant_text` — fixer target diverged from the span. Now
+  anchors both on `relevant_text`.
+- **L2:** `AnalysisHistoryStore.set()` never recorded an access timestamp, so a
+  store filled purely via `set()` had an empty timestamp map and never evicted.
+  Now `set()` calls `touch()`.
 
 ## Recurrence map (all iterations)
 
@@ -64,6 +64,7 @@
 | Release script env-var vs CLI-arg secret handling | 27 |
 | Provider/core contract mismatch (finishReason) | 28 |
 | Extension/MCP context-length fallback divergence | 28 |
+| Analyzer/scoring contract mismatch (rate-limit summary code) | 29 |
 
 ## Notes / latent issues
 
@@ -73,7 +74,7 @@
   Flagged for a future cleanup, not escalated.
 - Iter 26 subagent first attempt failed with a GitHub service error; retried
   once with a narrower scope and succeeded.
-- Extension/MCP budget asymmetry (L3 above) is intentional; documented.
+- Extension/MCP budget asymmetry (iter 28 L3) is intentional; documented.
 
 ## Key lessons (see skill)
 
