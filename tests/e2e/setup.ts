@@ -56,7 +56,7 @@ export async function loadAuthState(context: BrowserContext): Promise<void> {
 export function hasAuthState(): boolean {
   if (!existsSync(AUTH_STATE_FILE)) return false;
   try {
-    const state = JSON.parse(require('fs').readFileSync(AUTH_STATE_FILE, 'utf8'));
+    const state = JSON.parse(readFileSync(AUTH_STATE_FILE, 'utf8'));
     return (
       Array.isArray(state.cookies) &&
       state.cookies.length > 0 &&

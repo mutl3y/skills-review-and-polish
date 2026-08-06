@@ -525,7 +525,7 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./ && rm -rf out/core/prompts && rm -rf out/core/prompts && cp -r src/core/prompts out/core/prompts && rm -rf out/assets && cp -r assets out/assets",
+    "compile": "tsc -p ./ && rm -rf out/core/prompts && cp -r src/core/prompts out/core/prompts && rm -rf out/assets && cp -r assets out/assets",
     "refresh-fixtures": "node scripts/refresh-openrouter-catalog.mjs",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
@@ -534,7 +534,7 @@
     "test": "vitest run --config tests/vitest.config.ts",
     "test:fixtures": "vitest run --config tests/vitest.config.ts src/fixture-validation.test.ts",
     "test:calibration": "npm run compile && RELEASE_GATE=1 node scripts/e50-clean-architecture.mjs",
-    "test:calibration:log": "npm run compile && node scripts/run-with-log.mjs e50-calibration -- RELEASE_GATE=1 node scripts/e50-clean-architecture.mjs",
+    "test:calibration:log": "npm run compile && RELEASE_GATE=1 node scripts/run-with-log.mjs e50-calibration -- node scripts/e50-clean-architecture.mjs",
     "test:e2e": "playwright test --config tests/playwright.config.ts",
     "test:e2e:log": "node scripts/run-with-log.mjs e2e -- playwright test --config tests/playwright.config.ts",
     "vitest:log": "node scripts/run-with-log.mjs vitest -- vitest run --config tests/vitest.config.ts",

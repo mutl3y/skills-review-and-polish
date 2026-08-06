@@ -230,7 +230,13 @@ test.describe('Fix Preview', () => {
     // Should show info message about no fixable issues
     const notification = page.locator('.notification-toast, .vscode-notification-toast');
     const count = await notification.count();
-    expect(count).toBeGreaterThanOrEqual(0); // Soft check — notification may have dismissed
+    // Smoke check: if a notification is present it must be the "no fixable
+    // issues" info (not an error). The count itself is a soft check because
+    // the toast may auto-dismiss before we sample it.
+    if (count > 0) {
+      const text = await notification.first().innerText().catch(() => '');
+      expect(text.toLowerCase()).not.toContain('error');
+    }
   });
 });
 
