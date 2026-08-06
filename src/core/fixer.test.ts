@@ -529,6 +529,16 @@ describe('expandToParagraph — edge cases', () => {
     expect(result).toContain('target phrase');
     expect(result).toContain('End with');
   });
+
+  it('matches multi-space variants via the normalized fast path', () => {
+    // The phrase has a single space but the content has multiple spaces —
+    // the fast path must normalize the phrase before indexOf.
+    const content = 'Use the   tool   carefully.\n\nSecond paragraph.';
+    const result = expandToParagraph(content, 'Use the tool carefully');
+
+    expect(result).not.toBeNull();
+    expect(result).toContain('Use the   tool   carefully.');
+  });
 });
 
 describe('factualGroundingTrigger — additional patterns', () => {

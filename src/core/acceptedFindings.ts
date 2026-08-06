@@ -132,7 +132,22 @@ export function loadAcceptedFindings(storePath: string): AcceptedFindingsStore {
     const raw = fs.readFileSync(storePath, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object' && parsed.entries && typeof parsed.entries === 'object') {
-      return parsed as AcceptedFindingsStore;
+      // Validate each entry and drop malformed ones. A hand-edited/corrupted
+      // store with an entry missing `textPattern` would otherwise make
+      // normalize(entry.textPattern) throw inside isFindingAccepted and crash
+      // filterAcceptedResults.
+      const entries: Record<string, AcceptedFinding[]> = {};
+      for (const [fileKey, list] of Object.entries(parsed.entries as Record<string, unknown>)) {
+        if (!Array.isArray(list)) continue;
+        const valid = list.filter(
+          (e): e is AcceptedFinding =>
+            !!e && typeof e === 'object'
+            && typeof (e as AcceptedFinding).code === 'string'
+            && typeof (e as AcceptedFinding).textPattern === 'string',
+        );
+        if (valid.length > 0) entries[fileKey] = valid;
+      }
+      return { entries };
     }
     log.debug('Store file exists but has invalid structure, returning empty store');
     return { entries: {} };
@@ -152,7 +167,10 @@ export function saveAcceptedFindings(storePath: string, store: AcceptedFindingsS
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  const tmpPath = storePath + '.tmp';
+  // Unique temp name (pid + random) so two concurrent writers (MCP server +
+  // extension) can't collide on the same temp file and corrupt/rename each
+  // other's writes. rename is still atomic per-writer.
+  const tmpPath = `${storePath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(store, null, 2) + '\n', 'utf8');
   try {
     fs.renameSync(tmpPath, storePath);

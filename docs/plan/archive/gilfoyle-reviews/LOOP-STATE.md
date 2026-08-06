@@ -1,12 +1,12 @@
 # Loop State
 
-- **Current iteration:** 24
+- **Current iteration:** 25
 - **Target:** 30 (then reassess with user)
-- **Last review scope:** Bounded joint review — `src/mcp/server.ts` + `src/extension.ts` TOGETHER (rotation item 3; shared security logic)
-- **Last findings:** No critical/high. 1 Medium + 3 Low + 1 Nit remediated.
-- **Next action:** Run iteration 25 — bounded review of `src/core/fixer.ts` + `src/core/acceptedFindings.ts` (rotation item 4).
+- **Last review scope:** Bounded review — `src/core/fixer.ts` + `src/core/acceptedFindings.ts` (rotation item 4)
+- **Last findings:** No critical/high. 2 Medium + 3 Low remediated.
+- **Next action:** Run iteration 26 — bounded review of `src/ui/*` + `src/config.ts` (rotation item 5).
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `a36ce26` (chore(catalog): refresh openrouter catalog fixtures)
+- **Last commit:** `4c51e7d` (fix(iter24): remediate joint MCP+extension review)
 
 ## How to resume
 
@@ -26,21 +26,26 @@
 | 22 | bounded (analyzer, scoring, findingFilter, fixer, types) | 0 | 2M/5L/3N fixed |
 | 23 | bounded (providers, pricing, tokenBudget, modelNames) | 0 | 1M/6L/1N fixed |
 | 24 | bounded joint (MCP + extension) | 0 | 1M/3L/1N fixed |
+| 25 | bounded (fixer, acceptedFindings) | 0 | 2M/3L fixed |
 
-## Iter 24 remediation summary
+## Iter 25 remediation summary
 
-- **M1:** MCP `handleFix` dropped the three guard bounds
-  (`guardUpperBoundMultiplier`/`guardLowerBoundMultiplier`/`guardMaxAnchorChars`)
-  that the extension's `runFixIssue` passes — now passed through from `fixCfg`.
-- **L1:** MCP `handleAcceptFinding` returned its `validateRelevantText` error
-  without `isError: true` — added it.
-- **L2:** extension `runAcceptFinding` did no `relevantText` validation (MCP
-  enforced it). Moved `validateRelevantText` + constants into shared
-  `src/core/acceptedFindings.ts`; both doors now import it (shared-logic rule).
-- **L3:** MCP `handleScore` omitted `acceptedFindingsPath` (analyze/verify_fix
-  pass it) — score now respects accepted findings.
-- **N1:** hardcoded wave lists in `handleAnalyze`/`handleVerifyFix` replaced
-  with `ALL_WAVES`-derived sets.
+- **M1:** `fixDocument` re-derived the anchor independently of `fixIssue`'s
+  `resolveAnchorText`; when `line` disambiguated a duplicated anchor, the
+  replacement could target a different fragment than the one guarded/fixed.
+  Added `targetText` to `FixIssueResult`; `fixDocument` now reuses it.
+- **M2:** `loadAcceptedFindings` validated only the top-level `entries` shape;
+  a corrupted entry missing `textPattern` made `normalize()` throw inside
+  `isFindingAccepted`, crashing `filterAcceptedResults`. Now validates/sanitizes
+  each entry and drops malformed ones.
+- **L1:** `expandToParagraph` used the unnormalized `phrase` against
+  whitespace-normalized content, so the fast path missed multi-space variants.
+  Now uses `normPhrase`.
+- **L2:** `saveAcceptedFindings` used a fixed `.tmp` name with no concurrency
+  guard; two writers could collide. Now uses a unique temp name (pid + random).
+- **L3:** redundant-instruction deletion consumed a preceding newline
+  unconditionally, which could merge lines when the anchor wasn't on its own
+  line. Now only strips it when the anchor starts a line.
 
 ## Recurrence map (all iterations)
 
@@ -49,6 +54,8 @@
 | MCP/extension divergence on shared security logic | 21, 24 |
 | MCP handler missing `isError: true` on error return | 24 |
 | Hardcoded wave list vs `ALL_WAVES` | 24 |
+| fixDocument anchor re-derivation vs fixIssue target | 25 |
+| acceptedFindings store entry validation | 25 |
 
 ## Notes / latent issues
 

@@ -335,6 +335,24 @@ describe('loadAcceptedFindings edge cases', () => {
     fs.writeFileSync(storePath, JSON.stringify([1, 2, 3]), 'utf8');
     expect(loadAcceptedFindings(storePath)).toEqual({ entries: {} });
   });
+
+  it('drops malformed entries (missing textPattern) instead of crashing', () => {
+    const storePath = tmpStorePath();
+    // A hand-edited/corrupted store with an entry missing textPattern would
+    // make normalize(entry.textPattern) throw inside isFindingAccepted.
+    fs.writeFileSync(storePath, JSON.stringify({
+      entries: {
+        '/test.md': [
+          { code: 'ambiguity-llm', textPattern: 'valid pattern here', acceptedAt: '2026-06-01' },
+          { code: 'coverage-gap', acceptedAt: '2026-06-01' }, // malformed — no textPattern
+          'not-an-object',
+        ],
+      },
+    }), 'utf8');
+    const store = loadAcceptedFindings(storePath);
+    expect(store.entries['/test.md']).toHaveLength(1);
+    expect(store.entries['/test.md'][0].code).toBe('ambiguity-llm');
+  });
 });
 
 // ─── acceptFinding — duplicate prevention ────────────────────────────────────

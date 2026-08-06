@@ -292,7 +292,7 @@ export function expandToParagraph(content: string, phrase: string): string | nul
   const normPhrase = phrase.replace(/\s+/g, ' ').trim();
   const normContent = content.replace(/\r\n/g, '\n');
 
-  let searchStart = normContent.indexOf(phrase);
+  let searchStart = normContent.indexOf(normPhrase);
   if (searchStart === -1) {
     const re = new RegExp(
       normPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ +/g, '\\s{1,3}'),
@@ -702,6 +702,12 @@ export interface FixIssueResult {
   risks: string[];
   /** Reason the fix was rejected, if accepted=false. */
   rejectReason?: string;
+  /**
+   * The exact anchor text that was guarded and fixed. `fixDocument` reuses
+   * this for the replacement so it targets the SAME fragment that passed the
+   * guards (not a re-derived anchor that could differ when `line` is set).
+   */
+  targetText?: string;
 }
 
 export interface SurgicalFixOptions {
@@ -843,7 +849,7 @@ export class SurgicalFixer {
     }
 
     const risks = [...classifyEditRisk(code, targetText, fixed), ...riskFlags];
-    return { accepted: true, fixed, risks };
+    return { accepted: true, fixed, risks, targetText };
   }
 
   private resolveAnchorText(
@@ -947,14 +953,12 @@ export class SurgicalFixer {
         skippedReasons.push(`${d.code}: ${result.rejectReason ?? 'unknown'}`);
         continue;
       }
-      // Find the anchor in the (possibly already-modified) content
-      const rawAnchor =
-        d.relevantText ?? this.extractAnchorFromMessage(d.message, d.code ?? '');
-      const anchor = rawAnchor && content.includes(rawAnchor)
-        ? rawAnchor
-        : expandToParagraph(content, rawAnchor ?? '') ??
-          extractParagraphAtLine(content, d.range?.start?.line ?? -1);
-      if (!anchor) {
+      // Use the EXACT anchor that fixIssue guarded and fixed — not a
+      // re-derived one. Re-deriving (via relevantText/expandToParagraph) can
+      // target a different fragment when `line` disambiguates a duplicated
+      // anchor, replacing the wrong occurrence.
+      const anchor = result.targetText;
+      if (!anchor || !content.includes(anchor)) {
         skipped++;
         skippedReasons.push(`${d.code}: anchor not found in document`);
         continue;
@@ -982,8 +986,12 @@ export class SurgicalFixer {
           // Consume a trailing newline (and any following blank line).
           if (content[end] === '\n') end += 1;
           if (content[end] === '\n') end += 1;
-          // Consume a preceding newline if we're not at the start of content.
-          if (start > 0 && content[start - 1] === '\n') start -= 1;
+          // Consume a preceding newline ONLY when the anchor starts its own
+          // line (i.e. it is preceded by a newline or is at start-of-content).
+          // Otherwise stripping it would merge the previous line with the
+          // following content.
+          const startsLine = start === 0 || content[start - 1] === '\n';
+          if (startsLine && start > 0 && content[start - 1] === '\n') start -= 1;
           content = content.slice(0, start) + content.slice(end);
         }
       } else {
