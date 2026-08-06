@@ -105,3 +105,27 @@ timeout). Use a **tightly-scoped, neutral prompt**:
    and diverge if reviewed separately (a real divergence was found this way).
 4. **Consolidate duplicated logic** — it's a maintenance burden and attack
    surface. See the shared-logic rule above.
+
+## Token Efficiency
+
+The loop is long-running; keep context lean so it survives many iterations.
+
+- **Offload context to files, not the conversation.** Findings, state, and
+  iteration history live in `LOOP-STATE.md` and the handover docs — do NOT
+  restate them in chat. Read the file, act, update the file.
+- **Request concise subagent output.** In every review prompt, ask for a
+  terse report: "one line per finding, file:line, severity, one-line fix. No
+  preamble or summary prose." Cap findings to the top N by severity.
+- **Read files in large chunks, not many small reads.** Prefer one
+  `read_file` of a big range over several small ones.
+- **Don't re-read what's already in context.** If a file's content is already
+  loaded, don't re-fetch it.
+- **Prefer `grep`/`file_search` over full reads** when you only need to locate
+  a symbol or confirm a pattern exists.
+- **Commit early, commit often.** A clean tree + a fresh `LOOP-STATE.md` is the
+  cheapest resume point — it lets a compacted/fresh session pick up without
+  replaying the whole conversation.
+- **Scheduled compaction is fine.** Because state is on disk, compaction or a
+  fresh session loses nothing: read `LOOP-STATE.md` and continue. Do not try to
+  keep the whole loop in one context window.
+
