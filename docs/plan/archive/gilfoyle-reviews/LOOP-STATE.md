@@ -1,12 +1,12 @@
 # Loop State
 
-- **Current iteration:** 23
+- **Current iteration:** 24
 - **Target:** 30 (then reassess with user)
-- **Last review scope:** Bounded review — `src/providers/*` + `src/pricing.ts` + `src/core/tokenBudget.ts` + `src/core/modelNames.ts`
-- **Last findings:** No critical/high. 1 Medium + 6 Low + 1 Nit remediated.
-- **Next action:** Run iteration 24 — bounded review of a subsystem not yet covered this pass (e.g. `src/ui/*`, or `src/mcp/*` + `src/extension.ts` together).
+- **Last review scope:** Bounded joint review — `src/mcp/server.ts` + `src/extension.ts` TOGETHER (rotation item 3; shared security logic)
+- **Last findings:** No critical/high. 1 Medium + 3 Low + 1 Nit remediated.
+- **Next action:** Run iteration 25 — bounded review of `src/core/fixer.ts` + `src/core/acceptedFindings.ts` (rotation item 4).
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `ef35e69` (fix(iter22): remediate bounded review of analyzer/scoring/fixer/findingFilter)
+- **Last commit:** `a36ce26` (chore(catalog): refresh openrouter catalog fixtures)
 
 ## How to resume
 
@@ -25,26 +25,37 @@
 | 21 | duplication audit (MCP+ext+core) | 0 | 5 clusters consolidated |
 | 22 | bounded (analyzer, scoring, findingFilter, fixer, types) | 0 | 2M/5L/3N fixed |
 | 23 | bounded (providers, pricing, tokenBudget, modelNames) | 0 | 1M/6L/1N fixed |
+| 24 | bounded joint (MCP + extension) | 0 | 1M/3L/1N fixed |
 
-## Iter 23 remediation summary
+## Iter 24 remediation summary
 
-- **M1:** a 400/422 response body without an `error` key was treated as success
-  (empty text returned silently). `fetchJson` now throws `HttpError` for a
-  4xx body lacking an `error` key, so it flows through the retry/error path.
-- **L1:** external `resolveMaxTokens` hardcoded `/4` chars-per-token — now uses
-  shared `CHARS_PER_TOKEN` from `tokenBudget.ts`.
-- **L2:** `isRetryable` did `Number(code)`; string codes like
-  `"rate_limit_exceeded"` became NaN and never matched — now also matches text.
-- **L3:** `collectStreamText` injected literal `"undefined"` when a stream
-  part's `.value` was undefined — now skips such parts.
-- **L4:** `selectModel` pricing guard looked up `trimmed` against
-  `modelToMultiplier` keyed by model.id — now looks up the actual returned
-  model's id so a case/format mismatch can't bypass the guard.
-- **L5:** `parseOpenRouterResponse` stored NaN for non-numeric pricing strings —
-  now skips non-finite entries.
-- **L6:** vscodeLm `resolveMaxTokens` had no context-window bound — now bounds
-  output by `model.maxInputTokens` (mirrors external providers).
-- **N1:** `formatPerMillion` had redundant branches — collapsed.
+- **M1:** MCP `handleFix` dropped the three guard bounds
+  (`guardUpperBoundMultiplier`/`guardLowerBoundMultiplier`/`guardMaxAnchorChars`)
+  that the extension's `runFixIssue` passes — now passed through from `fixCfg`.
+- **L1:** MCP `handleAcceptFinding` returned its `validateRelevantText` error
+  without `isError: true` — added it.
+- **L2:** extension `runAcceptFinding` did no `relevantText` validation (MCP
+  enforced it). Moved `validateRelevantText` + constants into shared
+  `src/core/acceptedFindings.ts`; both doors now import it (shared-logic rule).
+- **L3:** MCP `handleScore` omitted `acceptedFindingsPath` (analyze/verify_fix
+  pass it) — score now respects accepted findings.
+- **N1:** hardcoded wave lists in `handleAnalyze`/`handleVerifyFix` replaced
+  with `ALL_WAVES`-derived sets.
+
+## Recurrence map (all iterations)
+
+| file:line → symptom | Iterations seen |
+|---------------------|-----------------|
+| MCP/extension divergence on shared security logic | 21, 24 |
+| MCP handler missing `isError: true` on error return | 24 |
+| Hardcoded wave list vs `ALL_WAVES` | 24 |
+
+## Notes / latent issues
+
+- `validateRelevantText`'s `GENERIC_PATTERNS` rejection is effectively
+  unreachable: every generic word is <5 chars, so the 5-char length floor fires
+  first. Pre-existing; not a correctness bug (the floor is the real guard).
+  Flagged for a future cleanup, not escalated.
 
 ## Key lessons (see skill)
 

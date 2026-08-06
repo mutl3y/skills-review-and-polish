@@ -29,6 +29,46 @@ export interface AcceptedFindingsStore {
 /** Maximum total accepted findings entries to prevent unbounded store growth. */
 const MAX_ACCEPTED_ENTRIES = 500;
 
+// ─── relevantText validation (shared by MCP server + extension) ──────────────
+
+/** Maximum meaningful length for relevantText in accept_finding. */
+export const MAX_RELEVANT_TEXT_LENGTH = 200;
+
+/** Minimum meaningful length for relevantText in accept_finding. Must match isFindingAccepted's 5-char floor. */
+export const MIN_RELEVANT_TEXT_LENGTH = 5;
+
+/** Overly generic single-word patterns that should not be used as acceptance anchors. */
+const GENERIC_PATTERNS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'be', 'to', 'of', 'in', 'for', 'on', 'with', 'as', 'at', 'by',
+]);
+
+/**
+ * Validate and sanitize a relevantText fragment used as an acceptance anchor.
+ * Enforces a length floor/ceiling, rejects overly generic single-word patterns,
+ * and strips control characters. Throws on invalid input.
+ *
+ * Shared by the MCP server (`handleAcceptFinding`) and the extension
+ * (`runAcceptFinding`) so the two doors can't diverge on what gets persisted
+ * as an acceptance anchor.
+ */
+export function validateRelevantText(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.length < MIN_RELEVANT_TEXT_LENGTH) {
+    throw new Error(`relevantText too short (${trimmed.length} chars, minimum ${MIN_RELEVANT_TEXT_LENGTH}). Must be a meaningful text fragment.`);
+  }
+  if (trimmed.length > MAX_RELEVANT_TEXT_LENGTH) {
+    throw new Error(`relevantText too long (${trimmed.length} chars, maximum ${MAX_RELEVANT_TEXT_LENGTH}). Use a shorter representative fragment.`);
+  }
+  // Reject overly generic single-word patterns
+  if (GENERIC_PATTERNS.has(trimmed.toLowerCase())) {
+    throw new Error(`relevantText "${trimmed}" is overly generic and would suppress unrelated findings. Use a longer, more specific text fragment.`);
+  }
+  // Escape control characters: replace chars below 0x20 (except \t \n \r) with empty
+  // eslint-disable-next-line no-control-regex
+  const sanitized = trimmed.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+  return sanitized;
+}
+
 /**
  * Default path: tries workspace root via `vscode.workspace.workspaceFolders`.
  *

@@ -377,7 +377,11 @@ describe('createMcpToolRegistry', () => {
 
     const result = await registry.callTool('score', { text: 'A good prompt.' });
 
-    expect(score).toHaveBeenCalledWith({ text: 'A good prompt.', filePath: undefined });
+    expect(score).toHaveBeenCalledWith({
+      text: 'A good prompt.',
+      filePath: undefined,
+      acceptedFindingsPath: expect.any(String),
+    });
     expect(JSON.parse(result.content[0].text)).toEqual(scoreResult);
   });
 

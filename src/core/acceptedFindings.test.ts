@@ -14,6 +14,7 @@ import {
   filterAcceptedResults,
   isFindingAccepted,
   sanitizeFileName,
+  validateRelevantText,
   AcceptedFindingsStore,
   AcceptedFinding,
 } from './acceptedFindings';
@@ -354,5 +355,25 @@ describe('acceptFinding — duplicate prevention', () => {
     acceptFinding(storePath, '/test.md', { code: 'coverage-gap', textPattern: 'foo bar baz', acceptedAt: '2026-06-01' });
     const store = loadAcceptedFindings(storePath);
     expect(store.entries['/test.md']).toHaveLength(2);
+  });
+});
+
+// ─── validateRelevantText (shared by MCP server + extension) ─────────────────
+
+describe('validateRelevantText', () => {
+  it('accepts a meaningful fragment and trims it', () => {
+    expect(validateRelevantText('  some meaningful text  ')).toBe('some meaningful text');
+  });
+
+  it('rejects text shorter than the 5-char floor', () => {
+    expect(() => validateRelevantText('abc')).toThrow(/too short/);
+  });
+
+  it('rejects text longer than the 200-char cap', () => {
+    expect(() => validateRelevantText('x'.repeat(201))).toThrow(/too long/);
+  });
+
+  it('strips control characters', () => {
+    expect(validateRelevantText('some\x00text\x1f')).toBe('sometext');
   });
 });

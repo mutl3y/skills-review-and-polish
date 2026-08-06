@@ -9,7 +9,7 @@ import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
 import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { redactSecrets } from '../core/redact';
-import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
+import { acceptFinding, loadAcceptedFindings, isFindingAccepted, validateRelevantText } from '../core/acceptedFindings';
 import { validateKeyForProvider } from '../core/providerKeys';
 import { safeResolveFilePath as safeResolveFilePathShared } from '../core/pathSafety';
 import { CHARS_PER_TOKEN as CHARS_PER_TOKEN_SHARED, DEFAULT_DOCUMENT_CHARS } from '../core/tokenBudget';
@@ -177,17 +177,6 @@ function budgetExhaustedError(): Error {
   );
 }
 
-/** Maximum length for relevantText in accept_finding. */
-const MAX_RELEVANT_TEXT_LENGTH = 200;
-
-/** Minimum meaningful length for relevantText in accept_finding. Must match isFindingAccepted's 5-char floor. */
-const MIN_RELEVANT_TEXT_LENGTH = 5;
-
-/** Overly generic single-word patterns that should not be used as acceptance anchors. */
-const GENERIC_PATTERNS = new Set([
-  'a', 'an', 'the', 'is', 'are', 'was', 'be', 'to', 'of', 'in', 'for', 'on', 'with', 'as', 'at', 'by',
-]);
-
 /**
  * Sanitize an error message to remove secrets (Bearer tokens, API keys, etc.)
  * before returning it in MCP responses.
@@ -350,24 +339,6 @@ function requireText(args: Record<string, unknown>, maxLength = MAX_TEXT_LENGTH)
  * Validate and sanitize relevantText for the accept_finding tool.
  * Returns the trimmed/sanitized text, or throws with a descriptive error.
  */
-function validateRelevantText(raw: string): string {
-  const trimmed = raw.trim();
-  if (trimmed.length < MIN_RELEVANT_TEXT_LENGTH) {
-    throw new Error(`relevantText too short (${trimmed.length} chars, minimum ${MIN_RELEVANT_TEXT_LENGTH}). Must be a meaningful text fragment.`);
-  }
-  if (trimmed.length > MAX_RELEVANT_TEXT_LENGTH) {
-    throw new Error(`relevantText too long (${trimmed.length} chars, maximum ${MAX_RELEVANT_TEXT_LENGTH}). Use a shorter representative fragment.`);
-  }
-  // Reject overly generic single-word patterns
-  if (GENERIC_PATTERNS.has(trimmed.toLowerCase())) {
-    throw new Error(`relevantText "${trimmed}" is overly generic and would suppress unrelated findings. Use a longer, more specific text fragment.`);
-  }
-  // Escape control characters: replace chars below 0x20 (except \t \n \r) with empty
-  // eslint-disable-next-line no-control-regex
-  const sanitized = trimmed.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
-  return sanitized;
-}
-
 function asWaveList(value: unknown, fallback: WaveName[] = [...ALL_WAVES]): WaveName[] {
   const valid = new Set<WaveName>(ALL_WAVES);
   if (!Array.isArray(value)) return fallback;
@@ -457,7 +428,7 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
   // charge happens after the call; this prevents starting an operation that is
   // guaranteed to exceed the cap.
   const wavesArg0 = args['analysisWaves'] ?? args['enabledWaves'];
-  const validWaves0 = new Set<string>(['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene']);
+  const validWaves0 = new Set<string>(ALL_WAVES);
   const waves0: string[] | undefined = Array.isArray(wavesArg0)
     ? (wavesArg0 as string[]).filter(w => validWaves0.has(w))
     : undefined;
@@ -476,7 +447,7 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
 
   // Parse optional analysisWaves parameter (also accepts legacy enabledWaves)
   const wavesArg = args['analysisWaves'] ?? args['enabledWaves'];
-  const validWaves = new Set<string>(['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene']);
+  const validWaves = new Set<string>(ALL_WAVES);
   const analysisWaves: string[] | undefined = Array.isArray(wavesArg)
     ? (wavesArg as string[]).filter(w => validWaves.has(w))
     : undefined;
@@ -613,6 +584,12 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
     semanticCheck: fixCfg.fixSemanticCheck,
     selfCritique: fixCfg.fixSelfCritique,
     referenceGrounding: fixCfg.fixReferenceGrounding,
+    // Pass the guard bounds through so the MCP fix path applies the same
+    // safety guards as the interactive path (they were parsed into fixCfg
+    // but silently dropped here).
+    guardUpperBoundMultiplier: fixCfg.fixGuardUpperBoundMultiplier,
+    guardLowerBoundMultiplier: fixCfg.fixGuardLowerBoundMultiplier,
+    guardMaxAnchorChars: fixCfg.fixGuardMaxAnchorChars,
     line: validLine,
   });
 
@@ -651,6 +628,7 @@ async function handleAcceptFinding(args: Record<string, unknown>, _ctx: ToolHand
           error: e instanceof Error ? e.message : String(e),
         }, null, 2),
       }],
+      isError: true,
     };
   }
 
@@ -729,6 +707,9 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
   const result = await engine.score({
     text,
     filePath: requireSafeFilePath(args),
+    // Respect accepted findings so score doesn't penalize issues the user
+    // already accepted (handleAnalyze/handleVerifyFix pass this; score must too).
+    acceptedFindingsPath: resolveAcceptedFindingsPath(),
   });
   const body = JSON.stringify(result, null, 2);
   // score runs scoreSamples analyses × the configured wave count each. Clamp
@@ -752,7 +733,7 @@ async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerCo
   // Re-analyze with the same wave set the user analyzed with (if provided),
   // so verification is consistent with the analysis it's verifying.
   const wavesArg = args['analysisWaves'] ?? args['enabledWaves'];
-  const validWaves = new Set<string>(['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene']);
+  const validWaves = new Set<string>(ALL_WAVES);
   const analysisWaves: string[] | undefined = Array.isArray(wavesArg)
     ? (wavesArg as string[]).filter(w => validWaves.has(w))
     : undefined;

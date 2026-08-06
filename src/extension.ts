@@ -11,7 +11,7 @@ import { setLogLevel, setTransport } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, CopilotProvider } from './providers/externalProvider';
 import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
-import { acceptFinding } from './core/acceptedFindings';
+import { acceptFinding, validateRelevantText } from './core/acceptedFindings';
 import { createDiagnosticCollection, publishDiagnostics } from './ui/diagnostics';
 import { StatusBarManager } from './ui/statusBar';
 import { ScoreCodeLensProvider } from './ui/codeLens';
@@ -1265,9 +1265,20 @@ async function runAcceptFinding(
     vscode.window.showWarningMessage('Skills Review: No workspace folder open — cannot persist accepted findings.');
     return;
   }
+  // Validate the anchor with the same rules as the MCP accept_finding tool so
+  // the two doors can't diverge on what gets persisted as an acceptance anchor.
+  let textPattern: string;
+  try {
+    textPattern = validateRelevantText(result.relevantText ?? result.message);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    log('warn', `runAcceptFinding: rejected — ${message}`);
+    vscode.window.showWarningMessage(`Skills Review: Cannot accept finding — ${message}`);
+    return;
+  }
   acceptFinding(acceptedFindingsPath, fileName, {
     code: result.code,
-    textPattern: result.relevantText ?? result.message,
+    textPattern,
     acceptedAt: new Date().toISOString(),
   });
 
