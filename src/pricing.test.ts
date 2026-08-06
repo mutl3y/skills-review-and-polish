@@ -4,7 +4,7 @@
  * These tests focus on the pure parsing logic (no network calls).
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchPricing,
   formatPricing,
@@ -320,6 +320,13 @@ describe('fetchPricing', () => {
     vi.restoreAllMocks();
   });
 
+  // Prevent test mocks from leaving a poisoned (fake-but-large) disk cache
+  // that would poison the real extension's model picker.
+  afterEach(() => {
+    _resetCaches();
+    vi.restoreAllMocks();
+  });
+
   it('merges results from both sources', async () => {
     const mockFetch = vi.fn()
       // First call: Copilot HTML
@@ -618,5 +625,59 @@ describe('fetchPricing', () => {
     // Should have refetched and gotten a full result, not the corrupt 1-entry cache
     expect(result2.size).toBeGreaterThan(1000);
     expect(result2.has('fake/model')).toBe(false);
+  });
+
+  it('refetches when disk cache has many entries but all are fake (sequential test data)', async () => {
+    // A test mock can leave 1000+ entries that all look like `Model 0` / `vendor/model-1`
+    // — large enough to pass the count check but entirely fake. The content-quality
+    // check must detect and discard this too.
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(`
+          <table>
+            <tr><th>Model</th><th>Input</th><th>Cached input</th><th>Output</th></tr>
+            <tr><td>GPT-5 Mini</td><td>$0.25</td><td>$0.05</td><td>$2.00</tr>
+          </table>
+        `),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: Array.from({ length: 340 }, (_, i) => ({
+            id: `openai/gpt-4o-mini-${i}`,
+            name: `GPT-4o Mini ${i}`,
+            pricing: { prompt: '0.000001', completion: '0.000005' },
+          })),
+        }),
+      });
+
+    vi.stubGlobal('fetch', mockFetch);
+
+    // Write a fake-but-large disk cache (1020 entries, all sequential test data)
+    const fs = await import('fs');
+    const path = await import('path');
+    const os = await import('os');
+    const cacheFile = path.join(os.tmpdir(), 'skills-review-and-polish-openrouter-pricing-cache-v1.json');
+    const fakeEntries: Array<[string, ModelPricing]> = [];
+    for (let i = 0; i < 340; i++) {
+      const p = { input: 1, output: 5, source: 'openrouter' as const };
+      fakeEntries.push([`vendor/model-${i}`, p], [`Model ${i}`, p], [`model ${i}`, p]);
+    }
+    fs.writeFileSync(cacheFile, JSON.stringify({
+      fetchedAt: Date.now(),
+      crc32: 'fake',
+      entries: fakeEntries,
+    }));
+
+    // Call fetchPricing — should detect the fake-but-large cache and refetch real data.
+    const result = await fetchPricing();
+    expect(result.size).toBeGreaterThan(1000);
+    // The fake cache must have been discarded and refetched: the refetch writes a
+    // fresh cache with a real crc32 (not the literal 'fake'), and the fake entries
+    // must be gone from the result.
+    const after = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    expect(after.crc32).not.toBe('fake');
+    expect(result.has('Model 0')).toBe(false);
   });
 });

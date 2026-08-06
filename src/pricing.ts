@@ -356,10 +356,11 @@ async function fetchOpenRouterPricing(): Promise<Map<string, ModelPricing>> {
   // Keep pricing warm across extension-host restarts for a short window.
   const diskCache = readOpenRouterDiskCache();
   if (diskCache && Date.now() - diskCache.fetchedAt < OPENROUTER_DISK_CACHE_TTL_MS) {
-    // Sanity check: a real OpenRouter response has ~340 models × 3 keys each (~1000+ entries).
-    // If we see suspiciously few entries, the cache is likely corrupted by test mocks
-    // and we should refetch from the network. See docs/PRICING.md.
-    if (diskCache.models.size >= MIN_OPENROUTER_ENTRIES) {
+    // Sanity check: a real OpenRouter response has ~340 models × 3 keys each (~1000+ entries),
+    // and the IDs look like real models (vendor slug + descriptive name). A cache that is
+    // small OR full of sequential test data (e.g. `Model 0`, `vendor/model-1`) is corrupted
+    // by test mocks and must be discarded. See docs/PRICING.md.
+    if (diskCache.models.size >= MIN_OPENROUTER_ENTRIES && isRealPricingCache(diskCache.models)) {
       openrouterCache = diskCache;
       return diskCache.models;
     }
@@ -470,6 +471,39 @@ function readOpenRouterDiskCache(): PricingCache | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Content-quality check for a cached OpenRouter pricing map.
+ *
+ * The count check (`>= MIN_OPENROUTER_ENTRIES`) alone is not enough: a test
+ * mock can write 1000+ sequential `Model 0` / `vendor/model-1` entries that
+ * pass the count check but are fake. Real OpenRouter model IDs contain a
+ * known vendor slug (`openai/...`, `anthropic/...`, ...) and a descriptive
+ * name. This rejects a cache that is mostly sequential test data.
+ */
+function isRealPricingCache(models: Map<string, ModelPricing>): boolean {
+  const KNOWN_VENDORS = /^(openai|anthropic|google|microsoft|meta|mistral|poolside|nvidia|deepseek|qwen|cohere|amazon|tencent|bytedance|upstage|arcee|inception|minimax|moonshot|ibm|liquid|inclusion|rekaai|stepfun|ai21|xai|aion|zai|sakana|thedrummer|kwaipilot)\//;
+  // Sequential test data patterns: `vendor/model-0`, `Model 0`, `model 0`.
+  const SEQUENTIAL = /(?:^|\/)model[- ]\d+$/i;
+  // Sample a subset of keys (not all 1000+) and require the large majority to
+  // look like real model IDs, not sequential `vendor/model-0` test fakes.
+  const keys = Array.from(models.keys());
+  let real = 0;
+  let sampled = 0;
+  for (const key of keys) {
+    if (SEQUENTIAL.test(key)) continue; // sequential test data
+    if (KNOWN_VENDORS.test(key)) { real++; sampled++; continue; }
+    // Non-vendor-prefixed keys (display names / normalized). Count these toward
+    // real only if they don't look sequential.
+    if (/^\d+$/.test(key)) continue;
+    sampled++;
+    real++;
+    if (sampled >= 200) break;
+  }
+  // Require that essentially all sampled keys look real (allow a tiny noise margin).
+  // If nothing was sampled (all keys were sequential test data), the cache is fake.
+  return sampled > 0 && (real / sampled) > 0.9;
 }
 
 function writeOpenRouterDiskCache(cache: PricingCache, crc32: string): void {
