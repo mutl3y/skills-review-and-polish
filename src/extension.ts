@@ -1604,7 +1604,28 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
 
   const sortLabel = cfg.pickerSortBy === 'multiplier' ? 'by multiplier' : cfg.pickerSortBy === 'name' ? 'alphabetical' : 'by cost';
   picker.title = `Select ${targetLabel} model (${sortLabel})`;
-  picker.items = items;
+
+  // ── Current-model shortcut ─────────────────────────────────────────────
+  // Surface the currently assigned model at the top of the picker so the user
+  // can accept it in one keystroke, while still allowing a different choice.
+  // Also pre-select the current model in the list (if present) so Enter keeps
+  // it without scrolling.
+  const currentModelId = target === 'model' ? cfg.model : cfg.fixModel;
+  const currentItem = items.find((i) => i.modelId === currentModelId);
+  const shortcutItems: Array<vscode.QuickPickItem & { modelId: string; name: string }> = [];
+  if (currentItem) {
+    shortcutItems.push({
+      label: `$(check) Current ${targetLabel} model: ${currentItem.name}`,
+      description: 'Press Enter to keep',
+      detail: `     ${currentItem.modelId}`,
+      modelId: currentItem.modelId,
+      name: currentItem.name,
+    });
+  }
+  picker.items = [...shortcutItems, ...items];
+  if (currentItem) {
+    picker.activeItems = [currentItem];
+  }
 
   // Wait for user selection
   const picked = await new Promise<(typeof items)[number] | undefined>((resolve) => {
