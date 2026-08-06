@@ -74,21 +74,30 @@ export function readConfig(): ExtensionConfig {
   if (cachedConfig) return cachedConfig;
   const c = vscode.workspace.getConfiguration(SECTION);
   const waves = c.get<string[]>('enabledWaves', ALL_WAVES) as WaveName[];
+  const provider = c.get<string>('provider', 'vscode-lm');
+  const pickerSortBy = c.get<string>('pickerSortBy', 'price');
+  const logLevel = c.get<string>('logLevel', 'info');
+  const requestTimeoutMs = c.get<number>('external.requestTimeoutMs', 120_000);
+  const maxDiagnostics = c.get<number>('maxDiagnostics', 20);
   cachedConfig = {
     ...DEFAULT_ENGINE_CONFIG,
     enable: c.get('enable', true),
-    provider: c.get('provider', 'vscode-lm'),
+    // Validate against the union — a malformed value (e.g. "foo") would
+    // otherwise be cast silently and fall through to the vscode-lm branch.
+    provider: provider === 'openrouter' || provider === 'copilot' ? provider : 'vscode-lm',
     model: c.get('model', ''),
     deepModel: c.get('deepModel', ''),
     fixModel: c.get('fixModel', ''),
-    pickerSortBy: c.get('pickerSortBy', 'price'),
+    pickerSortBy: pickerSortBy === 'multiplier' || pickerSortBy === 'name' ? pickerSortBy : 'price',
     externalStructuredOutput: readStructuredOutput(c.get('external.structuredOutput', 'schema')),
     externalMaxResponseTokens: c.get('external.maxResponseTokens', 16_384),
     externalAdaptiveMaxResponseTokens: c.get('external.adaptiveMaxResponseTokens', 65_536),
     externalAdaptiveResponseTokens: c.get('external.adaptiveResponseTokens', false),
     externalMinAdaptiveResponseTokens: c.get('external.minAdaptiveResponseTokens', 4_096),
     externalAdaptiveCharsPerToken: c.get('external.adaptiveCharsPerToken', 8),
-    externalRequestTimeoutMs: c.get('external.requestTimeoutMs', 120_000),
+    // Clamp to a sane minimum so a 0/negative value can't cause immediate
+    // timeouts.
+    externalRequestTimeoutMs: Number.isFinite(requestTimeoutMs) && requestTimeoutMs >= 1000 ? requestTimeoutMs : 120_000,
     mcpMaxTokensPerSession: c.get('mcpMaxTokensPerSession', 500_000),
     analysisMode: c.get('analysisMode', DEFAULT_ENGINE_CONFIG.analysisMode),
     enabledWaves: waves.length ? waves : [...ALL_WAVES],
@@ -106,12 +115,13 @@ export function readConfig(): ExtensionConfig {
     showScoreCodeLens: c.get('showScoreCodeLens', true),
     inlineRewrites: c.get('experimental.inlineRewrites', false),
     telemetryEnable: c.get('telemetry.enable', false),
-    logLevel: c.get('logLevel', 'info') as 'info' | 'debug' | 'trace',
+    logLevel: logLevel === 'debug' || logLevel === 'trace' ? logLevel : 'info',
     fixGuardUpperBoundMultiplier: c.get('fix.guard.upperBoundMultiplier', 1.5),
     fixGuardLowerBoundMultiplier: c.get('fix.guard.lowerBoundMultiplier', 0.5),
     fixGuardMaxAnchorChars: c.get('fix.guard.maxAnchorChars', 350),
     filterFindings: c.get('filterFindings', true),
-    maxDiagnostics: c.get('maxDiagnostics', 20),
+    // Clamp so 0/negative can't silently suppress all diagnostics.
+    maxDiagnostics: Number.isFinite(maxDiagnostics) && maxDiagnostics >= 1 ? Math.floor(maxDiagnostics) : 20,
   };
   return cachedConfig;
 }

@@ -93,6 +93,40 @@ describe('readConfig', () => {
     expect(config.telemetryEnable).toBe(false);
     expect(config.logLevel).toBe('debug');
   });
+
+  it('falls back to defaults for malformed provider/picker/logLevel values', () => {
+    const get = vi.fn((key: string, fallback?: unknown) => {
+      const values: Record<string, unknown> = {
+        provider: 'foo', // invalid — must fall back to vscode-lm
+        pickerSortBy: 'bogus', // invalid — must fall back to price
+        logLevel: 'verbose', // invalid — must fall back to info
+      };
+      return values[key] ?? fallback;
+    });
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get } as any);
+
+    const config = readConfig();
+
+    expect(config.provider).toBe('vscode-lm');
+    expect(config.pickerSortBy).toBe('price');
+    expect(config.logLevel).toBe('info');
+  });
+
+  it('clamps invalid timeout and maxDiagnostics values', () => {
+    const get = vi.fn((key: string, fallback?: unknown) => {
+      const values: Record<string, unknown> = {
+        'external.requestTimeoutMs': 0, // invalid — must clamp to default
+        maxDiagnostics: -5, // invalid — must clamp to default
+      };
+      return values[key] ?? fallback;
+    });
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({ get } as any);
+
+    const config = readConfig();
+
+    expect(config.externalRequestTimeoutMs).toBe(120_000);
+    expect(config.maxDiagnostics).toBe(20);
+  });
 });
 
 describe('isCustomizationPath', () => {

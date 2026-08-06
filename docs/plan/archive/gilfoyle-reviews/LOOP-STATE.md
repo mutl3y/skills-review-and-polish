@@ -1,12 +1,12 @@
 # Loop State
 
-- **Current iteration:** 25
+- **Current iteration:** 26
 - **Target:** 30 (then reassess with user)
-- **Last review scope:** Bounded review — `src/core/fixer.ts` + `src/core/acceptedFindings.ts` (rotation item 4)
-- **Last findings:** No critical/high. 2 Medium + 3 Low remediated.
-- **Next action:** Run iteration 26 — bounded review of `src/ui/*` + `src/config.ts` (rotation item 5).
+- **Last review scope:** Bounded review — `src/ui/*` + `src/config.ts` (rotation item 5)
+- **Last findings:** No critical/high. 2 Medium + 4 Nit remediated (1 Nit statusBar left as-is — internal data).
+- **Next action:** Run iteration 27 — bounded review of Tests + CI + release scripts (rotation item 6).
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `4c51e7d` (fix(iter24): remediate joint MCP+extension review)
+- **Last commit:** `9e3e5d5` (fix(iter25): remediate bounded review of fixer/acceptedFindings)
 
 ## How to resume
 
@@ -27,25 +27,20 @@
 | 23 | bounded (providers, pricing, tokenBudget, modelNames) | 0 | 1M/6L/1N fixed |
 | 24 | bounded joint (MCP + extension) | 0 | 1M/3L/1N fixed |
 | 25 | bounded (fixer, acceptedFindings) | 0 | 2M/3L fixed |
+| 26 | bounded (ui, config) | 0 | 2M/4N fixed |
 
-## Iter 25 remediation summary
+## Iter 26 remediation summary
 
-- **M1:** `fixDocument` re-derived the anchor independently of `fixIssue`'s
-  `resolveAnchorText`; when `line` disambiguated a duplicated anchor, the
-  replacement could target a different fragment than the one guarded/fixed.
-  Added `targetText` to `FixIssueResult`; `fixDocument` now reuses it.
-- **M2:** `loadAcceptedFindings` validated only the top-level `entries` shape;
-  a corrupted entry missing `textPattern` made `normalize()` throw inside
-  `isFindingAccepted`, crashing `filterAcceptedResults`. Now validates/sanitizes
-  each entry and drops malformed ones.
-- **L1:** `expandToParagraph` used the unnormalized `phrase` against
-  whitespace-normalized content, so the fast path missed multi-space variants.
-  Now uses `normPhrase`.
-- **L2:** `saveAcceptedFindings` used a fixed `.tmp` name with no concurrency
-  guard; two writers could collide. Now uses a unique temp name (pid + random).
-- **L3:** redundant-instruction deletion consumed a preceding newline
-  unconditionally, which could merge lines when the anchor wasn't on its own
-  line. Now only strips it when the anchor starts a line.
+- **M1:** `provider` cast to union without validation — a malformed value
+  silently fell through to the vscode-lm branch. Now validated against the
+  union, falling back to `vscode-lm`.
+- **M2:** `pickerSortBy`/`logLevel` cast to unions without validation — now
+  validated with fallbacks.
+- **N1:** `externalRequestTimeoutMs` accepted 0/negative — now clamped to a
+  sane minimum (≥1000ms, else default).
+- **N2:** `maxDiagnostics` accepted 0/negative — now clamped to ≥1.
+- **N3:** statusBar `showResult` interpolates `grade` raw — left as-is (grade
+  is internal, always from scoreSkill's fixed letter set; low risk).
 
 ## Recurrence map (all iterations)
 
@@ -56,6 +51,7 @@
 | Hardcoded wave list vs `ALL_WAVES` | 24 |
 | fixDocument anchor re-derivation vs fixIssue target | 25 |
 | acceptedFindings store entry validation | 25 |
+| Config union cast without validation | 26 |
 
 ## Notes / latent issues
 
@@ -63,6 +59,8 @@
   unreachable: every generic word is <5 chars, so the 5-char length floor fires
   first. Pre-existing; not a correctness bug (the floor is the real guard).
   Flagged for a future cleanup, not escalated.
+- Iter 26 subagent first attempt failed with a GitHub service error; retried
+  once with a narrower scope (config.ts + statusBar.ts) and succeeded.
 
 ## Key lessons (see skill)
 
