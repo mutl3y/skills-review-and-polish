@@ -818,11 +818,18 @@ export class SurgicalFixer {
 
     // Optional self-critique (factual drift)
     const gates = shouldRunOptionalFixGate(code, targetText, fixed, additive, options);
-    const riskFlags: string[] = [];
     if (gates.selfCritique) {
       const critique = await fixIntroducesFact(targetText, fixed, this.provider);
       if (critique.failedOpen) {
-        riskFlags.push('self-critique skipped (LLM unavailable)');
+        // Fail CLOSED when the user explicitly enabled the gate: an unavailable
+        // judge must not silently accept a fix that could introduce factual
+        // drift. (Previously this failed open with a risk note.)
+        return {
+          accepted: false,
+          fixed: '',
+          risks: [],
+          rejectReason: 'self-critique unavailable (LLM error) — fix rejected because the gate is enabled',
+        };
       } else if (critique.drift) {
         return {
           accepted: false,
@@ -837,7 +844,13 @@ export class SurgicalFixer {
     if (gates.semanticCheck) {
       const meaning = await fixPreservesMeaning(targetText, fixed, this.provider);
       if (meaning.failedOpen) {
-        riskFlags.push('semantic-check skipped (LLM unavailable)');
+        // Fail CLOSED when the user explicitly enabled the gate.
+        return {
+          accepted: false,
+          fixed: '',
+          risks: [],
+          rejectReason: 'semantic-check unavailable (LLM error) — fix rejected because the gate is enabled',
+        };
       } else if (!meaning.ok) {
         return {
           accepted: false,
@@ -848,7 +861,7 @@ export class SurgicalFixer {
       }
     }
 
-    const risks = [...classifyEditRisk(code, targetText, fixed), ...riskFlags];
+    const risks = classifyEditRisk(code, targetText, fixed);
     return { accepted: true, fixed, risks, targetText };
   }
 

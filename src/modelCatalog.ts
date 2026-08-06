@@ -358,7 +358,7 @@ function writeCopilotDiskCache(cache: { models: Map<string, number>; fetchedAt: 
       fetchedAt: cache.fetchedAt,
       entries: Array.from(cache.models.entries()),
     };
-    fs.writeFileSync(copilotCacheFile(cache.apiKey), JSON.stringify(payload), 'utf8');
+    fs.writeFileSync(copilotCacheFile(cache.apiKey), JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
   } catch {
     // Ignore — fresh fetch on next call.
   }
@@ -579,7 +579,7 @@ function writeDiskCache(cache: CatalogCache): void {
       fetchedAt: cache.fetchedAt,
       entries: Array.from(cache.models.entries()),
     };
-    fs.writeFileSync(OPENROUTER_CACHE_FILE, JSON.stringify(payload), 'utf8');
+    fs.writeFileSync(OPENROUTER_CACHE_FILE, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
   } catch {
     // Ignore — fresh fetch on next call.
   }

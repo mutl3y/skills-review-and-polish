@@ -1,30 +1,45 @@
 # Loop State
 
-- **Current iteration:** 30 (TARGET REACHED — independent-review remediation applied)
+- **Current iteration:** 30 (TARGET REACHED — independent-review remediation applied, all findings closed)
 - **Target:** 30
-- **Last review scope:** Independent review (2026-08-06) remediation — findings #1, #2, #3, #5, #12
-- **Last findings:** Independent review found 5 remediated (1 High, 3 Medium, 1 Nit). Remaining open: #4 (budget after-the-fact), #6 (fail-open gates), #7 (loop spend), #8 (MCP trust root), #9 (folder-zero default), #10 (lexical startsWith), #11 (tmp cache hygiene).
-- **Next action:** Reassess with the user. The independent review confirmed the loop's real wins but caught flow-level bugs the file-scoped loop missed. Recommend remediating the remaining open findings (#4, #6, #7, #8, #9) in a follow-up pass.
+- **Last review scope:** Independent review (2026-08-06) remediation — all 12 findings addressed
+- **Last findings:** All 12 independent-review findings remediated (batch 1: #1,#2,#3,#5,#12; batch 2: #4,#6,#7,#8,#9,#10,#11).
+- **Next action:** Reassess with the user. All independent-review findings are closed. Recommend running the release gate if shipping, or a fresh independent verification pass on the changed surfaces (LM tools budget, fixer gates, MCP trust root).
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `9311869` (docs(skill): encode independent-review lessons into review loop)
+- **Last commit:** `76a521a` (fix(review): remediate independent 2026-08-06 review findings)
 
 ## Independent-review remediation (2026-08-06)
 
+### Batch 1 (commit `76a521a`)
 - **#1 (High):** `runFixIssue` applied using `result.relevantText` instead of
   `fixResult.targetText` — the exact bug `fixDocument` closed in iter 25, one
   door over. Now uses `fixResult.targetText` (the guarded anchor).
-- **#2 (Medium):** `fixMode: 'chat'` was product fiction (a settings enum
-  advertising a feature that doesn't exist). Removed `chat` from the enum and
-  config union; the chat branches in `runFixIssue`/`runFixAll` now fall through
-  to direct apply.
+- **#2 (Medium):** `fixMode: 'chat'` was product fiction. Removed `chat` from
+  the enum and config union; the chat branches fall through to direct apply.
 - **#3 (Medium):** one SecretStorage slot for two providers. Keys now stored
-  per-provider (`skillsReviewAndPolish.apiKey.openrouter` /
-  `.copilot`) and validated at store time via `validateKeyForProvider`.
+  per-provider (`apiKey.openrouter` / `.copilot`) and validated at store time.
 - **#5 (Medium):** `exclude` only honored in folder analyze. Added shared
-  `isExcludedPath` and applied it to the onSave auto-analyze path (and
-  refactored folder analyze to use it).
+  `isExcludedPath`; applied to onSave auto-analyze and folder analyze.
 - **#12 (Nit):** MCP env openrouter `configSource` label lied with
   `file:<configPath>`. Now says `env:OPENROUTER_API_KEY`.
+
+### Batch 2 (this commit)
+- **#4 (Medium):** LM tools had no budget guard. Extracted the budget state
+  machine into shared `src/core/sessionBudget.ts` (used by both MCP server and
+  LM tools); the analyze/fix LM tools now reserve before and charge after.
+- **#6 (Medium):** optional fix gates failed open. Now fail CLOSED when the
+  user explicitly enabled the gate and the judge LLM is unavailable.
+- **#7 (Medium):** `loop` mode was an uncapped spend loop. Now requires an
+  explicit modal confirmation before the first iteration.
+- **#8 (Medium):** MCP trust root was env-or-cwd. `syncMcpConfig` now pins
+  `workspaceRoot` in `.skills-review.json`; the server prefers it (after the
+  env var) over cwd.
+- **#9 (Low):** `syncMcpConfig` preferred folder zero. Now prefers the active
+  editor's folder before falling back to folder zero.
+- **#10 (Low):** analyzer link lexical check used raw `startsWith`. Now uses
+  shared `isPathWithin` (case-insensitive on Windows).
+- **#11 (Low):** tmp catalog caches used default umask. Now written with
+  `0o600`.
 
 ## How to resume
 

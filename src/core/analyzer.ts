@@ -1373,8 +1373,10 @@ export class Analyzer {
       }
 
       const resolved = path.resolve(docDir, target);
-      // Ensure the resolved path stays within the skill's directory.
-      if (!resolved.startsWith(docDir + path.sep) && resolved !== docDir) {
+      // Ensure the resolved path stays within the skill's directory. Use the
+      // shared isPathWithin (case-insensitive on Windows) rather than a raw
+      // startsWith, which would false-reject on case differences.
+      if (!isPathWithin(docDir, resolved)) {
         this.log.info('[WARN] readLinkedPromptFiles: path escapes skill directory', { target, resolved, docDir });
         continue;
       }

@@ -12,7 +12,17 @@ import { redactSecrets } from '../core/redact';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted, validateRelevantText } from '../core/acceptedFindings';
 import { validateKeyForProvider } from '../core/providerKeys';
 import { safeResolveFilePath as safeResolveFilePathShared } from '../core/pathSafety';
-import { CHARS_PER_TOKEN as CHARS_PER_TOKEN_SHARED, DEFAULT_DOCUMENT_CHARS } from '../core/tokenBudget';
+import { DEFAULT_DOCUMENT_CHARS } from '../core/tokenBudget';
+import {
+  budgetExhausted,
+  budgetExhaustedError,
+  chargeTokens,
+  maxTokensPerSession,
+  reserveTokens,
+  resolveMaxTokensPerSession,
+  setSessionBudgetCap,
+  usedTokens,
+} from '../core/sessionBudget';
 import { OpenRouterProvider, CopilotProvider } from '../providers/externalProvider';
 import { resolveContextLength, resolveCopilotContextLength } from '../modelCatalog';
 import type { AnalysisResult, EngineConfig, LlmProvider, Severity, WaveName } from '../core/types';
@@ -56,90 +66,10 @@ const MIN_DOCUMENT_CHARS = 8_000;
 // Default: 500k total tokens per session (~$0.05-0.15 at current rates). Input
 // tokens dominate (a 200K-char doc is ~50K input tokens per wave × 6 waves),
 // so the cap is sized for total spend, not just output.
-const DEFAULT_MAX_TOKENS_PER_SESSION = 500_000;
-/** Rough chars-per-token heuristic used when the provider reports no usage. */
-const CHARS_PER_TOKEN = CHARS_PER_TOKEN_SHARED;
-
-/** Cumulative total-token budget state for the current server session. */
-let _sessionTokens = 0;
-/** Configured cap for the current session (0 disables the guard). */
-let _maxTokensPerSession = DEFAULT_MAX_TOKENS_PER_SESSION;
-
-/** Reset the session budget (for tests). */
-export function _resetSessionBudget(): void {
-  _sessionTokens = 0;
-  _maxTokensPerSession = DEFAULT_MAX_TOKENS_PER_SESSION;
-}
-
-/** Set the session budget cap directly (for tests). 0 disables the guard. */
-export function _setSessionBudgetCap(cap: number): void {
-  _maxTokensPerSession = cap > 0 ? Math.floor(cap) : 0;
-}
-
-/** Read the budget cap from env var or config value. Returns 0 to disable. */
-function resolveMaxTokensPerSession(value: unknown): number {
-  const env = process.env.MCP_MAX_TOKENS;
-  // Env var takes precedence; an explicit "0" disables the guard.
-  if (env !== undefined && env.trim() !== '') {
-    const n = Number(env);
-    if (Number.isFinite(n)) return n > 0 ? Math.floor(n) : 0;
-  }
-  // Config-file value: accept a positive number, or an explicit 0 to disable.
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value > 0 ? Math.floor(value) : 0;
-  }
-  if (typeof value === 'string' && value.trim() !== '') {
-    const n = Number(value);
-    if (Number.isFinite(n)) return n > 0 ? Math.floor(n) : 0;
-  }
-  return DEFAULT_MAX_TOKENS_PER_SESSION;
-}
-
-/**
- * Estimate output tokens for a response body (chars / CHARS_PER_TOKEN).
- * Strips insignificant JSON whitespace first so pretty-printed bodies
- * (JSON.stringify(x, null, 2)) aren't over-charged for indentation.
- */
-function estimateOutputTokens(text: string): number {
-  const compact = text.replace(/\s+/g, '');
-  return Math.ceil(compact.length / CHARS_PER_TOKEN);
-}
-
-/**
- * Charge the session budget for an LLM call. Returns true if the charge
- * was accepted (within budget). When the charge would exceed the cap, the
- * budget is still incremented (so `usedTokens` stays honest) and false
- * is returned — the caller may still return the result, but subsequent
- * analysis requests will be refused until the next session.
- *
- * Charges BOTH input and output tokens: the expensive part of an LLM call is
- * the input (a 200K-char document is ~50K input tokens per wave, × 6 waves).
- * `inputChars` is the document text length; `outputText` is the response body.
- * `inputWaves` is the number of times the input is sent to the LLM (analyze
- * runs 6 waves; score runs scoreSamples × waves) — the input cost is charged
- * per wave so the budget reflects actual spend.
- */
-function chargeTokens(inputChars: number, outputText: string, inputWaves = 1): boolean {
-  if (_maxTokensPerSession <= 0) return true; // guard disabled
-  const inputCost = Math.ceil(inputChars / CHARS_PER_TOKEN) * inputWaves;
-  const outputCost = estimateOutputTokens(outputText);
-  _sessionTokens += inputCost + outputCost;
-  return _sessionTokens <= _maxTokensPerSession;
-}
-
-/**
- * Reserve the estimated cost of a multi-call operation BEFORE it runs, so a
- * single `fix` (which makes up to 3 LLM calls) can't blow through the entire
- * remaining budget. Returns true when the reservation fits within the cap.
- * The reservation is a soft pre-check — the actual charge happens after the
- * call via `chargeTokens` — but it prevents starting an operation that is
- * guaranteed to exceed the budget.
- */
-function reserveTokens(inputChars: number, inputWaves: number): boolean {
-  if (_maxTokensPerSession <= 0) return true; // guard disabled
-  const inputCost = Math.ceil(inputChars / CHARS_PER_TOKEN) * inputWaves;
-  return _sessionTokens + inputCost <= _maxTokensPerSession;
-}
+//
+// The budget state machine lives in `src/core/sessionBudget.ts` and is shared
+// with the extension's language-model tools so both doors enforce the same
+// guard (they were drifting — the LM tools had no budget at all).
 
 /**
  * Estimate how many LLM waves an analysis will run, so the cost budget
@@ -163,20 +93,6 @@ function estimateWaveCount(
   return engineConfig?.enabledWaves?.length ?? ALL_WAVES.length;
 }
 
-/** True when the session budget is exhausted (guard enabled and over cap). */
-function budgetExhausted(): boolean {
-  return _maxTokensPerSession > 0 && _sessionTokens > _maxTokensPerSession;
-}
-
-/** Error message returned when the budget is exhausted. */
-function budgetExhaustedError(): Error {
-  return new Error(
-    `MCP session token budget exhausted (${_sessionTokens} / ${_maxTokensPerSession} tokens). ` +
-    `Refusing new analysis requests until the next session. Raise the cap via ` +
-    `MCP_MAX_TOKENS or the "maxTokensPerSession" config, or set it to 0 to disable.`,
-  );
-}
-
 /**
  * Sanitize an error message to remove secrets (Bearer tokens, API keys, etc.)
  * before returning it in MCP responses.
@@ -197,9 +113,19 @@ function resolveAcceptedFindingsPath(): string {
 /**
  * Resolve the MCP server's workspace root. All file paths accepted by tools
  * must stay under this root — it is the trust boundary for the MCP server.
+ *
+ * Precedence:
+ *   1. `MCP_SERVER_WORKSPACE` env var (explicit operator override)
+ *   2. The `workspaceRoot` pinned in `.skills-review.json` by the extension's
+ *      Sync MCP Config command (so a mis-launched server can't silently make
+ *      cwd the universe)
+ *   3. `process.cwd()` (CLI fallback)
  */
+let _pinnedWorkspaceRoot: string | undefined;
 function resolveWorkspaceRoot(): string {
-  return process.env['MCP_SERVER_WORKSPACE']?.trim() || process.cwd();
+  return process.env['MCP_SERVER_WORKSPACE']?.trim()
+    || _pinnedWorkspaceRoot
+    || process.cwd();
 }
 
 /**
@@ -667,8 +593,8 @@ async function handleHealth(_args: Record<string, unknown>, ctx: ToolHandlerCont
           requestTimeoutMs: ctx.resolvedConfig?.requestTimeoutMs,
           configSource: ctx.resolvedConfig?.configSource ?? 'unknown',
           costBudget: {
-            maxTokensPerSession: _maxTokensPerSession,
-            usedTokens: _sessionTokens,
+            maxTokensPerSession: maxTokensPerSession(),
+            usedTokens: usedTokens(),
             exhausted: budgetExhausted(),
             // The token count is an estimate (response chars / 4), not the
             // provider's reported usage — the provider interface does not
@@ -870,8 +796,13 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
     const raw = fs.readFileSync(configPath, 'utf8');
     const cfg = JSON.parse(raw);
     if (cfg && typeof cfg === 'object') {
+      // Pin the workspace root from the synced config (if present) so the
+      // trust boundary matches what the extension wrote.
+      if (typeof cfg.workspaceRoot === 'string' && cfg.workspaceRoot.trim() !== '') {
+        _pinnedWorkspaceRoot = cfg.workspaceRoot.trim();
+      }
       // Apply the session cost budget from config (env var takes precedence).
-      _maxTokensPerSession = resolveMaxTokensPerSession(cfg.maxTokensPerSession);
+      setSessionBudgetCap(resolveMaxTokensPerSession(cfg.maxTokensPerSession));
       const engineConfig = buildEngineConfig(cfg as Record<string, unknown>);
       const provider = cfg.provider || 'openrouter';
       const model = cfg.model || 'gpt-4o-mini';
@@ -933,7 +864,7 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
   }
 
   // Priority 2: env vars (existing logic)
-  _maxTokensPerSession = resolveMaxTokensPerSession(undefined);
+  setSessionBudgetCap(resolveMaxTokensPerSession(undefined));
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openRouterKey) {
     const keyError = validateKeyForProvider('openrouter', openRouterKey);

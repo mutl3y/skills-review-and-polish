@@ -346,6 +346,29 @@ describe('SurgicalFixer', () => {
     expect(result.rejectReason).toContain('self-critique');
   });
 
+  it('fails CLOSED when an enabled gate hits an LLM error', async () => {
+    // When the user explicitly enables a gate and the judge LLM is
+    // unavailable, the fix must be REJECTED (not accepted with a risk note).
+    const provider: LlmProvider = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({ text: 'Use the tool carefully today.' })
+        .mockResolvedValueOnce({ text: '', error: 'judge unavailable' }),
+      getContextLength: () => undefined,
+    };
+    const fixer = new SurgicalFixer(provider);
+
+    const result = await fixer.fixIssue(
+      'Use the tool carefully.',
+      '/tmp/test.md',
+      makeDiagnostic('ambiguity-llm', 'Use the tool carefully.'),
+      { additive: true, selfCritique: true },
+    );
+
+    expect(result.accepted).toBe(false);
+    expect(result.rejectReason).toContain('self-critique unavailable');
+  });
+
   it('skips fixDocument entries when the anchor cannot be resolved', async () => {
     const fixer = new SurgicalFixer({ complete: vi.fn().mockResolvedValue({ text: 'Use the tool.' }), getContextLength: () => undefined });
 

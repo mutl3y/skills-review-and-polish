@@ -518,7 +518,7 @@ function writeOpenRouterDiskCache(cache: PricingCache, crc32: string): void {
       crc32,
       entries: Array.from(cache.models.entries()),
     };
-    fs.writeFileSync(OPENROUTER_CACHE_FILE, JSON.stringify(payload), 'utf8');
+    fs.writeFileSync(OPENROUTER_CACHE_FILE, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
   } catch {
     // Ignore cache-write failures; pricing fetch should never fail because cache persistence failed.
   }

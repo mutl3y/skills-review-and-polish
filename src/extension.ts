@@ -24,6 +24,7 @@ import { redactSecrets } from './core/redact';
 import { validateKeyForProvider } from './core/providerKeys';
 import { safeResolveFilePath as safeResolveFilePathShared, isPathWithin } from './core/pathSafety';
 import { stripCodeFences } from './core/llmText';
+import { budgetExhausted, budgetExhaustedError, chargeTokens, reserveTokens, setSessionBudgetCap, resolveMaxTokensPerSession } from './core/sessionBudget';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -1034,6 +1035,24 @@ async function runFixAll(): Promise<void> {
   }
 
   log('info', `runFixAll: starting fix mode=${cfg.fixMode} for ${fixable.length} issues`);
+
+  // 'loop' mode re-analyzes and re-fixes up to fixLoopMaxIterations times,
+  // multiplying LLM cost. Require explicit confirmation before the first
+  // iteration so a user who toggled loop once isn't surprised by the spend.
+  if (cfg.fixMode === 'loop') {
+    const iterations = Math.max(1, cfg.fixLoopMaxIterations);
+    const choice = await vscode.window.showWarningMessage(
+      `Skills Review: fixMode 'loop' will re-analyze and re-fix up to ${iterations} time(s), multiplying LLM cost. Continue?`,
+      { modal: true },
+      'Continue',
+      'Cancel',
+    );
+    if (choice !== 'Continue') {
+      log('info', 'runFixAll: loop mode cancelled by user');
+      return;
+    }
+  }
+
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -1786,7 +1805,11 @@ async function selectPickerSortOrder(): Promise<void> {
 
 async function syncMcpConfig(silent = false): Promise<void> {
   const cfg = readConfig();
-  const folder = workspaceFolderForPath();
+  // Prefer the active editor's folder (the folder the user is actually working
+  // in) before falling back to folder zero — in multi-root, folder zero is not
+  // necessarily the one the user means.
+  const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+  const folder = workspaceFolderForPath(activePath);
   if (!folder) {
     if (!silent) vscode.window.showWarningMessage('Skills Review: No workspace folder open — cannot write .skills-review.json.');
     return;
@@ -1802,6 +1825,10 @@ async function syncMcpConfig(silent = false): Promise<void> {
     analysisMode: cfg.analysisMode,
     logLevel: cfg.logLevel,
     maxTokensPerSession: cfg.mcpMaxTokensPerSession,
+    // Pin the workspace root the MCP server must use as its trust boundary.
+    // The server reads this and refuses paths outside it, so a mis-launched
+    // server can't silently make cwd the universe.
+    workspaceRoot: folder.uri.fsPath,
   };
   // Atomic write: write to temp file first, then rename to avoid corruption
   // on crash/disk-full.  Node's rename(2) is atomic on the same filesystem.
@@ -2104,6 +2131,20 @@ export function registerLanguageModelTools(
       async invoke(options, _token) {
         const { text, filePath } = options.input;
         try {
+          // Apply the shared session budget guard (same as the MCP server) so
+          // the agent-driven LM tools aren't an uncapped spend path. The cap
+          // is read from the same MCP_MAX_TOKENS / config source.
+          setSessionBudgetCap(resolveMaxTokensPerSession(undefined));
+          if (budgetExhausted()) {
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
+            ]);
+          }
+          if (!reserveTokens(text.length, 6)) {
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
+            ]);
+          }
           const engine = await buildEngineFn();
           // Validate filePath against the workspace root — the LM tool is
           // agent-driven, so an attacker-controlled path could read arbitrary
@@ -2115,8 +2156,10 @@ export function registerLanguageModelTools(
             ]);
           }
           const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(safePath), token: _token });
+          const body = JSON.stringify(results, null, 2);
+          chargeTokens(text.length, body, 6);
           return new vscode.LanguageModelToolResult([
-            new vscode.LanguageModelTextPart(JSON.stringify(results, null, 2)),
+            new vscode.LanguageModelTextPart(body),
           ]);
         } catch (e) {
           // Redact before returning to the calling agent — a provider error
@@ -2135,6 +2178,20 @@ export function registerLanguageModelTools(
         const { text, filePath = '', diagnosticCode, relevantText } = options.input;
         try {
           const cfg = readConfigFn();
+          // Apply the shared session budget guard (same as the MCP server).
+          setSessionBudgetCap(resolveMaxTokensPerSession(undefined));
+          if (budgetExhausted()) {
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
+            ]);
+          }
+          // A fix makes up to 3 LLM calls (fix + semantic check + self-critique).
+          const fixWaves = 1 + (cfg.fixSemanticCheck ? 1 : 0) + (cfg.fixSelfCritique ? 1 : 0);
+          if (!reserveTokens(text.length, fixWaves)) {
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
+            ]);
+          }
           const engine = await buildEngineFn();
           // Validate filePath against the workspace root (agent-driven tool).
           // Fail loudly on escape (like the analyze tool) rather than silently
@@ -2163,8 +2220,10 @@ export function registerLanguageModelTools(
             guardLowerBoundMultiplier: cfg.fixGuardLowerBoundMultiplier,
             guardMaxAnchorChars: cfg.fixGuardMaxAnchorChars,
           });
+          const body = JSON.stringify(result, null, 2);
+          chargeTokens(text.length, body, fixWaves);
           return new vscode.LanguageModelToolResult([
-            new vscode.LanguageModelTextPart(JSON.stringify(result, null, 2)),
+            new vscode.LanguageModelTextPart(body),
           ]);
         } catch (e) {
           // Redact before returning to the calling agent — a provider error
