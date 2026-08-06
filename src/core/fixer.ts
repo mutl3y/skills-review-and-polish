@@ -17,7 +17,7 @@ import { promises as fsPromises } from 'fs';
 import { AnalysisResult, LlmProvider, LlmRequest } from './types';
 import { loadPrompt } from './prompts';
 import { OBLIGATION_TOKENS, EMPHASIS_SCOPE_WORDS } from './vocabulary';
-import { isPathWithin } from './pathSafety';
+import { isPathWithin, safeResolveFilePath } from './pathSafety';
 
 // --------------------------------------------------------------------------
 // Constants
@@ -254,10 +254,9 @@ export async function loadReferenceGrounding(
     // Path traversal guard: resolved path must remain inside refDir
     // Use path.sep to prevent traversal via same-prefix directory names
     // (e.g., refDir="/a/b" should not allow "/a/bad/file")
-    const resolved = path.resolve(full);
-    const refDirResolved = path.resolve(refDir);
-    const sep = path.sep;
-    if (!resolved.startsWith(refDirResolved + sep) && resolved !== refDirResolved) continue;
+    // Use shared safeResolveFilePath to ensure the reference stays within refDir.
+    const resolved = safeResolveFilePath(name, refDir);
+    if (!resolved) continue;
     // Canonical containment: realpath the file and re-check against the
     // realpath of refDir, so a symlinked file (or a symlink introduced
     // between lstat and read) can't escape the references directory.

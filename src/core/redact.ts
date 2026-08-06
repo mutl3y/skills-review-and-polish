@@ -16,8 +16,9 @@
  */
 export function redactSecrets(text: string): string {
   let out = text;
-  // Strip Bearer tokens
+  // Strip Bearer tokens (case-insensitive, with or without space)
   out = out.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
+  out = out.replace(/bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
   // Strip API key / token / secret / password / authorization values
   out = out.replace(/(api[_-]?key|token|secret|password|authorization|credential)["']?\s*[:=]\s*["']?[^"',}\s]+/gi, '$1=[REDACTED]');
   // Strip x-api-key and other common header values

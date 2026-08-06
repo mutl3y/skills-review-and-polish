@@ -794,7 +794,12 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
   const configPath = path.join(workspaceRoot, '.skills-review.json');
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
-    const cfg = JSON.parse(raw);
+    let cfg;
+    try {
+      cfg = JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`MCP config: Invalid .skills-review.json at ${configPath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
     if (cfg && typeof cfg === 'object') {
       // Pin the workspace root from the synced config (if present) so the
       // trust boundary matches what the extension wrote.

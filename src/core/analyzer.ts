@@ -16,7 +16,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { isPathWithin } from './pathSafety';
+import { isPathWithin, safeResolveFilePath } from './pathSafety';
 import { stripCodeFences } from './llmText';
 import { DEFAULT_DOCUMENT_CHARS } from './tokenBudget';
 import {
@@ -1362,22 +1362,10 @@ export class Analyzer {
       if (!refExtensions.some(ext => target.toLowerCase().endsWith(ext))) continue;
 
       // ── Path-safety validation (Gilfoyle Issue #1-2) ──────────────────
-      // Reject path traversal, absolute paths, symlinks, and escapes.
-      if (target.includes('..')) {
-        this.log.info('[WARN] readLinkedPromptFiles: rejected path traversal', { target });
-        continue;
-      }
-      if (path.isAbsolute(target)) {
-        this.log.info('[WARN] readLinkedPromptFiles: rejected absolute path', { target });
-        continue;
-      }
-
-      const resolved = path.resolve(docDir, target);
-      // Ensure the resolved path stays within the skill's directory. Use the
-      // shared isPathWithin (case-insensitive on Windows) rather than a raw
-      // startsWith, which would false-reject on case differences.
-      if (!isPathWithin(docDir, resolved)) {
-        this.log.info('[WARN] readLinkedPromptFiles: path escapes skill directory', { target, resolved, docDir });
+      // Reject unsafe paths using the shared safeResolveFilePath helper.
+      const resolved = safeResolveFilePath(target, docDir, false);
+      if (!resolved) {
+        this.log.info('[WARN] readLinkedPromptFiles: rejected unsafe path', { target });
         continue;
       }
 

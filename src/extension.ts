@@ -192,7 +192,8 @@ function workspaceFolderForPath(filePath?: string): vscode.WorkspaceFolder | und
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return undefined;
   if (filePath) {
-    const abs = path.resolve(filePath);
+    const abs = safeResolveFilePathShared(vscode.workspace.rootPath || process.cwd(), filePath);
+    if (!abs) return undefined;
     const match = folders.find((f) => {
       const root = path.resolve(f.uri.fsPath);
       return isPathWithin(root, abs);
