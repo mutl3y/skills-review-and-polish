@@ -922,7 +922,7 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
             }
           }
           return {
-            engine: new Engine(new CopilotProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength: copilotContextLength }), engineConfig),
+            engine: new Engine(new CopilotProvider({ apiKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength: copilotContextLength, editorVersion: process.env.COPILOT_EDITOR_VERSION }), engineConfig),
             config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource: copilotContextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
           };
         }
@@ -984,7 +984,7 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       }
     }
     return {
-      engine: new Engine(new CopilotProvider({ apiKey: copilotToken, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength }), engineConfig),
+      engine: new Engine(new CopilotProvider({ apiKey: copilotToken, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength, editorVersion: process.env.COPILOT_EDITOR_VERSION }), engineConfig),
       config: { provider: 'copilot', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: 'env:GITHUB_TOKEN', engineConfig } as McpEngineConfig,
     };
   }

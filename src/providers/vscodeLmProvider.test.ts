@@ -708,7 +708,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
 
       const result = await testProvider.complete({ systemPrompt: 'Test', prompt: 'Test' });
 
-      expect(result).toEqual({ text: 'cached-response' });
+      expect(result).toMatchObject({ text: 'cached-response', finishReason: 'stop' });
       expect(selectChatModels).not.toHaveBeenCalled();
       testProvider.invalidate();
       expect((testProvider as any).cachedStandard).toBeUndefined();
@@ -733,7 +733,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
         modelTier: 'deep',
       });
 
-      expect(result).toEqual({ text: 'deep-response' });
+      expect(result).toMatchObject({ text: 'deep-response', finishReason: 'stop' });
       expect(selectChatModels).not.toHaveBeenCalled();
     });
 
@@ -755,7 +755,7 @@ describe('VsCodeLmProvider.selectModel()', () => {
         modelTier: 'fix',
       });
 
-      expect(result).toEqual({ text: 'fix-response' });
+      expect(result).toMatchObject({ text: 'fix-response', finishReason: 'stop' });
       expect(selectChatModels).not.toHaveBeenCalled();
     });
 

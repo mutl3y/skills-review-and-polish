@@ -1698,7 +1698,10 @@ export class Analyzer {
       this.log.info('callLLM: deep tier failed; retrying with standard tier', {
         error: response.error,
       });
-      const fallback = await this.provider.complete({ prompt, systemPrompt, modelTier: 'standard', token, disableStructuredOutput });
+      // Pass maxTokensMultiplier through the fallback so a wave that requested
+      // extra output headroom doesn't lose it on the deep→standard path
+      // (risking finish_reason: length truncation).
+      const fallback = await this.provider.complete({ prompt, systemPrompt, modelTier: 'standard', token, disableStructuredOutput, maxTokensMultiplier });
       this.log.trace('callLLM: standard fallback response received', {
         error: fallback.error,
         finishReason: fallback.finishReason,

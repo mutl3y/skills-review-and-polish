@@ -379,7 +379,7 @@ export class VsCodeLmProvider implements LlmProvider {
             return { text: retryStreamed.text, error: `Stream failed twice: ${retryStreamed.error}` };
           }
           this.log.debug('complete: stream retry success', { textLen: retryStreamed.text.length });
-          return { text: retryStreamed.text };
+          return { text: retryStreamed.text, finishReason: 'stop' };
         } catch (retryErr) {
           const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
           this.log.info('complete: stream retry also failed', { error: retryMsg });
@@ -392,7 +392,7 @@ export class VsCodeLmProvider implements LlmProvider {
       }
 
       this.log.debug('complete: success', { textLen: streamed.text.length });
-      return { text: streamed.text };
+      return { text: streamed.text, finishReason: 'stop' };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.log.info('complete: request failed, invalidating cache and retrying', { error: message });
@@ -446,7 +446,7 @@ export class VsCodeLmProvider implements LlmProvider {
             return { text: retryStreamed.text, error: `Retry failed: ${retryStreamed.error}` };
           }
           this.log.debug('complete: retry success', { textLen: retryStreamed.text.length });
-          return { text: retryStreamed.text };
+          return { text: retryStreamed.text, finishReason: 'stop' };
         } finally {
           clearTimeout(retryTimeout);
           retryCts.dispose();

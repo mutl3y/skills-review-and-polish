@@ -1,12 +1,12 @@
 # Loop State
 
-- **Current iteration:** 27
+- **Current iteration:** 28
 - **Target:** 30 (then reassess with user)
-- **Last review scope:** Bounded review — Tests + CI + release scripts (rotation item 6)
-- **Last findings:** No critical. 1 High + 2 Medium + 2 Low remediated.
-- **Next action:** Run iteration 28 — cross-subsystem joint review (every 3 iterations): provider→core data flow + extension→MCP shared logic.
+- **Last review scope:** Cross-subsystem joint review — provider→core data flow + extension→MCP shared logic (every-3-iterations check)
+- **Last findings:** No critical/high. 2 Medium + 3 Low remediated (1 Low documented as intentional).
+- **Next action:** Run iteration 29 — bounded review of a subsystem (rotation restarts: `src/core/analyzer.ts` + `src/core/scoring.ts`).
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `96ce7d0` (fix(iter26): remediate bounded review of ui/config)
+- **Last commit:** `a18fe75` (fix(iter27): remediate bounded review of tests/CI/release)
 
 ## How to resume
 
@@ -29,34 +29,41 @@
 | 25 | bounded (fixer, acceptedFindings) | 0 | 2M/3L fixed |
 | 26 | bounded (ui, config) | 0 | 2M/4N fixed |
 | 27 | bounded (tests, CI, release) | 0 | 1H/2M/2L fixed |
+| 28 | cross-subsystem joint (provider→core, ext→MCP) | 0 | 2M/3L fixed |
 
-## Iter 27 remediation summary
+## Iter 28 remediation summary
 
-- **H1:** `test:calibration:log` passed `RELEASE_GATE=1 node ...` through
-  `run-with-log.mjs`, which spawns without a shell — `RELEASE_GATE=1` was
-  treated as the executable name → ENOENT. Now exports the env var before the
-  wrapper (`RELEASE_GATE=1 node scripts/run-with-log.mjs ... -- node ...`).
-- **M1:** `publish-vsce.mjs` passed the marketplace PAT as a `--pat` CLI arg
-  (visible in process list/logs). Now passes it via the `VSCE_PAT` env var
-  (which vsce reads natively) in the child env.
-- **M2:** E2E "Fix All" test used a no-op `toBeGreaterThanOrEqual(0)` assertion.
-  Now asserts the notification (when present) is not an error.
-- **L1:** `compile` script ran `rm -rf out/core/prompts` twice (copy-paste
-  artifact) — removed the duplicate.
-- **L2:** `tests/e2e/setup.ts` `hasAuthState` used `require('fs')` in an ESM
-  module — now uses the already-imported `readFileSync`.
+- **M1:** `VsCodeLmProvider` never set `finishReason`, so the analyzer's
+  finish-reason retry and schema-mode hardening were dead code for the
+  vscode-lm door. Success paths now return `finishReason: 'stop'`.
+- **M2:** MCP `CopilotProvider` built without `editorVersion` (defaulted to
+  `vscode/1.90.0`) while the extension passes the real version. MCP now passes
+  `process.env.COPILOT_EDITOR_VERSION` so the two doors send the same
+  Editor-Version header when the env var is set.
+- **L1:** Copilot context-length fallback diverged: MCP picked the smallest
+  across all three models, extension only resolved the standard model. The
+  extension now mirrors the multi-model fallback.
+- **L2:** deep→standard fallback in `callLLM` omitted `maxTokensMultiplier`
+  (and its retry) — now passed through so a headroom-requesting wave doesn't
+  lose output budget on the fallback path.
+- **L3:** budget accounting exists only on the MCP door (reserve/charge/
+  cooldown); the extension has no quota guard. Documented as intentional —
+  the extension is interactive with HITL confirmation; the MCP is agent-driven
+  and needs the guard. No code change.
 
 ## Recurrence map (all iterations)
 
 | file:line → symptom | Iterations seen |
 |---------------------|-----------------|
-| MCP/extension divergence on shared security logic | 21, 24 |
+| MCP/extension divergence on shared security logic | 21, 24, 28 |
 | MCP handler missing `isError: true` on error return | 24 |
 | Hardcoded wave list vs `ALL_WAVES` | 24 |
 | fixDocument anchor re-derivation vs fixIssue target | 25 |
 | acceptedFindings store entry validation | 25 |
 | Config union cast without validation | 26 |
 | Release script env-var vs CLI-arg secret handling | 27 |
+| Provider/core contract mismatch (finishReason) | 28 |
+| Extension/MCP context-length fallback divergence | 28 |
 
 ## Notes / latent issues
 
@@ -66,6 +73,7 @@
   Flagged for a future cleanup, not escalated.
 - Iter 26 subagent first attempt failed with a GitHub service error; retried
   once with a narrower scope and succeeded.
+- Extension/MCP budget asymmetry (L3 above) is intentional; documented.
 
 ## Key lessons (see skill)
 

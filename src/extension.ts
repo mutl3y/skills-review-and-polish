@@ -493,9 +493,23 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
       throw new Error(keyError);
     }
     // Resolve context length from the live Copilot /models API (not the
-    // OpenRouter catalog) so Copilot model IDs resolve correctly.
+    // OpenRouter catalog) so Copilot model IDs resolve correctly. When the
+    // Copilot API is unavailable, fall back to the smallest context across
+    // ALL configured tiers (standard/deep/fix) — mirroring the MCP server's
+    // pickSmallestContextLength — so the document budget fits the most
+    // constrained model in the tier set.
     const copilotCtx = await resolveCopilotContextLength(cfg.model || '', copilotToken!);
-    const contextLength = copilotCtx ?? (await resolveContextLength(cfg.model || ''))?.contextLength;
+    let contextLength = copilotCtx;
+    if (!copilotCtx) {
+      const [stdR, deepR, fixR] = await Promise.all([
+        cfg.model ? resolveContextLength(cfg.model).catch(() => undefined) : Promise.resolve(undefined),
+        cfg.deepModel ? resolveContextLength(cfg.deepModel).catch(() => undefined) : Promise.resolve(undefined),
+        cfg.fixModel ? resolveContextLength(cfg.fixModel).catch(() => undefined) : Promise.resolve(undefined),
+      ]);
+      const values = [stdR?.contextLength, deepR?.contextLength, fixR?.contextLength]
+        .filter((v): v is number => typeof v === 'number');
+      contextLength = values.length > 0 ? Math.min(...values) : undefined;
+    }
     const provider = new CopilotProvider({
       apiKey: copilotToken!,
       model: cfg.model || '',
