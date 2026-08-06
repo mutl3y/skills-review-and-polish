@@ -9,6 +9,7 @@ import {
   expandToParagraph,
   extractParagraphAtLine,
   factualGroundingTrigger,
+  findFrontmatterEnd,
   frontmatterRange,
   loadReferenceGrounding,
   meaningPreservationReject,
@@ -41,6 +42,24 @@ describe('frontmatterRange', () => {
 
   it('returns null for content without frontmatter', () => {
     expect(frontmatterRange('No frontmatter here')).toBeNull();
+  });
+
+  it('does not mistake a --- inside a multi-line value for the closing delimiter', () => {
+    const text = '---\nname: Test\ndescription: |\n  Some text\n  ---\n  more\n---\nBody line';
+    const range = frontmatterRange(text);
+    // The closing delimiter is the final standalone `---` line, not the
+    // indented `---` inside the description block.
+    expect(range).not.toBeNull();
+    const end = findFrontmatterEnd(text);
+    expect(text.slice(end, end + 4)).toBe('---\n');
+    expect(text.slice(end + 4)).toBe('Body line');
+  });
+
+  it('handles a closing delimiter at end-of-file without a trailing newline', () => {
+    const text = '---\nname: Test\n---';
+    const end = findFrontmatterEnd(text);
+    expect(end).toBeGreaterThan(0);
+    expect(text.slice(end)).toBe('---');
   });
 });
 

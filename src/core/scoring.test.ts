@@ -214,4 +214,20 @@ describe('scoreSkill', () => {
     expect(withMeta.incomplete).toBe(false);
     expect(withMeta.grade).not.toBe('Ungraded');
   });
+
+  it('counts rate-limited waves without double-counting the summary diagnostic', () => {
+    // The analyzer emits one `llm-rate-limited` per affected wave PLUS a single
+    // `llm-rate-limited-summary` diagnostic. The summary must not inflate
+    // rateLimitedWaveCount (regression: it used to share the same code, so N
+    // waves reported N+1).
+    const result = scoreSkill([
+      makeResult('llm-rate-limited', 'warning'),
+      makeResult('llm-rate-limited', 'warning'),
+      makeResult('llm-rate-limited-summary', 'warning'),
+    ], 40, 'standard');
+
+    expect(result.rateLimitedWaveCount).toBe(2);
+    expect(result.incomplete).toBe(true);
+    expect(result.grade).toBe('Ungraded');
+  });
 });

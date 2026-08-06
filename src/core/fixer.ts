@@ -61,12 +61,27 @@ function countOf(text: string, needle: string): number {
 // --------------------------------------------------------------------------
 
 /**
+ * Returns the char offset of the closing `---` delimiter of a YAML frontmatter
+ * block, or -1. The closing delimiter must be a STANDALONE line (`\n---` at the
+ * start of a line, optionally followed by whitespace) — this avoids mistaking a
+ * `---` that appears inside a multi-line frontmatter value (e.g. a description
+ * containing a horizontal rule) for the block terminator.
+ */
+export function findFrontmatterEnd(content: string): number {
+  if (!content.startsWith('---')) return -1;
+  // Match a line that is exactly `---` (optionally with trailing whitespace),
+  // followed by a newline or end-of-string.
+  const m = content.match(/\n---[ \t]*(?:\n|$)/g);
+  if (!m) return -1;
+  return content.indexOf(m[0]) + 1;
+}
+
+/**
  * Returns [start, end) char offsets for the YAML frontmatter block, or null.
  * Prevents the fixer from touching skill metadata (name/description/etc.).
  */
 export function frontmatterRange(content: string): [number, number] | null {
-  if (!content.startsWith('---')) return null;
-  const end = content.indexOf('\n---', 3);
+  const end = findFrontmatterEnd(content);
   if (end === -1) return null;
   const after = content.indexOf('\n', end + 1);
   return [0, after === -1 ? content.length : after + 1];
@@ -104,8 +119,7 @@ export function surroundingContext(
  * One-line domain hint from frontmatter (name + description), reference-only.
  */
 export function skillDomainHint(content: string): string | null {
-  if (!content.startsWith('---')) return null;
-  const end = content.indexOf('\n---', 3);
+  const end = findFrontmatterEnd(content);
   if (end === -1) return null;
   const fm = content.slice(3, end);
   const pick = (key: string): string => {
@@ -958,7 +972,20 @@ export class SurgicalFixer {
       // Use function-as-replacement to prevent $-pattern interpretation
       // (e.g. $variable being treated as a replacement token).
       if (d.code === 'hygiene-redundant-instruction' && result.fixed === '') {
-        content = content.replace(anchor + '\n', '').replace(anchor, () => '');
+        // Delete the anchor deterministically, including its surrounding
+        // newline, so a multi-line anchor or one lacking a trailing newline
+        // doesn't leave an orphan blank line behind.
+        const at = content.indexOf(anchor);
+        if (at !== -1) {
+          let start = at;
+          let end = at + anchor.length;
+          // Consume a trailing newline (and any following blank line).
+          if (content[end] === '\n') end += 1;
+          if (content[end] === '\n') end += 1;
+          // Consume a preceding newline if we're not at the start of content.
+          if (start > 0 && content[start - 1] === '\n') start -= 1;
+          content = content.slice(0, start) + content.slice(end);
+        }
       } else {
         content = content.replace(anchor, () => result.fixed);
       }

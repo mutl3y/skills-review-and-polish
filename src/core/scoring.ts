@@ -37,6 +37,7 @@ export interface ScoreResult {
 const INFRA_SKIP = new Set([
   'llm-error', 'llm-parse-error', 'llm-disabled', 'llm-loop-detected',
   'high-complexity', 'limited-coverage', 'llm-rate-limited',
+  'llm-rate-limited-summary',
 ]);
 
 // ─── Length tiers ─────────────────────────────────────────────────────────────
@@ -81,7 +82,10 @@ const SEVERITY_WEIGHTS: Record<string, number> = { error: 15, warning: 6, info: 
  * Recognised values: simple | standard (default) | workflow | meta.
  */
 export function parseSkillType(text: string): SkillType {
-  const match = text.match(/^---\n([\s\S]*?)\n---/);
+  // Strip a leading BOM and any leading blank lines so a file that starts with
+  // a BOM or blank line still has its frontmatter recognised.
+  const trimmed = String(text || '').replace(/^\uFEFF/, '').replace(/^\s*\n/, '');
+  const match = trimmed.match(/^---\n([\s\S]*?)\n---/);
   if (!match) return 'standard';
   const typeMatch = match[1].match(/^type:\s*(\S+)/m);
   const raw = typeMatch ? typeMatch[1].toLowerCase() : 'standard';

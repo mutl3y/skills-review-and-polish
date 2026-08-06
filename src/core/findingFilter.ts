@@ -349,7 +349,11 @@ const contradictionCrossReferenceRule: FilterRule = {
     const message = result.message;
     const quoted = extractQuotedPhrases(message);
     if (quoted.length < 2) return false;
-    const found = quoted.filter((q) => doc.includes(q));
+    // Case-insensitive containment: a legitimately-quoted phrase whose case
+    // differs from the document (e.g. the LLM normalised capitalisation) is
+    // still present and must not be treated as "invented".
+    const lowerDoc = doc.toLowerCase();
+    const found = quoted.filter((q) => lowerDoc.includes(q.toLowerCase()));
     // Require BOTH sides to be present in the document. If one side is
     // missing, the wave invented it.
     return found.length < 2;
