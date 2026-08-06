@@ -53,6 +53,27 @@ subsystem. Also: when a finding references symbols in another subsystem (e.g.
 `src/mcp/server.ts` calls `src/core/*`), flag it for joint review of both
 sides of the interaction.
 
+**Flow-based review (do this at least once per full cycle):** file-scoped
+reviews miss bugs that live in how a single user-facing command wires multiple
+modules together. Pick one user-facing flow and trace it end-to-end across
+files:
+- `runFixIssue` / `runFixAll` (extension) — the single-fix apply path
+- `onSave` auto-analyze
+- `setApiKey` → provider dispatch
+- MCP `analyze`/`fix`/`score`/`verify_fix` tool handlers
+- `syncMcpConfig` / accepted-findings persistence
+
+For each flow, verify the SAME operation is handled consistently at EVERY call
+site. A real bug was found this way: `fixDocument` (in `fixer.ts`) was fixed to
+apply using `result.targetText`, but `runFixIssue` (in `extension.ts`) — a
+different file — still applied using `result.relevantText`, silently
+reintroducing the wrong-span bug on the path users actually click.
+
+**Same-pattern, all-call-sites check:** when you fix a bug or find a pattern in
+one file, `grep` for the same symbol/pattern across the repo and verify EVERY
+call site handles it the same way. A fix applied to one door but not the other
+is the most common way the loop misses real issues.
+
 ## Procedure
 
 ### 1. Check state
@@ -66,13 +87,19 @@ Use `runSubagent` with the **`Explore` agent** (NOT the broad Gilfoyle agent —
 it gets stuck grepping the same symbols for hours; `runSubagent` has no
 timeout). Use a **tightly-scoped, neutral prompt**:
 
-- Scope to the current subsystem from the rotation list.
+- Scope to the current subsystem from the rotation list, OR to a user-facing
+  flow (see "Flow-based review" above).
 - Cap tool calls (e.g. "at most 15 reads/greps, then STOP").
 - Forbid re-reading the same file or re-running the same search.
 - Ask for a terse report: one line per finding (file:line, severity, one-line
   fix), capped to the **top 5 by severity**. No preamble or summary prose.
 - Do NOT steer toward a verdict (no "this has converged" — that's confirmation
   bias; the independent review proved it misses real issues).
+- **Ask the subagent to check for cross-file consistency:** "when you find a
+  pattern/bug in one file, grep for the same symbol across the repo and report
+  whether every call site handles it the same way." This catches the
+  "fixed in one door, not the other" class of bug that file-scoped reviews
+  structurally miss.
 
 **If `runSubagent` is unavailable:** perform a manual scoped review of the same
 subsystem using `grep` and `read_file` with the same constraints (cap reads,
@@ -139,6 +166,21 @@ a broken state.
     record the remaining findings in `LOOP-STATE.md`, and flag for manual
     review. Do not continue without user direction.
 
+**Convergence is NOT "no critical/high".** The 2026-08-06 independent review
+found real Medium/Low issues (silent document corruption on the click path, a
+lying settings enum, a SecretStorage UX trap, `exclude` not honored on onSave)
+after the loop had reported "no critical/high" for 10 straight iterations. The
+loop's severity lens was tuned to security holes and under-weighted
+correctness/UX gaps. Before declaring convergence:
+1. **Run the independent verification pass** — do not just recommend it. Use a
+   DIFFERENT prompt than the loop's (e.g. "review the user-facing flows, not
+   the modules") so it isn't a re-run of the same scoped reviews.
+2. **Check Medium/Low findings too** — a Medium that is "silent document
+   corruption on the path users actually click" is more important than a Low
+   that is cosmetic. Severity is a triage aid, not a license to ignore.
+3. **Verify the fix landed at every call site** — grep for the fixed symbol
+   across the repo before closing a finding.
+
 ### 7. Release gate + publish (only when the user asks to ship)
 1. `npm run release:gate`
 2. Bump version, update README status + CHANGELOG, commit.
@@ -175,6 +217,18 @@ proceed to version bump or publish.
    and diverge if reviewed separately (a real divergence was found this way).
 4. **Consolidate duplicated logic** — it's a maintenance burden and attack
    surface. See the shared-logic rule above.
+5. **File-scoped reviews miss flow-level bugs.** Bugs that live in how a
+   user-facing command wires multiple modules together (e.g. `runFixIssue`
+   applying `relevantText` while `fixDocument` uses `targetText`) fall between
+   file-scoped reviews. Run at least one flow-based review per cycle.
+6. **A fix must land at EVERY call site.** When you fix a pattern in one file,
+   grep for the same symbol across the repo. The 2026-08-06 independent review
+   caught `runFixIssue` still using `relevantText` after `fixDocument` was
+   fixed — the same bug, one door over.
+7. **"No critical/high" is not convergence.** The loop's severity lens
+   under-weights correctness/UX gaps. Run the independent verification pass
+   (with a different prompt) and check Medium/Low findings before declaring
+   convergence.
 
 ## Token Efficiency
 
