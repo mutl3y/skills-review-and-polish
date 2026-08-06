@@ -57,7 +57,7 @@ export interface ExtensionConfig extends EngineConfig {
   runOn: 'manual' | 'onSave';
   include: string[];
   exclude: string[];
-  fixMode: 'diff' | 'loop' | 'chat';
+  fixMode: 'diff' | 'loop';
   fixLoopMaxIterations: number;
   showScoreCodeLens: boolean;
   inlineRewrites: boolean;
@@ -167,4 +167,16 @@ function simpleGlobMatch(glob: string, filePath: string): boolean {
     // Malformed glob — treat as no match (report via settings validation instead)
     return false;
   }
+}
+
+/**
+ * Whether a path matches the user's `exclude` patterns (plus node_modules).
+ * Used on the onSave auto-analyze path and folder analyze so the exclude
+ * setting is honored consistently — previously it was only applied in
+ * runAnalyzeFolder, so an onSave on an excluded include-path still paid for
+ * analysis.
+ */
+export function isExcludedPath(fsPath: string, exclude: string[]): boolean {
+  const patterns = ['**/node_modules/**', ...(Array.isArray(exclude) ? exclude : [])];
+  return patterns.some((g) => simpleGlobMatch(g, fsPath));
 }

@@ -952,7 +952,11 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
     const base = new OpenRouterProvider({ apiKey: openRouterKey, model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextLength });
     return {
       engine: new Engine(base, engineConfig),
-      config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: `file:${configPath}`, engineConfig } as McpEngineConfig,
+      // configSource must reflect the ACTUAL source — this branch is env-var
+      // driven, not file-driven (the Copilot env path already says
+      // env:GITHUB_TOKEN; the openrouter env path previously lied with
+      // file:<configPath>).
+      config: { provider: 'openrouter', model, deepModel, fixModel, structuredOutput, requestTimeoutMs, contextSource, configSource: 'env:OPENROUTER_API_KEY', engineConfig } as McpEngineConfig,
     };
   }
 

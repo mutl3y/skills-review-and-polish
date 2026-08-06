@@ -428,7 +428,7 @@ describe('extension activation wiring', () => {
 
   it('stores an API key from the prompt flow', async () => {
     const store = vi.fn().mockResolvedValue(undefined);
-    mocks.showInputBox.mockResolvedValue('secret-token');
+    mocks.showInputBox.mockResolvedValue('sk-or-v1-testkey');
 
     activate({ subscriptions: [], secrets: { store } } as any);
 
@@ -436,8 +436,8 @@ describe('extension activation wiring', () => {
     await setApiKeyCommand();
 
     expect(mocks.showInputBox).toHaveBeenCalledWith(expect.objectContaining({ password: true }));
-    expect(store).toHaveBeenCalledWith('skillsReviewAndPolish.apiKey', 'secret-token');
-    expect(mocks.showInformationMessage).toHaveBeenCalledWith('Skills Review: API key saved to SecretStorage.');
+    expect(store).toHaveBeenCalledWith('skillsReviewAndPolish.apiKey.openrouter', 'sk-or-v1-testkey');
+    expect(mocks.showInformationMessage).toHaveBeenCalledWith('Skills Review: openrouter API key saved to SecretStorage.');
   });
 });
 

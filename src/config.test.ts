@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as vscode from 'vscode';
-import { DEFAULT_INCLUDE, isCustomizationPath, readConfig, clearConfigCache, readStructuredOutput } from './config';
+import { DEFAULT_INCLUDE, isCustomizationPath, isExcludedPath, readConfig, clearConfigCache, readStructuredOutput } from './config';
 
 vi.mock('vscode', () => ({
   workspace: {
@@ -158,6 +158,21 @@ describe('isCustomizationPath', () => {
     // picomatch throws on '[invalid' — the catch branch must return false
     expect(() => isCustomizationPath('/tmp/SKILL.md', ['[invalid'])).not.toThrow();
     expect(isCustomizationPath('/tmp/SKILL.md', ['[invalid'])).toBe(false);
+  });
+});
+
+describe('isExcludedPath', () => {
+  it('always excludes node_modules', () => {
+    expect(isExcludedPath('/workspace/node_modules/pkg/SKILL.md', [])).toBe(true);
+  });
+
+  it('honors user exclude patterns', () => {
+    expect(isExcludedPath('/workspace/vendor/SKILL.md', ['**/vendor/**'])).toBe(true);
+    expect(isExcludedPath('/workspace/src/SKILL.md', ['**/vendor/**'])).toBe(false);
+  });
+
+  it('returns false for non-matching paths', () => {
+    expect(isExcludedPath('/workspace/SKILL.md', ['**/vendor/**'])).toBe(false);
   });
 });
 

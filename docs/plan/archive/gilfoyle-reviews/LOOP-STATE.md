@@ -1,12 +1,30 @@
 # Loop State
 
-- **Current iteration:** 30 (TARGET REACHED — reassess with user)
+- **Current iteration:** 30 (TARGET REACHED — independent-review remediation applied)
 - **Target:** 30
-- **Last review scope:** Bounded review — `src/providers/*` + `src/pricing.ts` + `src/modelCatalog.ts` (rotation item 2)
-- **Last findings:** No critical/high. 2 Medium + 3 Low remediated.
-- **Next action:** Reassess with the user. The loop has run 30 iterations with no critical/high findings since iter 20. Recommend: (a) stop and consider the loop converged, or (b) run an independent verification pass on the highest-risk subsystems (MCP+extension, providers) with a different scoped prompt to catch false negatives, per the stopping-rule guidance.
+- **Last review scope:** Independent review (2026-08-06) remediation — findings #1, #2, #3, #5, #12
+- **Last findings:** Independent review found 5 remediated (1 High, 3 Medium, 1 Nit). Remaining open: #4 (budget after-the-fact), #6 (fail-open gates), #7 (loop spend), #8 (MCP trust root), #9 (folder-zero default), #10 (lexical startsWith), #11 (tmp cache hygiene).
+- **Next action:** Reassess with the user. The independent review confirmed the loop's real wins but caught flow-level bugs the file-scoped loop missed. Recommend remediating the remaining open findings (#4, #6, #7, #8, #9) in a follow-up pass.
 - **In-progress work:** None — working tree clean.
-- **Last commit:** `0fa1187` (fix(iter29): remediate bounded review of analyzer/scoring)
+- **Last commit:** `9311869` (docs(skill): encode independent-review lessons into review loop)
+
+## Independent-review remediation (2026-08-06)
+
+- **#1 (High):** `runFixIssue` applied using `result.relevantText` instead of
+  `fixResult.targetText` — the exact bug `fixDocument` closed in iter 25, one
+  door over. Now uses `fixResult.targetText` (the guarded anchor).
+- **#2 (Medium):** `fixMode: 'chat'` was product fiction (a settings enum
+  advertising a feature that doesn't exist). Removed `chat` from the enum and
+  config union; the chat branches in `runFixIssue`/`runFixAll` now fall through
+  to direct apply.
+- **#3 (Medium):** one SecretStorage slot for two providers. Keys now stored
+  per-provider (`skillsReviewAndPolish.apiKey.openrouter` /
+  `.copilot`) and validated at store time via `validateKeyForProvider`.
+- **#5 (Medium):** `exclude` only honored in folder analyze. Added shared
+  `isExcludedPath` and applied it to the onSave auto-analyze path (and
+  refactored folder analyze to use it).
+- **#12 (Nit):** MCP env openrouter `configSource` label lied with
+  `file:<configPath>`. Now says `env:OPENROUTER_API_KEY`.
 
 ## How to resume
 

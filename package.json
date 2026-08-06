@@ -227,11 +227,10 @@
           "type": "string",
           "enum": [
             "diff",
-            "loop",
-            "chat"
+            "loop"
           ],
           "default": "diff",
-          "description": "'diff' shows before/after for review; 'loop' auto-applies up to fixLoopMaxIterations; 'chat' hands off to Copilot Chat."
+          "description": "'diff' shows before/after for review; 'loop' auto-applies up to fixLoopMaxIterations."
         },
         "skillsReviewAndPolish.fixStrategy": {
           "type": "string",

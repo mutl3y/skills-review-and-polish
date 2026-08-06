@@ -10,7 +10,7 @@ import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, CopilotProvider } from './providers/externalProvider';
-import { readConfig, isCustomizationPath, setupConfigWatcher } from './config';
+import { readConfig, isCustomizationPath, isExcludedPath, setupConfigWatcher } from './config';
 import { acceptFinding, validateRelevantText } from './core/acceptedFindings';
 import { createDiagnosticCollection, publishDiagnostics } from './ui/diagnostics';
 import { StatusBarManager } from './ui/statusBar';
@@ -395,7 +395,8 @@ export function activate(context: vscode.ExtensionContext): void {
       if (
         cfg.enable &&
         cfg.runOn === 'onSave' &&
-        isCustomizationPath(doc.uri.fsPath, cfg.include)
+        isCustomizationPath(doc.uri.fsPath, cfg.include) &&
+        !isExcludedPath(doc.uri.fsPath, cfg.exclude)
       ) {
         void analyzeDocument(doc, undefined, 'onSave');
       }
@@ -447,7 +448,10 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     throw new Error('buildEngine: ExtensionContext is not available yet. Ensure activate() has completed.');
   }
   const cfg = readConfig();
-  const apiKey = ctx.secrets ? await ctx.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
+  const provider = cfg.provider === 'openrouter' || cfg.provider === 'copilot' ? cfg.provider : undefined;
+  const apiKey = ctx.secrets && provider
+    ? await ctx.secrets.get(apiKeySlot(provider))
+    : undefined;
   const hash = computeConfigHash(cfg, apiKey);
   if (state?.cachedEngine && state.cachedEngineConfigHash === hash) {
     log('debug', 'buildEngine: using cached engine');
@@ -831,8 +835,6 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
   // the user explicitly asked to skip aren't analyzed (burning LLM tokens).
   // findFiles' exclude param is a single glob and doesn't support brace
   // expansion, so we filter the results in JS instead.
-  const userExcludes = Array.isArray(cfg.exclude) ? cfg.exclude : [];
-  const excludePatterns = ['**/node_modules/**', ...userExcludes];
   const fileSets = await Promise.all(
     allPatterns.map(p => vscode.workspace.findFiles(new vscode.RelativePattern(folderPath, p))),
   );
@@ -845,7 +847,7 @@ async function runAnalyzeFolder(uri?: vscode.Uri): Promise<void> {
     for (const uri of set) {
       if (seen.has(uri.toString())) continue;
       if (!uri.fsPath.endsWith('.md')) continue;
-      if (excludePatterns.some((g) => picomatch.isMatch(uri.fsPath, g, { dot: true }))) continue;
+      if (isExcludedPath(uri.fsPath, cfg.exclude)) continue;
       const matchesInclude = isCustomizationPath(uri.fsPath, cfg.include);
       const matchesDir = dirPatterns.some((g) => picomatch.isMatch(uri.fsPath, g, { dot: true }));
       if (!matchesInclude && !matchesDir) continue;
@@ -1088,15 +1090,6 @@ async function runFixAll(): Promise<void> {
         if (cfg.fixMode === 'diff') {
           log('info', `runFixAll: showing diff preview for ${totalApplied} fixes`);
           await showFixDiff(doc, text, `Fix All — ${totalApplied} change(s)`);
-        } else if (cfg.fixMode === 'chat') {
-          // 'chat' mode is not implemented — fall back to a clear message
-          // rather than silently applying (the old behavior was a silent
-          // one-shot apply, which was product fiction).
-          log('warn', `runFixAll: fixMode 'chat' is not implemented — applying directly instead`);
-          await applyFixToDocument(doc, doc.getText(), text);
-          vscode.window.showInformationMessage(
-            `Skills Review: Applied ${totalApplied} fix(es) directly (fixMode 'chat' is not yet implemented).`,
-          );
         } else {
           log('info', `runFixAll: applying ${totalApplied} fixes directly`);
           await applyFixToDocument(doc, doc.getText(), text);
@@ -1201,10 +1194,27 @@ async function runFixIssue(
           return;
         }
 
+        // Apply using the EXACT anchor that fixIssue guarded and fixed
+        // (fixResult.targetText), NOT result.relevantText. fixIssue /
+        // resolveAnchorText may expand the anchor to a paragraph
+        // (expandToParagraph / extractParagraphAtLine), and the LLM rewrites
+        // that full targetText. Replacing relevantText instead would paste a
+        // full-paragraph rewrite over a short phrase, or no-op when
+        // relevantText is ambiguous even though the paragraph anchor was
+        // unique. This mirrors fixDocument, which already reuses targetText.
+        const guardedAnchor = fixResult.targetText;
+        if (!guardedAnchor || !text.includes(guardedAnchor)) {
+          log('warn', 'runFixIssue: guarded anchor not found in current document');
+          vscode.window.showWarningMessage(
+            'Skills Review: The guarded text was not found in the current document. It may have been edited. Re-analyze to get fresh results?',
+          );
+          return;
+        }
+
         // Count occurrences to avoid replacing the wrong instance.
-        const anchorCount = anchor ? text.split(anchor).length - 1 : 0;
-        const fixedText = anchor && anchorCount === 1
-          ? text.replace(anchor, () => fixResult.fixed)
+        const anchorCount = text.split(guardedAnchor).length - 1;
+        const fixedText = anchorCount === 1
+          ? text.replace(guardedAnchor, () => fixResult.fixed)
           : text;
 
         if (fixedText === text) {
@@ -1222,9 +1232,6 @@ async function runFixIssue(
             fixResult.risks.length > 0 ? ` [${fixResult.risks.join('; ')}]` : '';
           await showFixDiff(doc, fixedText, `Fix "${result.code}"${riskNote}`);
         } else {
-          if (cfg.fixMode === 'chat') {
-            log('warn', `runFixIssue: fixMode 'chat' is not implemented — applying directly instead`);
-          }
           log('info', `runFixIssue: applying fix directly`);
           await applyFixToDocument(doc, text, fixedText);
           if (fixResult.risks.length > 0) {
@@ -1498,11 +1505,13 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
   // so the picker always shows something useful.
   let externalModels: Array<{ id: string; name: string }> = [];
   if (lmModels.length === 0 && state?.extensionContext?.secrets) {
-    const apiKey = await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey');
+    // Read from the provider-scoped slot so a Copilot GitHub token is never
+    // fetched when we're about to query OpenRouter.
+    const apiKey = await state.extensionContext.secrets.get(apiKeySlot('openrouter'));
     // Only send the key to OpenRouter when it's actually an OpenRouter key
-    // (sk-or-v1- prefix). The same SecretStorage slot can hold a GitHub token
-    // for the Copilot provider — sending that to openrouter.ai would leak a
-    // privileged credential to a third party.
+    // (sk-or-v1- prefix). The provider-scoped slot should only hold an
+    // OpenRouter key, but the accept-list check is a belt-and-suspenders guard
+    // against sending a privileged credential to a third party.
     const isOpenRouterKey = !!apiKey && /^sk-or-v1-/.test(apiKey.trim());
     if (cfg.provider === 'openrouter' && isOpenRouterKey) {
       try {
@@ -1707,7 +1716,7 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
       // this, but we warn loudly here so the user isn't left with a broken
       // config and no explanation.
       if (detectedProvider === 'openrouter' && state?.extensionContext?.secrets) {
-        const storedKey = await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey');
+        const storedKey = await state.extensionContext.secrets.get(apiKeySlot('openrouter'));
         if (storedKey && !/^sk-or-v1-/.test(storedKey.trim())) {
           vscode.window.showWarningMessage(
             `Selected model "${picked.modelId}" requires the "openrouter" provider, but the stored API key is not an OpenRouter key (sk-or-v1-...). ` +
@@ -1722,7 +1731,7 @@ async function selectModel(target: 'model' | 'fixModel'): Promise<{ modelId: str
     // Warn if selecting an openrouter vendor model without API key (needed for MCP)
     const modelVendor = (await vscode.lm.selectChatModels({ id: picked.modelId }))[0]?.vendor;
     if (modelVendor === 'openrouter' && state?.extensionContext?.secrets) {
-      const apiKey = await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey');
+      const apiKey = await state.extensionContext.secrets.get(apiKeySlot('openrouter'));
       log('debug', `selectModel: API key check for openrouter model - hasApiKey=${!!apiKey}, targetLabel=${targetLabel}`);
       if (!apiKey) {
         vscode.window.showWarningMessage(
@@ -1895,7 +1904,10 @@ async function testModelSimplePrompt(): Promise<void> {
     // External provider — test directly via the provider's API. Branch on the
     // provider so we never send one provider's token to another provider's
     // endpoint (e.g. a GitHub token must not go to openrouter.ai).
-    const apiKey = state?.extensionContext ? await state.extensionContext.secrets.get('skillsReviewAndPolish.apiKey') : undefined;
+    const providerKey = cfg.provider === 'openrouter' || cfg.provider === 'copilot' ? cfg.provider : undefined;
+    const apiKey = state?.extensionContext && providerKey
+      ? await state.extensionContext.secrets.get(apiKeySlot(providerKey))
+      : undefined;
     const copilotToken = apiKey || process.env.GITHUB_TOKEN?.trim() || process.env.COPILOT_TOKEN?.trim();
     const token = cfg.provider === 'copilot' ? copilotToken : apiKey;
     // Accept-list validation: only send a key to a provider when it matches
@@ -1995,16 +2007,36 @@ async function inspectModels(): Promise<void> {
   }
 }
 
+/**
+ * SecretStorage slot for a provider's API key. Keys are stored per-provider so
+ * an OpenRouter key and a Copilot GitHub token never share one drawer — a
+ * provider switch can't silently route the wrong credential.
+ */
+function apiKeySlot(provider: 'openrouter' | 'copilot'): string {
+  return `skillsReviewAndPolish.apiKey.${provider}`;
+}
+
 async function setApiKey(): Promise<void> {
+  const cfg = readConfig();
+  const provider = cfg.provider === 'openrouter' || cfg.provider === 'copilot'
+    ? cfg.provider
+    : 'openrouter';
   const key = await vscode.window.showInputBox({
-    title: 'API key for external provider',
+    title: `API key for ${provider} provider`,
     password: true,
     ignoreFocusOut: true,
     prompt: 'Stored in VS Code SecretStorage (never written to settings).',
   });
   if (key) {
-    await state!.extensionContext.secrets.store('skillsReviewAndPolish.apiKey', key);
-    vscode.window.showInformationMessage('Skills Review: API key saved to SecretStorage.');
+    // Validate at store time so a wrong-format key is rejected immediately
+    // instead of failing later at the wire.
+    const keyError = validateKeyForProvider(provider, key);
+    if (keyError) {
+      vscode.window.showErrorMessage(`Skills Review: ${keyError}`);
+      return;
+    }
+    await state!.extensionContext.secrets.store(apiKeySlot(provider), key);
+    vscode.window.showInformationMessage(`Skills Review: ${provider} API key saved to SecretStorage.`);
   }
 }
 
