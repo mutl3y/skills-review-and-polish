@@ -11,6 +11,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { normalizeModelName } from './core/modelNames';
+
+// Re-export for backward compatibility — existing importers pull
+// normalizeModelName from './pricing'.
+export { normalizeModelName };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -519,13 +524,6 @@ function formatPerMillion(price: number): string {
  * Converts "GPT-5 Mini" → "gpt-5 mini", "Claude Sonnet 4.6" → "claude sonnet 4.6"
  * Also strips common vendor prefixes for cross-matching.
  */
-export function normalizeModelName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/^(openai|anthropic|google|microsoft|meta|mistral|poolside|nvidia|deepseek|qwen|cohere|amazon|tencent|bytedance|upstage|arcee|inception|minimax|moonshot|ibm|liquid|inclusion|rekaai|stepfun|ai21|xai|aion|zai|sakana|thedrummer|kwaipilot)[/:]/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 // ---------------------------------------------------------------------------
 // Testing helpers — exported for unit tests only

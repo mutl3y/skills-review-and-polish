@@ -17,6 +17,7 @@ import { promises as fsPromises } from 'fs';
 import { AnalysisResult, LlmProvider, LlmRequest } from './types';
 import { loadPrompt } from './prompts';
 import { OBLIGATION_TOKENS, EMPHASIS_SCOPE_WORDS } from './vocabulary';
+import { isPathWithin } from './pathSafety';
 
 // --------------------------------------------------------------------------
 // Constants
@@ -202,12 +203,7 @@ export async function loadReferenceGrounding(
   }
   const docDirReal = await fsPromises.realpath(path.dirname(filePath)).catch(() => null);
   if (docDirReal) {
-    const within = (base: string, p: string) => {
-      const b = process.platform === 'win32' ? base.toLowerCase() : base;
-      const q = process.platform === 'win32' ? p.toLowerCase() : p;
-      return q === b || q.startsWith(b + path.sep);
-    };
-    if (!within(docDirReal, realRefDir)) return null;
+    if (!isPathWithin(docDirReal, realRefDir)) return null;
   }
 
   const allNames = await fsPromises.readdir(refDir);
@@ -253,12 +249,7 @@ export async function loadReferenceGrounding(
     // between lstat and read) can't escape the references directory.
     try {
       const realFile = await fsPromises.realpath(full);
-      const within = (base: string, p: string) => {
-        const b = process.platform === 'win32' ? base.toLowerCase() : base;
-        const q = process.platform === 'win32' ? p.toLowerCase() : p;
-        return q === b || q.startsWith(b + path.sep);
-      };
-      if (!within(realRefDir, realFile)) continue;
+      if (!isPathWithin(realRefDir, realFile)) continue;
     } catch {
       continue;
     }

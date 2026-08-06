@@ -15,6 +15,7 @@ import {
   resolveContextLength,
   resolveCopilotContextLength,
 } from './modelCatalog.js';
+import { normalizeModelId } from './core/modelNames.js';
 
 const FIXTURE_PATH = path.join(__dirname, '..', 'tests', 'fixtures', 'openrouter-catalog.json');
 
@@ -35,12 +36,7 @@ function loadFixture(): CatalogFixture {
 }
 
 function normalize(id: string): string {
-  return id
-    .toLowerCase()
-    .replace(/^(openai|anthropic|google|microsoft|meta|mistral|poolside|nvidia|deepseek|qwen|cohere|amazon|tencent|bytedance|upstage|arcee|inception|minimax|moonshot|ibm|liquid|inclusion|rekaai|stepfun|ai21|xai|aion|zai|sakana|thedrummer|kwaipilot)[/:]/, '')
-    .replace(/[-_./]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeModelId(id);
 }
 
 /**

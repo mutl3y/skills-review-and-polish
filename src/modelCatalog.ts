@@ -34,6 +34,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { normalizeModelId } from './core/modelNames';
 
 const OPENROUTER_CACHE_TTL_MS = 60 * 60 * 1000;   // 1 hour — matches pricing
 const OPENROUTER_DISK_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -432,14 +433,6 @@ const STATIC_CONTEXT_LENGTHS = new Map<string, number>([
  *   "openai/gpt-4o-mini" → "gpt 4o mini"
  *   "GPT-4o mini"        → "gpt 4o mini"
  */
-function normalizeModelId(id: string): string {
-  return id
-    .toLowerCase()
-    .replace(/^(openai|anthropic|google|microsoft|meta|mistral|poolside|nvidia|deepseek|qwen|cohere|amazon|tencent|bytedance|upstage|arcee|inception|minimax|moonshot|ibm|liquid|inclusion|rekaai|stepfun|ai21|xai|aion|zai|sakana|thedrummer|kwaipilot)[/:]/, '')
-    .replace(/[-_./]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 // ---------------------------------------------------------------------------
 // OpenRouter response parsing

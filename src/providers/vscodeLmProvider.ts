@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { LlmProvider, LlmRequest, LlmResponse } from '../core/types';
 import { createLogger, Logger } from '../core/logger';
+import { stripCodeFences } from '../core/llmText';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -484,7 +485,7 @@ export class VsCodeLmProvider implements LlmProvider {
       // {"a_b":1} and accepted garbage like "this is { not } json".
       let isValidJSON = false;
       try {
-        const cleaned = text.trim().replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+        const cleaned = stripCodeFences(text);
         JSON.parse(cleaned);
         isValidJSON = true;
       } catch { /* not valid JSON */ }

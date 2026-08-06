@@ -10,6 +10,9 @@ import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { redactSecrets } from '../core/redact';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted } from '../core/acceptedFindings';
+import { validateKeyForProvider } from '../core/providerKeys';
+import { safeResolveFilePath as safeResolveFilePathShared } from '../core/pathSafety';
+import { CHARS_PER_TOKEN as CHARS_PER_TOKEN_SHARED, DEFAULT_DOCUMENT_CHARS } from '../core/tokenBudget';
 import { OpenRouterProvider, CopilotProvider } from '../providers/externalProvider';
 import { resolveContextLength, resolveCopilotContextLength } from '../modelCatalog';
 import type { AnalysisResult, EngineConfig, LlmProvider, Severity, WaveName } from '../core/types';
@@ -35,7 +38,7 @@ export interface McpEngineConfig {
  * the analyzer itself will still truncate/notify if a model's context is
  * smaller than the document.
  */
-const MAX_TEXT_LENGTH = 200_000; // ~50k tokens
+const MAX_TEXT_LENGTH = DEFAULT_DOCUMENT_CHARS; // ~50k tokens
 
 /** Minimum document chars the analyzer always accepts (mirrors Analyzer.MIN_DOCUMENT_CHARS). */
 const MIN_DOCUMENT_CHARS = 8_000;
@@ -55,7 +58,7 @@ const MIN_DOCUMENT_CHARS = 8_000;
 // so the cap is sized for total spend, not just output.
 const DEFAULT_MAX_TOKENS_PER_SESSION = 500_000;
 /** Rough chars-per-token heuristic used when the provider reports no usage. */
-const CHARS_PER_TOKEN = 4;
+const CHARS_PER_TOKEN = CHARS_PER_TOKEN_SHARED;
 
 /** Cumulative total-token budget state for the current server session. */
 let _sessionTokens = 0;
@@ -235,45 +238,24 @@ function resolveWorkspaceRoot(): string {
  * Returns the resolved absolute path, or `undefined` when the path escapes the
  * workspace root (or, when `requireExists`, is missing).
  */
+/**
+ * Validate and resolve a `filePath` argument against the MCP workspace root.
+ *
+ * The MCP server is driven by an LLM agent, so `filePath` and document content
+ * are attacker-controlled. We must NOT trust a path derived from the input —
+ * the fixer/analyzer derive their reference dirs from `filePath`, so an
+ * attacker could point it at `/etc/references` or `~/.ssh/references` to read
+ * arbitrary files. This delegates to the shared `safeResolveFilePath` (the
+ * same canonical-to-canonical logic the extension uses) so the two doors
+ * cannot diverge.
+ *
+ * `requireExists` controls whether the path must exist on disk (see the shared
+ * helper). Returns the resolved absolute path, or `undefined` when the path
+ * escapes the workspace root (or, when `requireExists`, is missing).
+ */
 function safeResolveFilePath(filePath: string | undefined, requireExists = true): string | undefined {
-  if (!filePath || filePath.trim() === '') return undefined;
-  const root = path.resolve(resolveWorkspaceRoot());
-  const resolved = path.resolve(root, filePath);
-  // Case-insensitive prefix check on Windows (path.resolve doesn't normalize
-  // case) — mirrors the extension's safeResolveFilePathForTools so both doors
-  // enforce the same trust boundary.
-  const within = (base: string, p: string) => {
-    const b = process.platform === 'win32' ? base.toLowerCase() : base;
-    const q = process.platform === 'win32' ? p.toLowerCase() : p;
-    return q === b || q.startsWith(b + path.sep);
-  };
-  // Reject paths that escape the workspace root lexically (absolute paths,
-  // .. traversal).
-  if (!within(root, resolved)) {
-    return undefined;
-  }
-  // Store-key operations don't read the path from disk, so the lexical check
-  // above is sufficient — no need to require existence or resolve symlinks.
-  if (!requireExists) {
-    return resolved;
-  }
-  // Resolve symlinks: a symlink inside the workspace could point outside it
-  // (e.g. workspace/references -> /etc). realpath resolves the final target,
-  // which we re-check against the root. If realpath fails (path missing or
-  // permission denied), reject rather than returning the unresolved lexical
-  // path — a TOCTOU attacker could create a symlink at that path between the
-  // check and the caller's subsequent read, bypassing the guard.
-  try {
-    const real = fs.realpathSync(resolved);
-    if (!within(root, real)) {
-      return undefined;
-    }
-    return real;
-  } catch {
-    return undefined;
-  }
+  return safeResolveFilePathShared(filePath, path.resolve(resolveWorkspaceRoot()), requireExists);
 }
-
 function requireString(args: Record<string, unknown>, key: string): string {
   const val = typeof args[key] === 'string' ? args[key] : '';
   if (!val.trim()) throw new Error(`Missing required argument: ${key}`);
@@ -920,6 +902,10 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       if (provider === 'openrouter') {
         const apiKey = process.env.OPENROUTER_API_KEY?.trim();
         if (apiKey) {
+          // Accept-list validation (shared with the extension) — never send a
+          // GitHub/Copilot token to openrouter.ai.
+          const keyError = validateKeyForProvider('openrouter', apiKey);
+          if (keyError) throw new Error(`MCP config: ${keyError}`);
           // Resolve context lengths from the OpenRouter catalog (1h cached;
           // ~50ms cold, ~5ms warm). The MCP registry awaits this before
           // serving the first request, so the analyzer's 200K-char fallback
@@ -936,6 +922,10 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
       if (provider === 'copilot') {
         const apiKey = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
         if (apiKey) {
+          // Accept-list validation (shared with the extension) — never send an
+          // OpenRouter key to api.githubcopilot.com.
+          const keyError = validateKeyForProvider('copilot', apiKey);
+          if (keyError) throw new Error(`MCP config: ${keyError}`);
           // Resolve context length from the live Copilot /models API so new
           // models are picked up automatically (no static table). Only fall
           // back to the OpenRouter catalog if the Copilot fetch fails — a
@@ -965,6 +955,8 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
   _maxTokensPerSession = resolveMaxTokensPerSession(undefined);
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (openRouterKey) {
+    const keyError = validateKeyForProvider('openrouter', openRouterKey);
+    if (keyError) throw new Error(`MCP env config: ${keyError}`);
     const model = process.env.ANALYSIS_MODEL ?? 'openai/gpt-4o-mini';
     const deepModel = process.env.DEEP_MODEL ?? undefined;
     const fixModel = process.env.FIX_MODEL ?? undefined;
@@ -986,6 +978,8 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
   // Copilot via env var (GITHUB_TOKEN / COPILOT_TOKEN).
   const copilotToken = (process.env.GITHUB_TOKEN ?? process.env.COPILOT_TOKEN)?.trim();
   if (copilotToken) {
+    const keyError = validateKeyForProvider('copilot', copilotToken);
+    if (keyError) throw new Error(`MCP env config: ${keyError}`);
     const model = process.env.ANALYSIS_MODEL ?? 'gpt-4o-mini';
     const deepModel = process.env.DEEP_MODEL ?? undefined;
     const fixModel = process.env.FIX_MODEL ?? undefined;

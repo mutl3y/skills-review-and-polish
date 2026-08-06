@@ -1,18 +1,5 @@
 import * as vscode from 'vscode';
-
-/**
- * Strip secrets and tokens from error messages before displaying in UI.
- * Prevents leaking Bearer tokens, API keys, or other credentials in tooltips.
- */
-function sanitizeForDisplay(message: string): string {
-  return message
-    // Bearer tokens: "Bearer eyJ..." or "bearer sk-..."
-    .replace(/bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer [REDACTED]')
-    // Generic API key patterns: sk-..., ghp_..., glpat-..., xox[bpsa]-...
-    .replace(/(?:sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9-]{20,}|xox[bpsa]-[A-Za-z0-9-]{20,})/g, '[REDACTED]')
-    // Authorization headers
-    .replace(/Authorization\s*[:=]\s*\S+/gi, 'Authorization: [REDACTED]');
-}
+import { redactSecrets } from '../core/redact';
 
 /**
  * A persistent status-bar item that lives in the bottom-left editor section.
@@ -57,7 +44,7 @@ export class StatusBarManager {
   /** Call when the extension encounters an error. */
   showError(message: string): void {
     this.item.text = '$(error) Skills Review';
-    this.item.tooltip = `Error: ${sanitizeForDisplay(message)}`;
+    this.item.tooltip = `Error: ${redactSecrets(message)}`;
   }
 
   /** Call when no customization file is open. */

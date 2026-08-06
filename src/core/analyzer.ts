@@ -16,6 +16,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { isPathWithin } from './pathSafety';
+import { stripCodeFences } from './llmText';
+import { DEFAULT_DOCUMENT_CHARS } from './tokenBudget';
 import {
   AnalysisResult,
   CancellationToken,
@@ -188,7 +191,7 @@ export class Analyzer {
    * (smallest is 128K-context llama-3.1-8b-instruct at ~102K usable chars).
    * Used only as a last resort; callers should populate `contextLength`.
    */
-  private static readonly FALLBACK_DOCUMENT_CHARS = 200_000;
+  private static readonly FALLBACK_DOCUMENT_CHARS = DEFAULT_DOCUMENT_CHARS;
   /** Reserve a fraction of the model's context for system prompt + response. */
   private static readonly CONTEXT_FRACTION = 0.8;
   /** Floor so very small models still get useful document text. */
@@ -1374,13 +1377,7 @@ export class Analyzer {
         }
         const realDocDir = await fs.promises.realpath(docDir);
         const real = await fs.promises.realpath(resolved);
-        // Case-insensitive prefix check on Windows.
-        const within = (base: string, p: string) => {
-          const b = process.platform === 'win32' ? base.toLowerCase() : base;
-          const q = process.platform === 'win32' ? p.toLowerCase() : p;
-          return q === b || q.startsWith(b + path.sep);
-        };
-        if (!within(realDocDir, real)) {
+        if (!isPathWithin(realDocDir, real)) {
           this.log.info('[WARN] readLinkedPromptFiles: rejected symlink chain escaping skill directory', { target, resolved, real });
           continue;
         }
@@ -1424,10 +1421,7 @@ export class Analyzer {
   private extractJSON<T>(text: string): T {
     try {
       this.log.trace('extractJSON: attempting to parse', { textLen: text.length, preview: text.substring(0, 150) });
-      const trimmed = text.trim();
-      const raw = trimmed.startsWith('```')
-        ? trimmed.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim()
-        : trimmed;
+      const raw = stripCodeFences(text);
       const start = raw.indexOf('{');
       const end = raw.lastIndexOf('}');
       const jsonStr = start !== -1 && end > start ? raw.slice(start, end + 1) : raw;

@@ -21,49 +21,13 @@ import { createInlineRewriteProvider } from './ui/inlineRewrites';
 import { fetchPricing, formatPricing, normalizeModelName, ModelPricing } from './pricing';
 import { fetchContextLengths, formatContextLength, resolveContextLength, resolveCopilotContextLength } from './modelCatalog';
 import { redactSecrets } from './core/redact';
+import { validateKeyForProvider } from './core/providerKeys';
+import { safeResolveFilePath as safeResolveFilePathShared, isPathWithin } from './core/pathSafety';
+import { stripCodeFences } from './core/llmText';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
   pricing?: string;
-}
-
-/**
- * Accept-list validator for provider API keys.
- *
- * Each provider declares which key formats it accepts. This is an ACCEPT list
- * (not a reject list): a key is only sent to a provider when it matches that
- * provider's accepted shape. As providers are added, you add one entry here —
- * you never write bespoke "reject this format" logic at each call site.
- *
- * Returns an error message when the key is not acceptable for the provider,
- * or null when it is safe to send.
- */
-function validateKeyForProvider(
-  provider: 'openrouter' | 'copilot',
-  key: string | undefined,
-): string | null {
-  if (!key || key.trim() === '') {
-    return `provider "${provider}" requires an API key. Run "Skills Review: Set API Key" first.`;
-  }
-  const trimmed = key.trim();
-  switch (provider) {
-    case 'openrouter':
-      // OpenRouter keys are sk-or-v1-... — never send a GitHub/Copilot token
-      // to openrouter.ai.
-      if (!/^sk-or-v1-/.test(trimmed)) {
-        return `provider "openrouter" requires an OpenRouter key (sk-or-v1-...). Run "Skills Review: Set API Key" with a valid OpenRouter key.`;
-      }
-      return null;
-    case 'copilot':
-      // Copilot uses a GitHub token against api.githubcopilot.com — never send
-      // an OpenRouter key there.
-      if (/^sk-or-v1-/.test(trimmed)) {
-        return `provider "copilot" requires a GitHub token, not an OpenRouter key (sk-or-v1-...). Run "Skills Review: Set API Key" with a GitHub token.`;
-      }
-      return null;
-    default:
-      return `unknown provider "${provider}"`;
-  }
 }
 
 /**
@@ -78,33 +42,9 @@ function safeResolveFilePathForTools(filePath: string | undefined): string | und
   if (!filePath || filePath.trim() === '') return undefined;
   const folder = workspaceFolderForPath(filePath);
   const root = path.resolve(folder?.uri.fsPath ?? process.cwd());
-  const resolved = path.resolve(root, filePath);
-  // Case-insensitive prefix check on Windows (path.resolve doesn't normalize case).
-  const isWithin = (base: string, p: string) => {
-    const b = process.platform === 'win32' ? base.toLowerCase() : base;
-    const q = process.platform === 'win32' ? p.toLowerCase() : p;
-    return q === b || q.startsWith(b + path.sep);
-  };
-  if (!isWithin(root, resolved)) {
-    return undefined;
-  }
-  // Resolve symlinks and re-check the realpath against the REALPATH of the
-  // root (mirrors the MCP server) — a symlink inside the workspace could point
-  // outside it. Compare canonical-to-canonical so a symlinked workspace root
-  // doesn't false-reject every legitimate file.
-  try {
-    const realRoot = fs.realpathSync(root);
-    const real = fs.realpathSync(resolved);
-    if (!isWithin(realRoot, real)) {
-      return undefined;
-    }
-    return real;
-  } catch {
-    // realpath failed (file doesn't exist / permission). Reject rather than
-    // returning the unresolved lexical path — a TOCTOU attacker could create
-    // a symlink at that path between check and use, bypassing the guard.
-    return undefined;
-  }
+  // Delegate to the shared canonical-to-canonical path-safety helper (the same
+  // one the MCP server uses) so the two doors cannot diverge.
+  return safeResolveFilePathShared(filePath, root);
 }
 
 /**
@@ -254,12 +194,7 @@ function workspaceFolderForPath(filePath?: string): vscode.WorkspaceFolder | und
     const abs = path.resolve(filePath);
     const match = folders.find((f) => {
       const root = path.resolve(f.uri.fsPath);
-      const within = (base: string, p: string) => {
-        const b = process.platform === 'win32' ? base.toLowerCase() : base;
-        const q = process.platform === 'win32' ? p.toLowerCase() : p;
-        return q === b || q.startsWith(b + path.sep);
-      };
-      return within(root, abs);
+      return isPathWithin(root, abs);
     });
     if (match) return match;
   }
@@ -1954,7 +1889,7 @@ async function testModelSimplePrompt(): Promise<void> {
       // Try parsing the response as JSON
       let parsed = false;
       try {
-        const text = result.text.trim().replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+        const text = stripCodeFences(result.text);
         JSON.parse(text);
         parsed = true;
       } catch { /* not valid JSON */ }
