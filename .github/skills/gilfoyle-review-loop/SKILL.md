@@ -29,10 +29,9 @@ The loop is resumable across compaction and fresh sessions via a **state file**:
 **Always start by reading `LOOP-STATE.md`.** It records: current iteration,
 last findings, next action, and any in-progress work.
 
-**If `LOOP-STATE.md` is missing OR corrupted (invalid format / missing
-required fields):** validate its structure, then attempt recovery from the git
-log and the latest handover doc. Log the recovery action in the state file. If
-recovery is impossible, halt and report — do not guess.
+**If `LOOP-STATE.md` is MISSING:** skip validation — go straight to recovery: create it from the git log and the latest handover doc, and log the recovery action.
+
+**If `LOOP-STATE.md` is CORRUPTED (invalid format / missing required fields):** validate its structure, then attempt recovery from the git log and the latest handover doc. Log the recovery action in the state file. If recovery is impossible, halt and report — do not guess.
 
 ## Subsystem Rotation
 
@@ -47,6 +46,12 @@ cycle — they are valid review targets too.
 4. `src/core/fixer.ts` + `src/core/acceptedFindings.ts`
 5. `src/ui/*` + `src/config.ts`
 6. Tests + CI + release scripts
+
+**Cross-subsystem check:** every 3 iterations, run one joint review covering
+provider→core data flow and extension→MCP shared logic, not just a single
+subsystem. Also: when a finding references symbols in another subsystem (e.g.
+`src/mcp/server.ts` calls `src/core/*`), flag it for joint review of both
+sides of the interaction.
 
 ## Procedure
 
@@ -69,21 +74,38 @@ timeout). Use a **tightly-scoped, neutral prompt**:
 - Do NOT steer toward a verdict (no "this has converged" — that's confirmation
   bias; the independent review proved it misses real issues).
 
-**If `runSubagent` fails or returns no findings:** log the error in
-`LOOP-STATE.md` and retry once with a narrower scope. If it fails again, halt
-and report.
+**If `runSubagent` is unavailable:** perform a manual scoped review of the same
+subsystem using `grep` and `read_file` with the same constraints (cap reads,
+no re-reads, neutral framing).
+
+**If `runSubagent` FAILS (tool error):** log the error in `LOOP-STATE.md` and
+retry once with a narrower scope. If it fails again, halt and report.
+
+**If `runSubagent` returns NO FINDINGS:** treat it as a successful clean pass —
+do NOT retry. Record it and proceed to the next subsystem.
 
 ### 3. Remediate findings
 - Fix Critical → High → Medium → Low → Nit, in that order.
+- **Severity definitions:**
+  - **Critical:** exploitable security hole (path traversal, secret leak,
+    prompt injection, cross-provider key routing) or data-corrupting bug.
+  - **High:** security weakness or correctness bug with a realistic trigger.
+  - **Medium:** partial guard / robustness gap; wrong in an edge case.
+  - **Low:** cosmetic or minor; values agree but could drift.
+  - **Nit:** style / naming only.
 - **Shared logic rule:** the MCP server (`src/mcp/server.ts`) and extension
   (`src/extension.ts`) are two doors onto one engine. Logic both need MUST live
   in ONE `src/core/*.ts` module imported by both — never copy-pasted. Shared
   modules: `providerKeys`, `pathSafety`, `modelNames`, `llmText`,
   `tokenBudget`, `redact`. Consolidate any duplication you find.
-- **Recurrence guard:** track findings by file:line + symptom in
-  `LOOP-STATE.md`. If the same finding recurs in two consecutive iterations,
-  do NOT re-apply the same fix — escalate to a different strategy or flag for
-  manual investigation.
+- **Recurrence guard:** track findings by file:line + symptom in the full
+  recurrence map in `LOOP-STATE.md` (ALL prior iterations, not just the
+  previous one). If the same finding recurs 3 times total, escalate to a
+  different fix strategy. If the root cause is unclear, flag for manual
+  investigation instead of re-applying the same remediation.
+- **False positives:** if a finding from the subagent is later deemed a false
+  positive during verification, note it in `LOOP-STATE.md` and adjust the next
+  review prompt/scope to reduce noise.
 - After each fix: `npm run compile`, then run the affected tests.
 
 ### 4. Verify (in this order)
@@ -105,6 +127,9 @@ a broken state.
   do NOT stop after one iteration. Immediately proceed to the next subsystem
   in the rotation and run the next iteration. Only stop when a stopping rule
   below is met.
+- **User halt:** check for a `STOP` file at the repo root (or a `halt`
+  argument to the skill) before each iteration. If present, stop cleanly and
+  record the state.
 - **Stopping rules:**
   - The review found **no critical/high findings** → run one independent
     verification pass on the highest-risk subsystems with a different scoped
@@ -159,7 +184,7 @@ The loop is long-running; keep context lean so it survives many iterations.
   iteration history live in `LOOP-STATE.md` and the handover docs — do NOT
   restate them in chat. Read the file, act, update the file.
 - **Request concise subagent output.** One line per finding, capped to the top
-  5 by severity. No preamble.
+  5 by severity.
 - **Read files in large chunks, not many small reads.** Prefer one
   `read_file` of a big range over several small ones.
 - **Don't re-read what's already in context.** If a file's content is already
@@ -170,6 +195,6 @@ The loop is long-running; keep context lean so it survives many iterations.
   cheapest resume point — it lets a compacted/fresh session pick up without
   replaying the whole conversation.
 - **Scheduled compaction is fine.** Because state is on disk, compaction or a
-  fresh session loses nothing: read `LOOP-STATE.md` and continue. Do not try to
-  keep the whole loop in one context window.
+  fresh session loses nothing: read `LOOP-STATE.md` and continue. Do not keep
+  the whole loop in one context window.
 
