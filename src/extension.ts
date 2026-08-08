@@ -24,7 +24,7 @@ import { redactSecrets } from './core/redact';
 import { validateKeyForProvider } from './core/providerKeys';
 import { safeResolveFilePath as safeResolveFilePathShared, isPathWithin } from './core/pathSafety';
 import { stripCodeFences } from './core/llmText';
-import { budgetExhausted, budgetExhaustedError, chargeTokens, reserveTokens, setSessionBudgetCap, resolveMaxTokensPerSession } from './core/sessionBudget';
+import { budgetExhausted, budgetExhaustedError, chargeTokens, reserveTokens, setSessionBudgetCap, resolveMaxTokensPerSession, resetSessionBudget } from './core/sessionBudget';
 
 /** Runtime field added by Copilot model provider — not in @types/vscode yet. */
 interface PricedLanguageModelChat extends vscode.LanguageModelChat {
@@ -265,6 +265,14 @@ export function activate(context: vscode.ExtensionContext): void {
   state = new ExtensionState();
   state.extensionContext = context;
   const cfg = readConfig();
+
+  // The session token budget is module-level state shared across the whole
+  // process. Reset it on each activation so a reloaded window starts a fresh
+  // budget instead of inheriting a possibly-exhausted one from a previous
+  // activation (or from the MCP server sharing this process). This matches the
+  // documented "refusing new analysis requests until the next session"
+  // semantics — an activation IS the start of a new session.
+  resetSessionBudget();
 
   if (!cfg.enable) {
     log('info', 'Extension disabled by configuration; skipping activation wiring.');

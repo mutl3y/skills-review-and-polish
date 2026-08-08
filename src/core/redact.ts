@@ -19,8 +19,17 @@ export function redactSecrets(text: string): string {
   // Strip Bearer tokens (case-insensitive, with or without space)
   out = out.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
   out = out.replace(/bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
-  // Strip API key / token / secret / password / authorization values
-  out = out.replace(/(api[_-]?key|token|secret|password|authorization|credential)["']?\s*[:=]\s*["']?[^"',}\s]+/gi, '$1=[REDACTED]');
+  // Strip API key / token / secret / password / authorization values.
+  // The value may be quoted (single/double) or unquoted. When quoted, consume
+  // everything up to the closing quote (multi-word values like
+  // `password: "my secret phrase"`). When unquoted, consume up to a comma,
+  // closing brace, or end-of-line — but allow interior spaces so a multi-word
+  // secret (`password: my secret phrase`) is fully redacted rather than
+  // leaking everything after the first space.
+  out = out.replace(
+    /(api[_-]?key|token|secret|password|authorization|credential)["']?\s*[:=]\s*(?:"([^"]*)"|'([^']*)'|([^,}\n]+))/gi,
+    (_m, key) => `${key}=[REDACTED]`,
+  );
   // Strip x-api-key and other common header values
   out = out.replace(/(x-api-key|x-goog-api-key|x-amz-security-token)["']?\s*[:=]\s*["']?[^"',}\s]+/gi, '$1=[REDACTED]');
   // Strip URLs with embedded credentials (user:pass@host)

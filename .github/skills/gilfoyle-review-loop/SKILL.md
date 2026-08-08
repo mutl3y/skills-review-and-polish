@@ -1,254 +1,173 @@
 ---
 name: gilfoyle-review-loop
-description: 'Run the autonomous Gilfoyle code-review loop for this repo: review → remediate → test → commit → repeat until no critical/high findings, then release-gate and publish. Use when: continuing the review loop, resuming after compaction or a fresh session, running a review iteration, remediating findings, or checking loop state. Resumable via the loop state file.'
-argument-hint: 'iteration number to run, or "status" to check state'
+description: 'Run the autonomous improvement loop for THIS repo (skills-review-and-polish): scan → remediate → verify → repeat until no findings Medium or above. Use when continuing/resuming the loop, running an iteration, or checking state. Resumable via the state file.'
+argument-hint: 'optional: "status" to check state'
 user-invocable: true
 ---
 
-# Gilfoyle Review Loop
+# Gilfoyle Review Loop (this repo)
 
-Autonomous security/quality loop for `skills-review-and-polish`: review the
-codebase with the Gilfoyle agent, remediate findings, verify, commit, and
-repeat until no critical/high findings remain — then release-gate and publish.
+Autonomous improvement loop for `skills-review-and-polish`. The loop is the
+**top-level container** — you keep iterating until the stop rule is met. You
+do NOT run this once and stop.
 
-## When to Use
+```
+┌──────────────────────────────────────────────────────────┐
+│  LOOP (repeat until stop rule met):                        │
+│                                                             │
+│  1. Check stop rule → if met, declare done and STOP.        │
+│  2. REVIEW: scan the codebase for issues.                   │
+│  3. REMEDIATE: fix findings, most severe first.             │
+│  4. VERIFY: run the project's checks/tests.                 │
+│  5. Record state, then LOOP back to step 1.                 │
+└──────────────────────────────────────────────────────────┘
+```
 
-- Continue the review loop (target: iteration 30, then reassess)
-- Resume after compaction or in a fresh session
-- Run a single review iteration
-- Remediate a set of findings
-- Check loop state / where we left off
+**After each iteration you loop back to step 1 and continue — that is the
+default.** Stopping is the exception, and it only happens when the stop rule
+is actually met (checked at the top of every iteration).
 
-## Resumability (read this FIRST)
+## Setup (read this first)
 
-The loop is resumable across compaction and fresh sessions via a **state file**:
+1. Read the repo-memory lessons file: `/memories/repo/improve-codebase-loop.md`
+   — apply its rules (shared-logic, cross-call-site checks, review framing).
+   Keep it current: write back new lessons as the loop runs (see Step 5).
+2. Read the state file: `docs/plan/improve-codebase-loop/LOOP-STATE.md` —
+   records findings, next action, last commit.
+3. `git log --oneline -10` and `git status --short` to confirm a clean tree.
+   If dirty, commit or stash before starting.
 
-- **State file:** `docs/plan/archive/gilfoyle-reviews/LOOP-STATE.md`
-- **Handover:** `docs/plan/archive/releases/20260805-gilfoyle-loop-to-iter20/HANDOVER.md`
+## Config (this repo)
 
-**Always start by reading `LOOP-STATE.md`.** It records: current iteration,
-last findings, next action, and any in-progress work.
+| Setting | Value |
+| --- | --- |
+| State dir | `docs/plan/improve-codebase-loop/` |
+| Verify commands | `npm run compile` → `npx vitest run --config tests/vitest.config.ts` → `npm run lint` → `npm run lint:md` |
+| Stop rule | no findings at **Medium** severity or above |
+| Scope fallback | used ONLY if the broad review gets stuck (see below) |
 
-**If `LOOP-STATE.md` is MISSING:** skip validation — go straight to recovery: create it from the git log and the latest handover doc, and log the recovery action.
-
-**If `LOOP-STATE.md` is CORRUPTED (invalid format / missing required fields):** validate its structure, then attempt recovery from the git log and the latest handover doc. Log the recovery action in the state file. If recovery is impossible, halt and report — do not guess.
-
-## Subsystem Rotation
-
-Review one subsystem per iteration, rotating through this list (repeat as
-needed). Include test infra (`tests/`, `vitest.config.ts`), CI config, and
-release scripts (`release:gate`, `release-process.md`) at least once per full
-cycle — they are valid review targets too.
-
-1. `src/core/analyzer.ts` + `src/core/scoring.ts`
-2. `src/providers/*` + `src/pricing.ts` + `src/modelCatalog.ts`
-3. `src/mcp/server.ts` + `src/extension.ts` (TOGETHER — they share security logic)
-4. `src/core/fixer.ts` + `src/core/acceptedFindings.ts`
-5. `src/ui/*` + `src/config.ts`
-6. Tests + CI + release scripts
-
-**Cross-subsystem check:** every 3 iterations, run one joint review covering
-provider→core data flow and extension→MCP shared logic, not just a single
-subsystem. Also: when a finding references symbols in another subsystem (e.g.
-`src/mcp/server.ts` calls `src/core/*`), flag it for joint review of both
-sides of the interaction.
-
-**Flow-based review (do this at least once per full cycle):** file-scoped
-reviews miss bugs that live in how a single user-facing command wires multiple
-modules together. Pick one user-facing flow and trace it end-to-end across
-files:
-- `runFixIssue` / `runFixAll` (extension) — the single-fix apply path
-- `onSave` auto-analyze
-- `setApiKey` → provider dispatch
-- MCP `analyze`/`fix`/`score`/`verify_fix` tool handlers
-- `syncMcpConfig` / accepted-findings persistence
-
-For each flow, verify the SAME operation is handled consistently at EVERY call
-site. A real bug was found this way: `fixDocument` (in `fixer.ts`) was fixed to
-apply using `result.targetText`, but `runFixIssue` (in `extension.ts`) — a
-different file — still applied using `result.relevantText`, silently
-reintroducing the wrong-span bug on the path users actually click.
-
-**Same-pattern, all-call-sites check:** when you fix a bug or find a pattern in
-one file, `grep` for the same symbol/pattern across the repo and verify EVERY
-call site handles it the same way. A fix applied to one door but not the other
-is the most common way the loop misses real issues.
+> **NOTE: this skill is being retired.** It is superseded by the consolidated
+> `improve-codebase-loop` skill. The repo's live loop now uses
+> `improve-codebase-loop` and its state lives in
+> `docs/plan/improve-codebase-loop/`. Delete this skill once the migration is
+> confirmed.
 
 ## Procedure
 
-### 1. Check state
-1. Read `docs/plan/archive/gilfoyle-reviews/LOOP-STATE.md`.
-2. Read the latest handover in `docs/plan/archive/releases/`.
-3. `git log --oneline -10` and `git status --short` to confirm clean state.
-4. If the working tree is dirty, commit or stash before starting.
+Repeated until the stop rule is met.
 
-### 2. Run a review iteration
-Use `runSubagent` with the **`Explore` agent** (NOT the broad Gilfoyle agent —
-it gets stuck grepping the same symbols for hours; `runSubagent` has no
-timeout). Use a **tightly-scoped, neutral prompt**:
+### Step 1 — Check the stop rule
 
-- Scope to the current subsystem from the rotation list, OR to a user-facing
-  flow (see "Flow-based review" above).
-- Cap tool calls (e.g. "at most 15 reads/greps, then STOP").
-- Forbid re-reading the same file or re-running the same search.
-- Ask for a terse report: one line per finding (file:line, severity, one-line
-  fix), capped to the **top 5 by severity**. No preamble or summary prose.
-- Do NOT steer toward a verdict (no "this has converged" — that's confirmation
-  bias; the independent review proved it misses real issues).
-- **Ask the subagent to check for cross-file consistency:** "when you find a
-  pattern/bug in one file, grep for the same symbol across the repo and report
-  whether every call site handles it the same way." This catches the
-  "fixed in one door, not the other" class of bug that file-scoped reviews
-  structurally miss.
+At the **top of every iteration**, check the stop rule. If it is met, run the
+independent verification pass (below), then declare done and STOP.
 
-**If `runSubagent` is unavailable:** perform a manual scoped review of the same
-subsystem using `grep` and `read_file` with the same constraints (cap reads,
-no re-reads, neutral framing).
+**Stop rule:** no findings remain at **Medium** severity or above.
 
-**If `runSubagent` FAILS (tool error):** log the error in `LOOP-STATE.md` and
-retry once with a narrower scope. If it fails again, halt and report.
+A single clean scan is NOT the stop rule. Before declaring done:
 
-**If `runSubagent` returns NO FINDINGS:** treat it as a successful clean pass —
-do NOT retry. Record it and proceed to the next subsystem.
+1. Run **one independent verification pass** with a DIFFERENT prompt than the
+   loop's — e.g. "trace the user-facing flows end to end" rather than "review
+   the modules". This catches false negatives and correctness/UX gaps the
+   loop's lens under-weights.
+2. If the independent pass also finds nothing at or above the stop threshold,
+   record convergence and stop (or ask the user if they want to continue at a
+   lower threshold).
+3. If the independent pass finds new findings, remediate them and loop again.
 
-### 3. Remediate findings
-- Fix Critical → High → Medium → Low → Nit, in that order.
-- **Severity definitions:**
-  - **Critical:** exploitable security hole (path traversal, secret leak,
-    prompt injection, cross-provider key routing) or data-corrupting bug.
-  - **High:** security weakness or correctness bug with a realistic trigger.
-  - **Medium:** partial guard / robustness gap; wrong in an edge case.
-  - **Low:** cosmetic or minor; values agree but could drift.
-  - **Nit:** style / naming only.
-- **Shared logic rule:** the MCP server (`src/mcp/server.ts`) and extension
-  (`src/extension.ts`) are two doors onto one engine. Logic both need MUST live
-  in ONE `src/core/*.ts` module imported by both — never copy-pasted. Shared
-  modules: `providerKeys`, `pathSafety`, `modelNames`, `llmText`,
+### Step 2 — Review
+
+Scan the codebase for issues.
+
+- Prefer launching a **broad, whole-codebase review**. Give the reviewer a
+  neutral, outcome-blind prompt — do NOT steer toward a verdict (no "this
+  looks converged"). Ask for a terse report: one line per finding with
+  file:line, severity, and a one-line fix, capped to the top 5 by severity.
+- Ask the reviewer to check **cross-file consistency**: when a pattern/bug is
+  found in one file, check whether every call site handles it the same way.
+- Cap the reviewer's tool usage (e.g. "at most 15 reads/greps, then STOP") so
+  it cannot get stuck re-reading the same symbols.
+- **If the broad review gets stuck or fails**: fall back to a narrow scope,
+  one area at a time from this list:
+  1. `src/core/analyzer.ts` + `src/core/scoring.ts`
+  2. `src/providers/*` + `src/pricing.ts` + `src/modelCatalog.ts`
+  3. `src/mcp/server.ts` + `src/extension.ts` (TOGETHER — they share security logic)
+  4. `src/core/fixer.ts` + `src/core/acceptedFindings.ts`
+  5. `src/ui/*` + `src/config.ts`
+  6. Tests + CI + release scripts
+  If a narrow retry also fails, halt and report — do not keep guessing.
+
+If the review returns no findings, that is a clean pass — record it and move
+to the independent verification pass via the stop rule (Step 1).
+
+### Step 3 — Remediate
+
+Fix findings in severity order: **Critical → High → Medium → Low → Nit**.
+
+- **Critical:** exploitable security hole (path traversal, secret leak,
+  injection, cross-provider key routing) or data-corrupting bug.
+- **High:** security weakness or correctness bug with a realistic trigger.
+- **Medium:** partial guard / robustness gap; wrong in an edge case.
+- **Low:** cosmetic or minor; values agree but could drift.
+- **Nit:** style or naming only.
+
+General rules:
+
+- **Shared logic:** the MCP server (`src/mcp/server.ts`) and extension
+  (`src/extension.ts`) are two doors onto one engine. Logic both need MUST
+  live in ONE `src/core/*.ts` module imported by both — never copy-pasted.
+  Shared modules: `providerKeys`, `pathSafety`, `modelNames`, `llmText`,
   `tokenBudget`, `redact`. Consolidate any duplication you find.
-- **Recurrence guard:** track findings by file:line + symptom in the full
-  recurrence map in `LOOP-STATE.md` (ALL prior iterations, not just the
-  previous one). If the same finding recurs 3 times total, escalate to a
-  different fix strategy. If the root cause is unclear, flag for manual
-  investigation instead of re-applying the same remediation.
-- **False positives:** if a finding from the subagent is later deemed a false
-  positive during verification, note it in `LOOP-STATE.md` and adjust the next
-  review prompt/scope to reduce noise.
-- After each fix: `npm run compile`, then run the affected tests.
+- **Every call site:** when a finding references symbols used in more than one
+  place (e.g. `runFixIssue` vs `fixDocument`, `onSave`, `setApiKey`,
+  `syncMcpConfig`), verify the fix at EVERY call site, not just the one found.
+- After each fix, run `npm run compile`, then the affected tests.
 
-### 4. Verify (in this order)
+### Step 4 — Verify
+
+Run, in order:
+
 1. `npm run compile`
 2. `npx vitest run --config tests/vitest.config.ts`
 3. `npm run lint` (0 errors; pre-existing warnings OK)
 4. `npm run lint:md`
 
-**If any verify step fails:** fix the failure before committing. Do not commit
-a broken state.
+If any verification step fails, fix the failure before proceeding. Do not
+commit a broken state.
 
-### 5. Commit
+### Step 5 — Record state, then loop
+
+- Update `LOOP-STATE.md` with what was reviewed, what was fixed, remaining
+  findings, and next action.
+- **Update the lessons file** (`/memories/repo/improve-codebase-loop.md`) with
+  any new lessons learned this iteration — e.g. a recurring bug class, a
+  review prompt that worked or failed, a pattern that keeps getting missed.
+  Keep it concise; do not duplicate what is already there.
 - Commit each iteration with a clear message (`fix(iterN): ...`).
-- Update `LOOP-STATE.md` with the new iteration number, findings, next action,
-  and the recurrence map.
+- **Loop back to Step 1 and run the next iteration.** Continuation is the
+  default. Do not stop here unless the stop rule is met.
 
-### 6. Continue or stop
-- **Autonomous continuation:** if the user asked to run the loop autonomously,
-  do NOT stop after one iteration. Immediately proceed to the next subsystem
-  in the rotation and run the next iteration. Only stop when a stopping rule
-  below is met.
-- **User halt:** check for a `STOP` file at the repo root (or a `halt`
-  argument to the skill) before each iteration. If present, stop cleanly and
-  record the state.
-- **Stopping rules:**
-  - The review found **no critical/high findings** → run one independent
-    verification pass on the highest-risk subsystems with a different scoped
-    prompt (to catch false negatives). If still clean, record convergence and
-    stop (or ask the user).
-  - Iteration 30 reached with critical/high findings still remaining → stop,
-    record the remaining findings in `LOOP-STATE.md`, and flag for manual
-    review. Do not continue without user direction.
+## Example (2 iterations — this is how the loop behaves)
 
-**Convergence is NOT "no critical/high".** The 2026-08-06 independent review
-found real Medium/Low issues (silent document corruption on the click path, a
-lying settings enum, a SecretStorage UX trap, `exclude` not honored on onSave)
-after the loop had reported "no critical/high" for 10 straight iterations. The
-loop's severity lens was tuned to security holes and under-weighted
-correctness/UX gaps. Before declaring convergence:
-1. **Run the independent verification pass** — do not just recommend it. Use a
-   DIFFERENT prompt than the loop's (e.g. "review the user-facing flows, not
-   the modules") so it isn't a re-run of the same scoped reviews.
-2. **Check Medium/Low findings too** — a Medium that is "silent document
-   corruption on the path users actually click" is more important than a Low
-   that is cosmetic. Severity is a triage aid, not a license to ignore.
-3. **Verify the fix landed at every call site** — grep for the fixed symbol
-   across the repo before closing a finding.
+**Iteration 1:** Review finds a High (a bug) and a Medium (a guard gap). Fix
+both. Verify. Record. → Loop.
 
-### 7. Release gate + publish (only when the user asks to ship)
-1. `npm run release:gate`
-2. Bump version, update README status + CHANGELOG, commit.
-3. Publish per `docs/plan/LEARNINGS.md` / repo memory (`release-process.md`).
+**Iteration 2:** Check stop rule — a Low remains. Review again: no new
+findings at Medium+. Run the independent pass (different prompt) — it finds a
+Medium. Fix it, verify, record. → Loop.
 
-**If `npm run release:gate` fails:** halt the release, record the gate failure
-in `LOOP-STATE.md`, and report the specific gate check that failed. Do not
-proceed to version bump or publish.
-
-## Loop State File Format
-
-`LOOP-STATE.md` should contain:
-
-```markdown
-# Loop State
-- Current iteration: N
-- Target: 30
-- Last review scope: <subsystem>
-- Last findings: <critical/high count + summary>
-- Next action: <what to do next>
-- In-progress work: <any uncommitted changes or partial fixes>
-- Last commit: <sha>
-- Recurrence map: <file:line → symptom → iterations seen>
-```
-
-## Key Lessons (do not repeat)
-
-1. **Broad "review the entire codebase" prompts get the subagent stuck** — it
-   greps the same 2-3 symbols for hours. Use bounded, scoped reviews with the
-   `Explore` agent.
-2. **Don't steer the reviewer.** Neutral prompts only. A "converged" prompt
-   caused a false all-clear; an independent neutral review found real issues.
-3. **MCP + extension must be reviewed together** — they share security logic
-   and diverge if reviewed separately (a real divergence was found this way).
-4. **Consolidate duplicated logic** — it's a maintenance burden and attack
-   surface. See the shared-logic rule above.
-5. **File-scoped reviews miss flow-level bugs.** Bugs that live in how a
-   user-facing command wires multiple modules together (e.g. `runFixIssue`
-   applying `relevantText` while `fixDocument` uses `targetText`) fall between
-   file-scoped reviews. Run at least one flow-based review per cycle.
-6. **A fix must land at EVERY call site.** When you fix a pattern in one file,
-   grep for the same symbol across the repo. The 2026-08-06 independent review
-   caught `runFixIssue` still using `relevantText` after `fixDocument` was
-   fixed — the same bug, one door over.
-7. **"No critical/high" is not convergence.** The loop's severity lens
-   under-weights correctness/UX gaps. Run the independent verification pass
-   (with a different prompt) and check Medium/Low findings before declaring
-   convergence.
+**Iteration 3:** Check stop rule — nothing remains at Medium+. Independent pass
+is clean. Record convergence and stop.
 
 ## Token Efficiency
 
 The loop is long-running; keep context lean so it survives many iterations.
 
 - **Offload context to files, not the conversation.** Findings, state, and
-  iteration history live in `LOOP-STATE.md` and the handover docs — do NOT
-  restate them in chat. Read the file, act, update the file.
-- **Request concise subagent output.** One line per finding, capped to the top
+  iteration history live in `LOOP-STATE.md` — do NOT restate them in chat.
+- **Request concise reviewer output.** One line per finding, capped to the top
   5 by severity.
-- **Read files in large chunks, not many small reads.** Prefer one
-  `read_file` of a big range over several small ones.
-- **Don't re-read what's already in context.** If a file's content is already
-  loaded, don't re-fetch it.
-- **Prefer `grep`/`file_search` over full reads** when you only need to locate
-  a symbol or confirm a pattern exists.
-- **Commit early, commit often.** A clean tree + a fresh `LOOP-STATE.md` is the
-  cheapest resume point — it lets a compacted/fresh session pick up without
-  replaying the whole conversation.
-- **Scheduled compaction is fine.** Because state is on disk, compaction or a
-  fresh session loses nothing: read `LOOP-STATE.md` and continue. Do not keep
-  the whole loop in one context window.
-
+- **Read files in large chunks, not many small reads.**
+- **Don't re-read what's already in context.**
+- **Prefer grep/file_search over full reads** when locating symbols.
+- **Commit early, commit often.** A clean tree + updated `LOOP-STATE.md` is the
+  cheapest resume point.

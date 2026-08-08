@@ -62,4 +62,35 @@ describe('redactSecrets', () => {
     const out = redactSecrets('version 1.0.0-alpha.20260701.beta');
     expect(out).toContain('1.0.0-alpha.20260701.beta');
   });
+
+  it('redacts a multi-word unquoted secret value (no leak after first space)', () => {
+    const out = redactSecrets('password: my secret phrase');
+    expect(out).toContain('[REDACTED]');
+    expect(out).not.toContain('my secret phrase');
+    expect(out).not.toContain('secret phrase');
+  });
+
+  it('redacts a multi-word double-quoted secret value', () => {
+    const out = redactSecrets('api_key: "sk super secret value here"');
+    expect(out).toContain('[REDACTED]');
+    expect(out).not.toContain('super secret value');
+  });
+
+  it('redacts a multi-word single-quoted secret value', () => {
+    const out = redactSecrets("token: 'ghp my token value'");
+    expect(out).toContain('[REDACTED]');
+    expect(out).not.toContain('my token value');
+  });
+
+  it('redacts a secret value containing an equals sign', () => {
+    const out = redactSecrets('password=correct horse battery staple');
+    expect(out).toContain('[REDACTED]');
+    expect(out).not.toContain('correct horse battery staple');
+  });
+
+  it('does not redact past a comma or closing brace (keeps surrounding text)', () => {
+    const out = redactSecrets('secret: abc, keepme');
+    expect(out).toContain('[REDACTED]');
+    expect(out).toContain('keepme');
+  });
 });

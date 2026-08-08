@@ -1,0 +1,40 @@
+project:
+  name: skills-review-and-polish
+  goal: Authoring-time linter and fixer for AI customization files (SKILL.md,
+    AGENTS.md, instructions) — catches contradictions, ambiguities, coverage
+    gaps, and structural issues via a 6-wave LLM analyzer with surgical fixes.
+  main_language: typescript
+type: general
+context: I⚡🍊
+generated: 2026-08-08T19:40:40.884Z
+version: 5.20.0
+human_input: Your project files
+multiplier: FAF Context
+output: Championship Performance
+working_directory: /workspace/skills-review-and-polish
+initialized_by: claude-faf-mcp
+vitamin_context: true
+faffless: true
+stack:
+  cicd: Vitest
+  runtime: Node.js (VS Code extension host)
+  build: TypeScript + esbuild/tsc
+  api_type: VS Code extension API + MCP (stdio)
+  backend: VS Code extension (no server)
+  frontend: VS Code UI (webview/diagnostics)
+  hosting: VS Code marketplace
+  css_framework: N/A (VS Code extension)
+  ui_library: N/A (VS Code native UI)
+  state_management: N/A (extension state)
+  database: N/A (no database)
+  connection: N/A (no external DB)
+stack_signature: typescript
+human_context:
+  what: Authoring-time linter and fixer for AI customization files. Catches
+    contradictions, ambiguities, coverage gaps, and structural issues. VS Code
+    extension provides AI-suggested fixes with diff preview for human review.
+  who: Developers
+  where: https://github.com/mutl3y/skills-review-and-polish
+  why: Improve AI prompt quality
+  when: Active dev, v0.1.50
+  how: 6-wave LLM analyzer + surgical fixer

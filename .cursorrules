@@ -1,0 +1,19 @@
+# faf:start
+# skills-review-and-polish
+
+Authoring-time linter and fixer for AI customization files (SKILL.md, AGENTS.md, instructions) — catches contradictions, ambiguities, coverage gaps, and structural issues via a 6-wave LLM analyzer with surgical fixes.
+
+## Tech Stack
+
+- Frontend: VS Code UI (webview/diagnostics)
+- Backend: VS Code extension (no server)
+- Runtime: Node.js (VS Code extension host)
+- Build: TypeScript + esbuild/tsc
+
+## Build Commands
+
+- 6-wave LLM analyzer + surgical fixer
+
+---
+Generated from project.faf by claude-faf-mcp — 2026-08-08
+# faf:end
