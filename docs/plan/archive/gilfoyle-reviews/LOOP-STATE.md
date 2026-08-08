@@ -1,12 +1,59 @@
 # Loop State
 
-- **Current iteration:** 30 (TARGET REACHED — independent-review remediation applied, all findings closed)
-- **Target:** 30
-- **Last review scope:** Independent review (2026-08-06) remediation — all 12 findings addressed
-- **Last findings:** All 12 independent-review findings remediated (batch 1: #1,#2,#3,#5,#12; batch 2: #4,#6,#7,#8,#9,#10,#11).
-- **Next action:** Reassess with the user. All independent-review findings are closed. Recommend running the release gate if shipping, or a fresh independent verification pass on the changed surfaces (LM tools budget, fixer gates, MCP trust root).
-- **In-progress work:** None — working tree clean.
-- **Last commit:** `76a521a` (fix(review): remediate independent 2026-08-06 review findings)
+- **Current iteration:** 31 (post-target review — validated + remediated 2026-08-08 report)
+- **Target:** 30 (reached; continuing with targeted remediation on request)
+- **Last review scope:** Full-codebase report `GILFOYLE-REVIEW-2026-08-08.md` — validated 12 findings, remediated 5, closed 7 (3 by-design, 4 already-fixed).
+- **Last findings:** 5 remediated (#1 High, #2 Medium, #5 Medium, #8 Low, #11 Medium, #12 Low); 7 closed without change (#3 by-design, #4/#9/#10 already-fixed, #6/#7 by-design).
+- **Next action:** Reassess with the user. All findings in the 2026-08-08 report are closed.
+- **In-progress work:** None — working tree clean (aside from pre-existing unrelated `.github/agents/gilfoyle.agent.ORIGINAL.md` edit).
+- **Last commit:** `253efe5` (pre-review baseline)
+
+## 2026-08-08 report remediation
+
+Validated the 12-finding full-codebase report against current code and
+remediated the still-valid findings:
+
+- **#1 (High):** `safeResolveFilePathForTools` fell back to `process.cwd()`
+  when no workspace folder existed. Now fails CLOSED (returns `undefined`).
+- **#2 (Medium):** `applyFixToDocument` hard-coded a 0.3 shrinkage floor. Now
+  configurable via `fix.guard.applyMinRatio` (default 0.3; 0 disables).
+- **#5 (Medium):** `fetchWithRetry` could loop past `maxRetries` via the
+  `attempt--` structured-output retry. Added a hard cap on total iterations.
+- **#8 (Low):** redaction missed underscore-style keys. Added Stripe-style
+  (`sk_live_`/`rk_test_`) redaction + regression test.
+- **#11 (Medium):** analyze LM tool hard-coded wave count `6`. Now uses
+  `ALL_WAVES.length`.
+- **#12 (Low):** default logger transport didn't redact. Now redacts via
+  `redactSecrets`.
+
+Closed without change: #3 (charge-after-return is by-design), #4/#9/#10
+(already fixed in current code), #6/#7 (by-design / configurable).
+
+## How to resume
+
+1. Read this file.
+2. Read `docs/plan/archive/releases/20260805-gilfoyle-loop-to-iter20/HANDOVER.md`.
+3. `git log --oneline -10` + `git status --short` to confirm clean.
+4. Run the next iteration per `.github/skills/gilfoyle-review-loop/SKILL.md`.
+
+## Iteration history (recent)
+
+| Iter | Scope | Critical/High | Outcome |
+|------|-------|---------------|---------|
+| 18 | full codebase | 3C/6H | remediated |
+| 19 | convergence (steered — unreliable) | 0 | false all-clear |
+| 20 | bounded (fixer, acceptedFindings, mcp, modelCatalog, extension) | 0 | 3 Medium/Low fixed |
+| 21 | duplication audit (MCP+ext+core) | 0 | 5 clusters consolidated |
+| 22 | bounded (analyzer, scoring, findingFilter, fixer, types) | 0 | 2M/5L/3N fixed |
+| 23 | bounded (providers, pricing, tokenBudget, modelNames) | 0 | 1M/6L/1N fixed |
+| 24 | bounded joint (MCP + extension) | 0 | 1M/3L/1N fixed |
+| 25 | bounded (fixer, acceptedFindings) | 0 | 2M/3L fixed |
+| 26 | bounded (ui, config) | 0 | 2M/4N fixed |
+| 27 | bounded (tests, CI, release) | 0 | 1H/2M/2L fixed |
+| 28 | cross-subsystem joint (provider→core, ext→MCP) | 0 | 2M/3L fixed |
+| 29 | bounded (analyzer, scoring) | 0 | 3M/2L fixed |
+| 30 | bounded (providers, pricing, modelCatalog) | 0 | 2M/3L fixed |
+| 31 | full-codebase report validation | 1H | 5 remediated / 7 closed |
 
 ## Independent-review remediation (2026-08-06)
 

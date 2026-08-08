@@ -25,6 +25,15 @@ describe('redactSecrets', () => {
     expect(out).not.toContain('sk-abcdefghijklmnopqrstuvwxyz');
   });
 
+  it('redacts Stripe-style underscore keys (sk_live_/rk_test_)', () => {
+    const live = redactSecrets('sk_live_51HabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP');
+    expect(live).toContain('[REDACTED]');
+    expect(live).not.toContain('sk_live_');
+    const test = redactSecrets('rk_test_51HabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP');
+    expect(test).toContain('[REDACTED]');
+    expect(test).not.toContain('rk_test_');
+  });
+
   it('redacts GitHub classic PATs (ghp_)', () => {
     const out = redactSecrets('token ghp_abcdefghijklmnopqrstuvwxyz1234567890');
     expect(out).toContain('[REDACTED]');

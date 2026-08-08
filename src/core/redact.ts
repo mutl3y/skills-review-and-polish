@@ -31,6 +31,9 @@ export function redactSecrets(text: string): string {
   out = out.replace(/sk-or-v1-[A-Za-z0-9\-_]+/gi, '[REDACTED]');
   // Strip generic OpenAI-style keys (sk-...) even when unlabeled (short keys too)
   out = out.replace(/\bsk-[A-Za-z0-9\-_]{8,}\b/gi, '[REDACTED]');
+  // Strip Stripe-style keys (sk_live_/sk_test_/rk_live_/rk_test_...) — the
+  // underscore form isn't caught by the `sk-` pattern above.
+  out = out.replace(/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/gi, '[REDACTED]');
   // Strip GitHub tokens (ghp_ PATs, github_pat_ fine-grained, gho_/ghu_ OAuth)
   out = out.replace(/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b/gi, '[REDACTED]');
   out = out.replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/gi, '[REDACTED]');

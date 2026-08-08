@@ -42,7 +42,13 @@ interface PricedLanguageModelChat extends vscode.LanguageModelChat {
 function safeResolveFilePathForTools(filePath: string | undefined): string | undefined {
   if (!filePath || filePath.trim() === '') return undefined;
   const folder = workspaceFolderForPath(filePath);
-  const root = path.resolve(folder?.uri.fsPath ?? process.cwd());
+  // Fail CLOSED when there is no workspace folder. Falling back to
+  // `process.cwd()` would let an agent-driven LM tool resolve paths against an
+  // uncontrolled cwd (e.g. a server process started outside the workspace),
+  // defeating the containment guarantee. The caller treats `undefined` as a
+  // rejection and refuses the request.
+  if (!folder) return undefined;
+  const root = path.resolve(folder.uri.fsPath);
   // Delegate to the shared canonical-to-canonical path-safety helper (the same
   // one the MCP server uses) so the two doors cannot diverge.
   return safeResolveFilePathShared(filePath, root);
@@ -1477,10 +1483,14 @@ async function applyFixToDocument(
     vscode.window.showErrorMessage(`Skills Review: ${msg}`);
     return;
   }
-  // Safety guard: refuse if the result is less than 30% of the original length
-  // (catches cases where the LLM accidentally collapsed the whole document).
+  // Safety guard: refuse if the result is less than the configured minimum
+  // ratio of the original length (catches cases where the LLM accidentally
+  // collapsed the whole document). Configurable via fix.guard.applyMinRatio
+  // (default 0.3); 0 disables the guard so legitimate large-scale rewrites
+  // aren't discarded.
+  const minRatio = readConfig().fixGuardApplyMinRatio;
   const ratio = fixedText.length / Math.max(originalText.length, 1);
-  if (ratio < 0.3) {
+  if (minRatio > 0 && ratio < minRatio) {
     const msg = `Fix refused: proposed result is only ${Math.round(ratio * 100)}% of original length (${fixedText.length} vs ${originalText.length} chars).`;
     log('error', `applyFixToDocument: ${msg}`);
     vscode.window.showErrorMessage(`Skills Review: ${msg}`);
@@ -2141,7 +2151,7 @@ export function registerLanguageModelTools(
               new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
             ]);
           }
-          if (!reserveTokens(text.length, 6)) {
+          if (!reserveTokens(text.length, ALL_WAVES.length)) {
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
             ]);
@@ -2158,7 +2168,7 @@ export function registerLanguageModelTools(
           }
           const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(safePath), token: _token });
           const body = JSON.stringify(results, null, 2);
-          chargeTokens(text.length, body, 6);
+          chargeTokens(text.length, body, ALL_WAVES.length);
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(body),
           ]);

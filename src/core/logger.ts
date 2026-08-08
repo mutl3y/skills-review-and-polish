@@ -48,8 +48,10 @@ let currentLevel: LogLevel = resolveInitialLevel();
  */
 let currentTransport: Transport = (line: string) => {
   // Use console.error to avoid polluting stdout (important for MCP stdio).
-   
-  console.error(line);
+  // Redact defensively here too — even though Logger.formatLine already
+  // redacts, a caller that writes a raw line through the transport (or a
+  // future code path that bypasses formatLine) must not leak secrets.
+  console.error(redactSecrets(line));
 };
 
 // ─── Build-time flag ─────────────────────────────────────────────────────────

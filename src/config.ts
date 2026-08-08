@@ -66,6 +66,9 @@ export interface ExtensionConfig extends EngineConfig {
   fixGuardUpperBoundMultiplier: number;
   fixGuardLowerBoundMultiplier: number;
   fixGuardMaxAnchorChars: number;
+  /** Apply-time minimum ratio of fixed:original length. Guards against the LLM
+   *  collapsing a whole document on the direct-apply path. 0 disables. */
+  fixGuardApplyMinRatio: number;
   /** Max diagnostics rendered in the editor; overflow is summarized with a "show all" hint (plan item 5). */
   maxDiagnostics: number;
 }
@@ -119,6 +122,7 @@ export function readConfig(): ExtensionConfig {
     fixGuardUpperBoundMultiplier: c.get('fix.guard.upperBoundMultiplier', 1.5),
     fixGuardLowerBoundMultiplier: c.get('fix.guard.lowerBoundMultiplier', 0.5),
     fixGuardMaxAnchorChars: c.get('fix.guard.maxAnchorChars', 350),
+    fixGuardApplyMinRatio: c.get('fix.guard.applyMinRatio', 0.3),
     filterFindings: c.get('filterFindings', true),
     // Clamp so 0/negative can't silently suppress all diagnostics.
     maxDiagnostics: Number.isFinite(maxDiagnostics) && maxDiagnostics >= 1 ? Math.floor(maxDiagnostics) : 20,

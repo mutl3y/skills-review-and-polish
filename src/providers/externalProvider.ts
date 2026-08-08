@@ -138,7 +138,14 @@ async function fetchWithRetry(
   let activeBody = body;
   let retriedWithoutStructuredOutput = false;
   let lastError = '';
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  // Hard cap on total loop iterations. The `attempt--` on the
+  // retry-without-structured-output path can otherwise extend the loop past
+  // `maxRetries` indefinitely if the provider keeps returning output that
+  // fails structured parsing — a denial-of-service risk. This bounds total
+  // attempts regardless of how many times the structured-output retry fires.
+  const maxTotalAttempts = Math.max(maxRetries + 1, 8);
+  let totalAttempts = 0;
+  for (let attempt = 0; attempt <= maxRetries && totalAttempts < maxTotalAttempts; attempt++, totalAttempts++) {
     if (attempt > 0) {
       await sleep(1000 * attempt);
     }
