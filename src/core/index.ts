@@ -24,6 +24,7 @@ export * from './fixer';
 export * from './logger';
 export * from './prompts';
 export * from './acceptedFindings';
+export * from './waveCount';
 
 export interface AnalyzeInput {
   /** Full document text. */

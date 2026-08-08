@@ -1,16 +1,17 @@
 # Loop State
 
-- **Current iteration:** 0 (loop restarted fresh — no iterations completed yet)
+- **Current iteration:** 1 (completed 2026-08-08)
 - **Target:** none (stop on the stop rule: no findings at Medium or above,
   after the independent verification pass — not a fixed iteration count)
-- **Last review scope:** none yet — first iteration begins with a broad
-  whole-codebase review
-- **Last findings:** none yet
-- **Next action:** run iteration 1 — broad scan per
-  `.github/skills/improve-codebase-loop/SKILL.md` (read the lessons file at
-  `/memories/repo/improve-codebase-loop.md` first)
+- **Last review scope:** broad whole-codebase scan (MCP server + extension
+  together) via gilfoyle-code-review
+- **Last findings:** 3 remediated (F1–F3: wave-count budget divergence ×2,
+  process.cwd fallback), 1 Low fixed (F4: bare URL), 1 Low carried forward
+  (F5: accepted-findings root divergence, by design)
+- **Next action:** run iteration 2 — check stop rule, then broad scan again
+  (read the lessons file at `/memories/repo/improve-codebase-loop.md` first)
 - **In-progress work:** None — working tree as committed
-- **Last commit:** (set after first commit of this run)
+- **Last commit:** `fix(iter1): shared wave-count budget + fail-closed path resolution`
 
 ## Restart note
 
@@ -31,4 +32,4 @@ pass before declaring done) — not a fixed iteration-30 target. See
 
 | Iter | Scope | Critical/High | Medium/Low | Outcome |
 |------|-------|---------------|------------|---------|
-| (none yet) | — | — | — | — |
+| 1 | Broad whole-codebase (MCP+ext) | 0 | 3 remediated, 1 Low fixed, 1 Low carried | Fixed wave-count budget divergence (F1,F2), process.cwd fallback (F3), bare URL (F4). F5 (accepted-findings root) carried as by-design. |

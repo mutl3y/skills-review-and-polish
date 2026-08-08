@@ -5,7 +5,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine } from '../core/index';
+import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine, estimateWaveCount, estimateFixWaveCount } from '../core/index';
 import { SurgicalFixer } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { redactSecrets } from '../core/redact';
@@ -70,28 +70,6 @@ const MIN_DOCUMENT_CHARS = 8_000;
 // The budget state machine lives in `src/core/sessionBudget.ts` and is shared
 // with the extension's language-model tools so both doors enforce the same
 // guard (they were drifting — the LM tools had no budget at all).
-
-/**
- * Estimate how many LLM waves an analysis will run, so the cost budget
- * charges the input per wave (not a flat 6). Mirrors the engine's mode logic:
- * single=1, focused=2, multiWave=enabledWaves.length (default 6). A direct
- * `analysisWaves` list (argument or engine config) overrides the mode.
- */
-function estimateWaveCount(
-  engineConfig: EngineConfig | undefined,
-  analysisWaves: string[] | undefined,
-): number {
-  // The engine's precedence is: configOverride (the analysisWaves argument
-  // here) > engineConfig.analysisWaves > analysisMode. So check the argument
-  // FIRST — it represents the per-call override that wins in the engine.
-  if (analysisWaves && analysisWaves.length > 0) return analysisWaves.length;
-  const configWaves = engineConfig?.analysisWaves;
-  if (configWaves && configWaves.length > 0) return configWaves.length;
-  const mode = engineConfig?.analysisMode ?? DEFAULT_ENGINE_CONFIG.analysisMode;
-  if (mode === 'single') return 1;
-  if (mode === 'focused') return 2;
-  return engineConfig?.enabledWaves?.length ?? ALL_WAVES.length;
-}
 
 /**
  * Sanitize an error message to remove secrets (Bearer tokens, API keys, etc.)
@@ -495,8 +473,7 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   // for that here or the budget under-reserves/under-charges the common
   // additive path.
   const isAdditiveFix = fixCfg.fixStrategy === 'additive';
-  const selfCritiqueCalls = (fixCfg.fixSelfCritique || isAdditiveFix) ? 1 : 0;
-  const fixWaves = 1 + (fixCfg.fixSemanticCheck ? 1 : 0) + selfCritiqueCalls;
+  const fixWaves = estimateFixWaveCount(fixCfg);
   if (!reserveTokens(text.length, fixWaves)) {
     return {
       content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }],

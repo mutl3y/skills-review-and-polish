@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import * as picomatch from 'picomatch';
-import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig } from './core';
+import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig, estimateWaveCount, estimateFixWaveCount } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
 import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
@@ -198,13 +198,15 @@ function workspaceFolderForPath(filePath?: string): vscode.WorkspaceFolder | und
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return undefined;
   if (filePath) {
-    const abs = safeResolveFilePathShared(vscode.workspace.rootPath || process.cwd(), filePath);
-    if (!abs) return undefined;
-    const match = folders.find((f) => {
+    // Resolve against each folder's own root (not `rootPath || process.cwd()`)
+    // so a multi-root workspace can't fall back to an unrelated cwd and defeat
+    // the containment guarantee. Fail CLOSED when the path escapes every root.
+    for (const f of folders) {
       const root = path.resolve(f.uri.fsPath);
-      return isPathWithin(root, abs);
-    });
-    if (match) return match;
+      const abs = safeResolveFilePathShared(filePath, root);
+      if (abs && isPathWithin(root, abs)) return f;
+    }
+    return undefined;
   }
   return folders[0];
 }
@@ -2159,7 +2161,12 @@ export function registerLanguageModelTools(
               new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
             ]);
           }
-          if (!reserveTokens(text.length, ALL_WAVES.length)) {
+          // Charge per actual wave (single=1, focused=2, multiWave=enabledWaves)
+          // — not a flat 6 — so single-pass mode doesn't over-reserve the shared
+          // budget. Mirrors the MCP server's estimateWaveCount.
+          const cfg = readConfigFn();
+          const waves = estimateWaveCount(cfg, undefined);
+          if (!reserveTokens(text.length, waves)) {
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
             ]);
@@ -2176,7 +2183,7 @@ export function registerLanguageModelTools(
           }
           const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(safePath), token: _token });
           const body = JSON.stringify(results, null, 2);
-          chargeTokens(text.length, body, ALL_WAVES.length);
+          chargeTokens(text.length, body, waves);
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(body),
           ]);
@@ -2205,7 +2212,10 @@ export function registerLanguageModelTools(
             ]);
           }
           // A fix makes up to 3 LLM calls (fix + semantic check + self-critique).
-          const fixWaves = 1 + (cfg.fixSemanticCheck ? 1 : 0) + (cfg.fixSelfCritique ? 1 : 0);
+          // The fixer FORCES self-critique for additive ambiguity fixes even
+          // when fixSelfCritique is off, so use the shared estimator that
+          // accounts for that (mirrors the MCP server).
+          const fixWaves = estimateFixWaveCount(cfg);
           if (!reserveTokens(text.length, fixWaves)) {
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),

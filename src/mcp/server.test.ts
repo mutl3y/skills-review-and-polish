@@ -41,6 +41,19 @@ vi.mock('../core/index', () => ({
     filterFindings: true,
   },
   ALL_WAVES: ['contradictions', 'ambiguities', 'persona', 'structural', 'coverage', 'hygiene'],
+  estimateWaveCount: (engineConfig: any, analysisWaves: string[] | undefined) => {
+    if (analysisWaves && analysisWaves.length > 0) return analysisWaves.length;
+    const mode = engineConfig?.analysisMode ?? 'focused';
+    if (mode === 'single') return 1;
+    if (mode === 'focused') return 2;
+    return engineConfig?.enabledWaves?.length ?? 6;
+  },
+  estimateFixWaveCount: (engineConfig: any) => {
+    const cfg = engineConfig ?? {};
+    const isAdditiveFix = cfg.fixStrategy === 'additive';
+    const selfCritiqueCalls = (cfg.fixSelfCritique || isAdditiveFix) ? 1 : 0;
+    return 1 + (cfg.fixSemanticCheck ? 1 : 0) + selfCritiqueCalls;
+  },
 }));
 
 vi.mock('../core/fixer', () => ({
