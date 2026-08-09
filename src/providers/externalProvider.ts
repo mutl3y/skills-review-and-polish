@@ -196,15 +196,28 @@ async function fetchWithRetry(
 /** Pull the assistant text from a chat-completions response payload. */
 function extractText(resp: Record<string, unknown>): string {
   const choices = resp['choices'] as Array<Record<string, unknown>> | undefined;
-  const content = (choices?.[0]?.['message'] as Record<string, unknown> | undefined)?.['content'];
-  // Type guard: if content is not a string, log a warning and return empty.
-  // This catches future API changes (e.g. structured content blocks as arrays)
-  // rather than silently dropping the entire response.
-  if (typeof content !== 'string') {
-    console.warn('[SkillsReview] extractText: expected string content, got', typeof content);
-    return '';
+  const rawContent = (choices?.[0]?.['message'] as Record<string, unknown> | undefined)?.['content'];
+
+  // Handle both string content (traditional API responses) and structured
+  // content blocks (OpenAI-compatible providers returning arrays like
+  // [{ type: "text", text: "..." }]). Extract all text fragments and join them.
+  if (typeof rawContent === 'string') {
+    return rawContent;
   }
-  return content;
+  if (Array.isArray(rawContent)) {
+    const parts: string[] = [];
+    for (const block of rawContent) {
+      if (typeof block === 'object' && block !== null && 'type' in block && 'text' in block) {
+        const typedBlock = block as { type?: string; text?: unknown };
+        if (typedBlock.type === 'text' && typeof typedBlock.text === 'string') {
+          parts.push(typedBlock.text);
+        }
+      }
+    }
+    if (parts.length > 0) return parts.join('\n');
+  }
+  console.warn('[SkillsReview] extractText: unexpected content type', typeof rawContent);
+  return '';
 }
 
 function extractFinishReason(resp: Record<string, unknown>): string | undefined {

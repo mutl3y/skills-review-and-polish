@@ -33,6 +33,17 @@ const FIX_CACHE_TTL_MS = 30_000; // 30 seconds
 /** Maximum cache entries before oldest are evicted. */
 const FIX_CACHE_MAX_SIZE = 50;
 
+/** Simple hash for cache keys — sufficient to prevent collisions on truncated prefixes. */
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(36);
+}
+
 /** Ensure the cache doesn't exceed MAX_SIZE by evicting oldest entries. */
 function enforceCacheMaxSize(): void {
   if (fixCache.size <= FIX_CACHE_MAX_SIZE) return;
@@ -86,11 +97,12 @@ export function createInlineRewriteProvider(
         const text = document.getText();
 
         // Check cache first to avoid redundant LLM calls
-        const cacheKey = `${document.uri.toString()}:${code}:${result.relevantText?.slice(0, 100) ?? ''}`;
+        // Include a hash of the full relevantText to prevent collisions on truncated prefixes.
+        const anchor = result.relevantText ?? '';
+        const cacheKey = `${document.uri.toString()}:${code}:${simpleHash(anchor)}:${anchor.slice(0, 50)}`;
         const cached = fixCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < FIX_CACHE_TTL_MS) {
           if (!cached.result.accepted || !cached.result.fixed) return [];
-          const anchor = result.relevantText ?? '';
           if (!anchor || !text.includes(anchor)) return [];
           const anchorStart = text.indexOf(anchor);
           const anchorEnd = anchorStart + anchor.length;
@@ -112,7 +124,6 @@ export function createInlineRewriteProvider(
         if (!fixResult.accepted || !fixResult.fixed) return [];
 
         // Replace just the anchor range with the proposed fix
-        const anchor = result.relevantText ?? '';
         if (!anchor || !text.includes(anchor)) return [];
 
         const anchorStart = text.indexOf(anchor);

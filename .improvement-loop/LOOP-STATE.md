@@ -6,9 +6,9 @@
 
 ## Current Status
 
-**Iteration:** 03 → 04 (looping)
-**Next action:** Independent verification pass (Step 1 of Iteration 04)
-**In-progress work:** None — all valid findings from Iteration 03 remediated
+**Iteration:** 05 → 06 (looping)
+**Next action:** Independent verification pass (Step 1 of Iteration 06)
+**In-progress work:** None — all valid findings from Iteration 05 remediated
 
 ## Verification Baseline
 
@@ -61,4 +61,16 @@
 
 ## Lessons
 
-_No lessons recorded yet._
+1. **Always verify before rejecting.** Two of my initial Medium-severity findings (F-001, F-003) were already-fixed or incorrect. I should have traced the actual data flow more carefully before writing them up.
+
+2. **Ghost text IS a preview.** The inline completion paradigm provides its own safety mechanism — visual preview before acceptance. This is fundamentally different from "applying without review."
+
+3. **The charge formula is correct.** Each wave receives the full document text. Wave selection controls HOW MANY times input is sent, not WHAT is sent. My assumption about truncated per-wave documents was wrong.
+
+4. **Dead code detection is valuable.** The `require('vscode')` removal revealed that `DEFAULT_ACCEPTED_FINDINGS_PATH` is completely unused — a good candidate for cleanup in a future iteration if desired.
+
+5. **Rate limiting needs ALL entry points.** Adding a limiter to just `handleAnalyze` was insufficient — an agent could bypass it by calling `handleFix` or `handleScore` repeatedly. Every paid tool handler needs its own guard.
+
+6. **Outer catch blocks are silent killers.** A bare `catch {}` swallows everything including explicitly-thrown errors. Always distinguish "expected missing" from "unexpected failure" and log accordingly.
+
+7. **Type guards beat casts.** Double-casting through `as Record<string, unknown>` then accessing properties silently corrupts on malformed input. A `typeof` check with warning is safer than assuming the API contract holds.
