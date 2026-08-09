@@ -1,15 +1,22 @@
 
 # Handover Update — 2026-07-13: v0.1.37/v0.1.38 Released
 
-> **Latest handover (2026-08-05):** See
+> **Latest handover (2026-08-09):** See
 > `docs/plan/archive/releases/20260805-gilfoyle-loop-to-iter20/HANDOVER.md` for
-> the Gilfoyle review loop (iterations 17–20), the independent 2026-08-05 review
-> remediation, the bounded-review approach, and the pending v0.1.50 publish.
+> the Gilfoyle review loop (iterations 17–20) and the independent 2026-08-05
+> review remediation. Since then: the `improve-codebase-loop` skill ran a fresh
+> loop (iterations 1–7) that shipped reference-grounding work, a shared
+> selection-safe reference resolver, an idle/progress-reset stream timeout,
+> OpenRouter→vscode.lm routing, and loop/reliability fixes (fingerprint-gated
+> loop detection, budget-cap compliance, shared duplicate-anchor guard). Released
+> as **v0.1.51**. The live loop state is at
+> `docs/plan/improve-codebase-loop/LOOP-STATE.md`.
 
 ## Current State (Updated)
 
-- **Branch:** main (HEAD: d0aa476)
-- **Version:** 0.1.38 (beta / release-candidate hardening)
+- **Branch:** main
+- **Version:** 0.1.51 (released 2026-08-09)
+- **Tests:** 657 unit tests passing (30 files, 16 skipped)
 - **Tests:** 573 unit tests passing across 25 files
 - **Compilation:** Clean (npm run compile)
 - **Markdown lint:** 0 errors

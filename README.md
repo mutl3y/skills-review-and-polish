@@ -14,7 +14,7 @@ solid; ongoing work is **precision hardening** (target ≥85% accepted findings)
 to reduce false positives, not a blocker on using it as a linter today. Treat
 production-skill counts as coverage evidence, not validated precision/recall.
 
-- **v0.1.51** — Reference-grounding + provider reliability: a shared,
+- **v0.1.51** — Reference-grounding + provider + reliability: a shared,
   selection-safe reference resolver grounds analysis in skill reference files
   referenced via markdown links **or** backtick/table paths (fixing false-positive
   "undefined term" findings on meta-skills), dedupes equivalent spellings, and
@@ -23,6 +23,12 @@ production-skill counts as coverage evidence, not validated precision/recall.
   truncating, and scales its budget with the provider. `vscode.lm` streams now
   use an **idle/progress-reset timeout** instead of a hard 90s wall-clock, and
   OpenRouter models exposed via `vscode.lm` route to the streaming provider.
+  Also (analysis-review loop): loop-detection no longer false-positives on
+  unchanged documents (gated on the document fingerprint), the extension's LM
+  tools now honor the `mcpMaxTokensPerSession` budget, a shared
+  `validateFixAnchor` guard stops the extension fix tool silently fixing the
+  first duplicate occurrence, and wave-count / accepted-findings-root logic is
+  consolidated into shared modules used by both the MCP server and the extension.
 - **v0.1.50** — Grading + parsing hardening: `scoreSkill` no longer withholds the letter grade when only *legitimate* meta findings are present (`llm-loop-detected`, `high-complexity`, `limited-coverage`) — only true analysis failures (`llm-error`, `llm-parse-error`, `llm-disabled`, `llm-rate-limited`) force `Ungraded`. `extractJSON` now tolerates valid JSON followed by trailing prose (free models that append commentary after the JSON object/array).
 - **v0.1.49** — Withholds the letter grade (`Ungraded`) when ANY wave fails or is rate-limited, instead of reporting a misleading letter grade on partial analysis; failed waves now retry once (stream-iteration + same-tier error retry) and the UI warns about failed waves by name.
 - **v0.1.48** — Fixed extension activation failure (`Cannot find module 'picomatch'`) caused by a stale `--no-dependencies` publish flag; `verify:vsix` now uses the same vsce packager as publish.

@@ -1,6 +1,6 @@
 # Implementation Status
 
-> Updated July 18, 2026. **Status: Released (v0.1.42) — production-ready linter**
+> Updated 2026-08-09. **Status: Released (v0.1.51) — production-ready linter**
 >
 > For release details, see [archive/releases/RELEASE-IMPLEMENTATION-PLAN.md](archive/releases/RELEASE-IMPLEMENTATION-PLAN.md)
 > For engineering decisions, see [LEARNINGS.md](LEARNINGS.md)
