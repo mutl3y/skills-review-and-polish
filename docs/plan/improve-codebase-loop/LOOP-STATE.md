@@ -1,20 +1,22 @@
 # Loop State
 
-- **Current iteration:** 5 (completed 2026-08-09)
+- **Current iteration:** 6 (completed 2026-08-09) — **CONVERGED at Medium+**
 - **Target:** none (stop on the stop rule: no findings at Medium or above,
   after the independent verification pass — not a fixed iteration count)
-- **Last review scope:** independent robustness / regression pass (4th distinct
-  lens) via gilfoyle-code-review-lean
-- **Last findings:** 1 Low/Medium, High-conf REGRESSION remediated (J1:
-  `validLine ?? 0` collapsed "no line" into "line 0", making the MCP door force
-  paragraph-at-line-0 for no-line fixes — introduced by my iter-4 refactor,
-  caught by the regression pass). Carried: 3 Low (J2: guard-vs-paragraph
-  semantic mismatch, pre-existing; J3: validLine/LSP-range footgun; J4: overlap
-  counting) + 2 Nit (J5 re-expansion). No High/Critical, no Medium reached.
-- **Next action:** run iteration 6 — one more fresh independent verification pass
-  to confirm convergence. The robustness pass confirmed the iter-2..4 fixes are
-  otherwise complete; carried Lows are all still Low.
-- **In-progress work:** None — working tree clean after iter-5 commit
+- **Last review scope:** independent invariants / first-principles pass (5th
+  distinct lens) via gilfoyle-code-review-lean
+- **Last findings:** NO finding at or above Medium. One Medium/High claim
+  (acceptedFindings floor mismatch) REJECTED as factually wrong (both floors
+  are aligned at 5; `normalize` preserves length). Carried: 2 Low (K2: budget
+  cap doc nuance; K3: pathSafety root realpath on requireExists=true only).
+- **Convergence:** The independent pass found nothing at Medium or above. The
+  loop's stop rule is satisfied (pending the lower-threshold question).
+  Iterations 2-5 remediated: root resolution (G1), budget cap (H1),
+  duplicate-anchor guard (I1), and an iter-4 regression (J1).
+- **Next action:** await user's lower-threshold decision (continue at Low, or
+  stop here). If continue, run iteration 7 at Low severity; else write
+  FINAL-REPORT.md and stop.
+- **In-progress work:** None — working tree clean (iter-6 was review-only, no commit)
 - **Last commit:** `fix(iter5): validateFixAnchor keeps undefined line for no-line fixes`
 
 ## Restart note
@@ -40,4 +42,5 @@ pass before declaring done) — not a fixed iteration-30 target. See
 | 2 | Broad whole-codebase (MCP+ext) via lean reviewer | 0 | 1 Medium remediated, 1 Low carried, 1 note, 1 rejected | Unified accepted-findings root resolution through one resolveWorkspaceRoot (G1). G2 TOCTOU + G4 note carried; G3 redact-order claim rejected. |
 | 3 | Independent flow-trace pass | 0 | 1 Medium remediated, 2 Low carried | Fixed extension agent LM tools ignoring the budget cap (H1). H2 + H3 carried as Low. |
 | 4 | Independent data-flow pass | 0 | 1 Medium remediated, 2 Low carried | Fixed extension fix tool missing duplicate-anchor guard via shared validateFixAnchor (I1). I2 + I3 carried as Low. |
-| 5 | Independent robustness/regression pass | 0 | 1 regression remediated, 3 Low + 2 Nit carried | Fixed iter-4 regression where validLine ?? 0 forced paragraph-at-line-0 for no-line fixes (J1). Confirmed iter-2..4 fixes otherwise complete; J2-J5 carried. |
+| 5 | Independent robustness/regression pass | 0 | 1 regression remediated, 3 Low + 2 Nit carried | Fixed iter-4 regression (J1). Confirmed iter-2..4 fixes otherwise complete; J2-J5 carried. |
+| 6 | Independent invariants pass | 0 | 0 remediated, 2 Low carried, 1 claim rejected | No Medium+ found — converged. K1 (floor mismatch) rejected as factually wrong; K2 + K3 carried as Low. |
