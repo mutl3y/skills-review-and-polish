@@ -6,7 +6,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ALL_WAVES, DEFAULT_ENGINE_CONFIG, Engine, estimateWaveCount, estimateFixWaveCount } from '../core/index';
-import { SurgicalFixer } from '../core/fixer';
+import { SurgicalFixer, validateFixAnchor } from '../core/fixer';
 import { setTransport } from '../core/logger';
 import { redactSecrets } from '../core/redact';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted, validateRelevantText } from '../core/acceptedFindings';
@@ -413,53 +413,20 @@ async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext)
   }
   const diagnosticCode = requireString(args, 'diagnosticCode');
   const relevantText = requireString(args, 'relevantText');
-  // Parse the optional line argument defensively — a malformed value (e.g.
-  // parseInt('abc') → NaN) must NOT bypass the duplicate-anchor guard.
-  const rawLine = args['line'];
-  const line = typeof rawLine === 'number' && Number.isFinite(rawLine)
-    ? rawLine
-    : typeof rawLine === 'string' && rawLine.trim() !== '' && Number.isFinite(Number(rawLine))
-      ? Number(rawLine)
-      : undefined;
-
-  // Bounds-check the line against the document's actual line count so an
-  // out-of-range line can't anchor the fix to the wrong location. If a line
-  // was explicitly provided but is out of range, reject loudly rather than
-  // silently falling back to first-match.
-  const lineCount = text.split('\n').length;
-  if (line !== undefined && (line < 0 || line >= lineCount)) {
+  // Validate the anchor via the SHARED helper (same duplicate-anchor + line
+  // bounds logic the extension fix tool uses) instead of an inline copy. A
+  // malformed line value (e.g. parseInt('abc') → NaN) cannot bypass the guard.
+  const anchorValidation = validateFixAnchor(text, relevantText, args['line']);
+  if (anchorValidation.error) {
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify({
-          status: 'error',
-          error: `line ${line} is out of range (document has ${lineCount} lines).`,
-        }, null, 2),
+        text: JSON.stringify({ status: 'error', error: anchorValidation.error }, null, 2),
       }],
       isError: true,
     };
   }
-  const validLine = line;
-
-  // Duplicate-anchor guard: count occurrences of the RAW relevantText (matching
-  // the interactive path) so a fragment that appears multiple times is refused
-  // unless a line disambiguates. The fixer would otherwise silently target the
-  // first occurrence.
-  if (validLine === undefined) {
-    const occurrences = relevantText ? text.split(relevantText).length - 1 : 0;
-    if (occurrences > 1) {
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            status: 'error',
-            error: `relevantText appears ${occurrences} times in the document. Provide a "line" argument to disambiguate which occurrence to fix.`,
-          }, null, 2),
-        }],
-        isError: true,
-      };
-    }
-  }
+  const validLine = anchorValidation.validLine;
 
   const resolvedLine = validLine ?? 0;
   const syntheticDiag: AnalysisResult = {

@@ -49,12 +49,16 @@ vi.mock('vscode', () => ({
   lm: { registerTool: mocks.registerTool, selectChatModels: vi.fn(async () => []) },
 }));
 
-vi.mock('./core/fixer', () => ({
-  SurgicalFixer: vi.fn(function () {
-    return { fixIssue: mocks.fixIssue };
-  }),
-  SURGICAL_FIXABLE_CODES: new Set(['ambiguity-llm']),
-}));
+vi.mock('./core/fixer', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./core/fixer')>();
+  return {
+    SurgicalFixer: vi.fn(function () {
+      return { fixIssue: mocks.fixIssue };
+    }),
+    SURGICAL_FIXABLE_CODES: new Set(['ambiguity-llm']),
+    validateFixAnchor: original.validateFixAnchor,
+  };
+});
 
 describe('registerLanguageModelTools', () => {
   beforeEach(() => {

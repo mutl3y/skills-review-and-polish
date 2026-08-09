@@ -56,18 +56,25 @@ vi.mock('../core/index', () => ({
   },
 }));
 
-vi.mock('../core/fixer', () => ({
-  SurgicalFixer: vi.fn(function () {
-    return {
-      fixIssue: vi.fn(async () => ({ accepted: true, fixed: 'fixed', risks: [] })),
-    };
-  }),
-  expandToParagraph: (content: string, phrase: string) => (content.includes(phrase) ? phrase : null),
-  extractParagraphAtLine: (content: string, line: number) => {
-    const lines = content.split('\n');
-    return lines[line] ?? null;
-  },
-}));
+vi.mock('../core/fixer', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../core/fixer')>();
+  return {
+    SurgicalFixer: vi.fn(function () {
+      return {
+        fixIssue: vi.fn(async () => ({ accepted: true, fixed: 'fixed', risks: [] })),
+      };
+    }),
+    expandToParagraph: (content: string, phrase: string) => (content.includes(phrase) ? phrase : null),
+    extractParagraphAtLine: (content: string, line: number) => {
+      const lines = content.split('\n');
+      return lines[line] ?? null;
+    },
+    // Use the real shared anchor-guard helper so handleFix's duplicate-anchor
+    // / line-bounds behavior matches production (it must return an error when
+    // relevantText repeats without a disambiguating line).
+    validateFixAnchor: original.validateFixAnchor,
+  };
+});
 
 import { createMcpToolRegistry, sanitizeErrorMessage, _resetAnalyzeCooldown } from './server';
 import { SurgicalFixer } from '../core/fixer';

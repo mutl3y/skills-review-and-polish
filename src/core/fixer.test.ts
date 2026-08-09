@@ -18,6 +18,7 @@ import {
   surroundingContext,
   SurgicalFixer,
   SURGICAL_FIXABLE_CODES,
+  validateFixAnchor,
 } from './fixer';
 import type { AnalysisResult, LlmProvider } from './types';
 
@@ -834,5 +835,51 @@ describe('SurgicalFixer — boundary and acceptance tests', () => {
     expect(result.applied).toBe(0);
     expect(result.skipped).toBe(1);
     expect(result.fixedText).toBe(text);
+  });
+});
+
+describe('validateFixAnchor — shared duplicate-anchor + line-bounds guard', () => {
+  const text = 'Be concise.\nKeep it brief.\nBe concise.';
+
+  it('rejects a duplicated anchor when no line disambiguates', () => {
+    const res = validateFixAnchor(text, 'Be concise.', undefined);
+    expect(res.error).toBeDefined();
+    expect(res.error).toContain('2 times');
+  });
+
+  it('accepts a unique anchor', () => {
+    const res = validateFixAnchor(text, 'Keep it brief.', undefined);
+    expect(res.error).toBeUndefined();
+    expect(res.validLine).toBe(0);
+  });
+
+  it('disambiguates a duplicated anchor when a valid line is provided', () => {
+    const res = validateFixAnchor(text, 'Be concise.', 2);
+    expect(res.error).toBeUndefined();
+    expect(res.validLine).toBe(2);
+  });
+
+  it('rejects an out-of-range line loudly', () => {
+    const res = validateFixAnchor(text, 'Be concise.', 5);
+    expect(res.error).toBeDefined();
+    expect(res.error).toContain('out of range');
+  });
+
+  it('parses a numeric string line defensively', () => {
+    const res = validateFixAnchor(text, 'Be concise.', '2');
+    expect(res.error).toBeUndefined();
+    expect(res.validLine).toBe(2);
+  });
+
+  it('treats a malformed line as no-line and still guards duplicates', () => {
+    const res = validateFixAnchor(text, 'Be concise.', 'abc');
+    expect(res.error).toBeDefined();
+    expect(res.error).toContain('2 times');
+  });
+
+  it('allows a duplicated anchor with a negative-line malformed value to fail closed', () => {
+    // A NaN-from('abc') line must NOT bypass the duplicate guard.
+    const res = validateFixAnchor(text, 'Be concise.', Number('abc'));
+    expect(res.error).toBeDefined();
   });
 });

@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as picomatch from 'picomatch';
 import { Engine, AnalysisResult, Analyzer, WaveName, ALL_WAVES, EngineConfig, estimateWaveCount, estimateFixWaveCount } from './core';
 import { scoreSkill, parseSkillType } from './core/scoring';
-import { SurgicalFixer, SURGICAL_FIXABLE_CODES } from './core/fixer';
+import { SurgicalFixer, SURGICAL_FIXABLE_CODES, validateFixAnchor } from './core/fixer';
 import { setLogLevel, setTransport } from './core/logger';
 import { VsCodeLmProvider } from './providers/vscodeLmProvider';
 import { OpenRouterProvider, CopilotProvider } from './providers/externalProvider';
@@ -2235,11 +2235,22 @@ export function registerLanguageModelTools(
               new vscode.LanguageModelTextPart(JSON.stringify({ error: `filePath "${filePath}" is outside the workspace root and was rejected.` })),
             ]);
           }
+          // Shared anchor precondition (same as the MCP fix tool): refuse a
+          // duplicated relevantText unless a line disambiguates, and
+          // bounds-check any provided line. Without this the fixer silently
+          // targets the first occurrence of a duplicated fragment — an
+          // attacker-controlled relevantText could fix the wrong span.
+          const anchorValidation = validateFixAnchor(text, relevantText, undefined);
+          if (anchorValidation.error) {
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify({ error: anchorValidation.error })),
+            ]);
+          }
           const syntheticDiag: AnalysisResult = {
             code: diagnosticCode,
             message: relevantText,
             severity: 'warning',
-            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            range: { start: { line: anchorValidation.validLine ?? 0, character: 0 }, end: { line: anchorValidation.validLine ?? 0, character: 0 } },
             analyzer: 'tool',
             relevantText,
           };

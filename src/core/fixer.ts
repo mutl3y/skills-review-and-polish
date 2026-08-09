@@ -35,6 +35,68 @@ export const SURGICAL_FIXABLE_CODES = new Set([
 /** Largest anchor we'll hand to the fix LLM (anything bigger risks structure damage). */
 const MAX_SURGICAL_ANCHOR_CHARS = 350;
 
+/**
+ * Result of validating a fix anchor before dispatch.
+ *
+ * Shared by BOTH doors (MCP `handleFix` and the extension `fix` LM tool) so a
+ * duplicated or out-of-range anchor is refused consistently. The surgical
+ * fixer does NOT enforce occurrence uniqueness itself — `resolveAnchorText`
+ * takes the raw anchor verbatim when it appears — so without this guard a
+ * caller that skips it silently fixes the FIRST occurrence of a duplicated
+ * fragment. This helper is the single canonical form of that precondition.
+ */
+export interface FixAnchorValidation {
+  /** Set when the anchor is invalid — the caller must refuse the fix. */
+  error?: string;
+  /** The parseable, in-range line, or undefined when no line was provided. */
+  validLine?: number;
+}
+
+/**
+ * Validate `relevantText` as a surgically fixable anchor in `text`.
+ *
+ * - Parses the optional `line` defensively so a malformed value (e.g.
+ *   `Number('abc')` → NaN) cannot bypass the duplicate-anchor guard.
+ * - Bounds-checks a provided line against the document's actual line count;
+ *   an out-of-range line is rejected loudly rather than silently falling back
+ *   to first-match.
+ * - When no line is provided, counts raw occurrences of `relevantText`; if it
+ *   appears more than once, refuses unless a line disambiguates (matching the
+ *   interactive path, which disambiguates via paragraph at line).
+ *
+ * Returns `{ error }` on invalid input, else `{ validLine }`.
+ */
+export function validateFixAnchor(
+  text: string,
+  relevantText: string,
+  rawLine: unknown,
+): FixAnchorValidation {
+  const line =
+    typeof rawLine === 'number' && Number.isFinite(rawLine)
+      ? rawLine
+      : typeof rawLine === 'string' && rawLine.trim() !== '' && Number.isFinite(Number(rawLine))
+        ? Number(rawLine)
+        : undefined;
+
+  const lineCount = text.split('\n').length;
+  if (line !== undefined && (line < 0 || line >= lineCount)) {
+    return {
+      error: `line ${line} is out of range (document has ${lineCount} lines).`,
+    };
+  }
+
+  if (line === undefined) {
+    const occurrences = relevantText ? text.split(relevantText).length - 1 : 0;
+    if (occurrences > 1) {
+      return {
+        error: `relevantText appears ${occurrences} times in the document. Provide a "line" argument to disambiguate which occurrence to fix.`,
+      };
+    }
+  }
+
+  return { validLine: line ?? 0 };
+}
+
 /** Noise margin for median-of-N keep/revert decisions. */
 export const PENALTY_NOISE_MARGIN = 6;
 
