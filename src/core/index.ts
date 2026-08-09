@@ -39,6 +39,8 @@ export interface AnalyzeInput {
   token?: CancellationToken;
   /** Internal: used by scoring samples so repeated scans do not create loop findings. */
   skipLoopDetection?: boolean;
+  /** Provide the ACTUAL composed input size (entry + references) in chars. */
+  onInputSizeChanged?: (composedChars: number) => void;
 }
 
 export class Engine {
@@ -103,6 +105,7 @@ export class Engine {
           acceptedFindingsPath: input.acceptedFindingsPath,
           token: input.token,
           skipLoopDetection: input.skipLoopDetection,
+          onInputSizeChanged: input.onInputSizeChanged,
         },
         effectiveConfig,
       );
@@ -121,6 +124,7 @@ export class Engine {
         acceptedFindingsPath: input.acceptedFindingsPath,
         token: input.token,
         skipLoopDetection: input.skipLoopDetection,
+        onInputSizeChanged: input.onInputSizeChanged,
       },
       customDiagnostics,
       waves,

@@ -49,17 +49,41 @@ const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 /** Copilot context cache disk file (offline resilience, mirrors OpenRouter). */
 const COPILOT_DISK_CACHE_TTL_MS = 15 * 60 * 1000;
 
+/**
+ * Private per-user cache directory for the credential-derived cache filename.
+ * Unlike `os.tmpdir()` (world-listable on most Linux systems), this dir is
+ * created 0700 so a local observer cannot `ls` the filename and correlate it
+ * back to the API key's hash — closing the side channel that F-103 flagged.
+ * macOS/Windows use their standard user-cache dirs; Linux falls back to
+ * ~/.cache (which is user-private). Falls back to tmpdir (0777) only if the
+ * private dir cannot be created.
+ */
+function privateCacheDir(): string {
+  const dir = (() => {
+    if (process.platform === 'darwin') {
+      return path.join(os.homedir(), 'Library', 'Caches', 'skills-review-and-polish');
+    }
+    if (process.platform === 'win32') {
+      return path.join(os.tmpdir(), 'skills-review-and-polish-cache');
+    }
+    return path.join(os.homedir(), '.cache', 'skills-review-and-polish');
+  })();
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return dir;
+  } catch {
+    return os.tmpdir();
+  }
+}
+
 /** Copilot disk cache file, keyed by a token hash so different tokens don't share a cache.
  *
- * Security note: The filename uses a SHA256 prefix of the API key (first 16 hex chars = 64 bits).
- * This provides sufficient entropy to prevent brute-force identification — an attacker would need
- * to guess 2^64 possible values. The cache content only stores model context lengths (public data),
- * not any sensitive information. A random salt stored separately would add complexity without
- * meaningful security benefit for this use case.
+ * Housed under `privateCacheDir()` (0700), so the key-derived filename is not
+ * observable via a world-listable directory listing.
  */
 function copilotCacheFile(apiKey: string): string {
   const digest = createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
-  return path.join(os.tmpdir(), `skills-review-and-polish-copilot-context-cache-${digest}.json`);
+  return path.join(privateCacheDir(), `skills-review-and-polish-copilot-context-cache-${digest}.json`);
 }
 
 interface CatalogCache {
@@ -375,14 +399,17 @@ function writeCopilotDiskCache(cache: { models: Map<string, number>; fetchedAt: 
 export function _resetCopilotContextCache(): void {
   copilotCache.clear();
   copilotFetchInFlight.clear();
-  try {
-    const dir = os.tmpdir();
-    for (const f of fs.readdirSync(dir)) {
-      if (f.startsWith('skills-review-and-polish-copilot-context-cache-')) {
-        try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
+  // Clean the private cache dir (and the legacy /tmp location) so stale files
+  // left by earlier versions don't accumulate or leak.
+  for (const dir of [privateCacheDir(), os.tmpdir()]) {
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        if (f.startsWith('skills-review-and-polish-copilot-context-cache-')) {
+          try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
+        }
       }
-    }
-  } catch { /* ignore */ }
+    } catch { /* ignore */ }
+  }
 }
 
 /**

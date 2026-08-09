@@ -401,6 +401,7 @@ describe('createMcpToolRegistry', () => {
       text: 'A good prompt.',
       filePath: undefined,
       acceptedFindingsPath: expect.any(String),
+      onInputSizeChanged: expect.any(Function),
     });
     expect(JSON.parse(result.content[0].text)).toEqual(scoreResult);
   });

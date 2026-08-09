@@ -2233,9 +2233,13 @@ export function registerLanguageModelTools(
               new vscode.LanguageModelTextPart(JSON.stringify({ error: `filePath "${filePath}" is outside the workspace root and was rejected.` })),
             ]);
           }
-          const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(safePath), token: _token });
+          // Provide the ACTUAL composed input size (entry + references) to the
+          // session-budget charge so reference-heavy skills are billed on real
+          // spend, not just the entry file.
+          let composedInputChars = text.length;
+          const results = await engine.analyze({ text, filePath: safePath, acceptedFindingsPath: getAcceptedFindingsPath(safePath), token: _token, onInputSizeChanged: (composedChars) => { composedInputChars = composedChars; } });
           const body = JSON.stringify(results, null, 2);
-          chargeTokens(text.length, body, waves);
+          chargeTokens(composedInputChars, body, waves);
           return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(body),
           ]);

@@ -64,6 +64,16 @@ export interface AnalyzerInput {
   token?: CancellationToken;
   /** Internal: scoring samples should not mutate or consult recommendation history. */
   skipLoopDetection?: boolean;
+  /**
+   * Optional callback fired once per analyze() with the ACTUAL composed input
+   * size (entry file + reference files) in chars. The session-budget guards
+   * (`chargeTokens`/`reserveTokens`) bill on `text.length`, which is the entry
+   * file only — a reference-heavy skill sends 3-5× that to the LLM per wave.
+   * Callers that care about bounding real spend can use this to re-reserve /
+   * re-charge against the composed size. Good citizenship: stay idempotent and
+   * cheap (fired at most once per analyze()).
+   */
+  onInputSizeChanged?: (composedChars: number) => void;
 }
 
 export interface CustomDiagnosticConfig {
@@ -208,6 +218,8 @@ export class Analyzer {
 
   private readonly log: Logger = createLogger('analyzer');
   private readonly store: AnalysisHistoryStore;
+  /** Per-run callback for the composed input size (set by analyze(); fired once). */
+  private composedSizeCallback?: (composedChars: number) => void;
   /**
    * Per-wave structured-output disable flag (plan item 3a). When a wave's
    * first request returns a non-stop finish reason, we set the flag for that
@@ -252,6 +264,8 @@ export class Analyzer {
     // Reset the per-run prompt cache so a stale document is never reused
     // across documents (the Engine reuses this Analyzer instance).
     this.cachedUserPrompt = undefined;
+    // Capture the composed-size callback for the duration of this run.
+    this.composedSizeCallback = input.onInputSizeChanged;
 
     try {
       if (token?.isCancellationRequested) return results;
@@ -340,6 +354,8 @@ export class Analyzer {
     const results: AnalysisResult[] = [];
     // Reset the per-run prompt cache (see analyze() for rationale).
     this.cachedUserPrompt = undefined;
+    // Capture the composed-size callback for the duration of this run.
+    this.composedSizeCallback = input.onInputSizeChanged;
     try {
       if (input.token?.isCancellationRequested) return results;
       const skillMetadata = this.parseSkillMetadata(input.text);
@@ -1783,6 +1799,13 @@ export class Analyzer {
       }
     }
     const { documentText, omittedChars, omittedRefs } = this.buildAnalysisDocument(text, refs);
+    // Report the ACTUAL composed input size (entry + references) to any
+    // session-budget guard wired up via `onInputSizeChanged`, so reserve/
+    // charge can bound against real spend rather than the entry file alone.
+    if (this.composedSizeCallback) {
+      this.composedSizeCallback(documentText.length);
+      this.composedSizeCallback = undefined; // fire at most once per run
+    }
     const truncationNotice = omittedChars > 0
       ? `\nOversized-document note: the entry document exceeds the model context budget by ${omittedChars} character(s). Findings must be grounded in the entry document only.\n`
       : '';

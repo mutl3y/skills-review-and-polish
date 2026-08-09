@@ -415,17 +415,23 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
     }, 15_000);
   }
   try {
+    // Track the ACTUAL composed input size (entry + references). The analyzer
+    // fires `onInputSizeChanged` once it builds the analysis document, which
+    // may be larger than `text` when reference files are linked. Billing on
+    // `text.length` alone under-charges the guard for reference-heavy skills.
+    let composedInputChars = text.length;
     const results = await engine.analyze({
       text,
       filePath: requireSafeFilePath(args),
       acceptedFindingsPath: resolveAcceptedFindingsPath(),
+      onInputSizeChanged: (composedChars) => { composedInputChars = composedChars; },
     }, undefined, undefined, configOverride);
     const body = JSON.stringify(results, null, 2);
     // Charge the budget (input × waves + output). If this call pushes us
     // over the cap, we still return its result (the work is done) but mark
     // the budget exhausted so the next analysis request is refused.
     const waves = estimateWaveCount(ctx.resolvedConfig?.engineConfig, analysisWaves);
-    chargeTokens(text.length, body, waves);
+    chargeTokens(composedInputChars, body, waves);
     return { content: [{ type: 'text', text: body }] };
   } finally {
     if (progressTimer) clearInterval(progressTimer);
@@ -623,17 +629,22 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
   if (!reserveTokens(text.length, waves * samples)) {
     return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: budgetExhaustedError().message }, null, 2) }], isError: true };
   }
+  let composedInputChars = text.length;
   const result = await engine.score({
     text,
     filePath: requireSafeFilePath(args),
     // Respect accepted findings so score doesn't penalize issues the user
     // already accepted (handleAnalyze/handleVerifyFix pass this; score must too).
     acceptedFindingsPath: resolveAcceptedFindingsPath(),
+    // The analyzer reports the composed input size (entry + references). score
+    // runs samples each firing the callback; the last sample's composed size is
+    // representative, so use it as a floor over the entry text.
+    onInputSizeChanged: (composedChars) => { composedInputChars = Math.max(composedInputChars, composedChars); },
   });
   const body = JSON.stringify(result, null, 2);
   // score runs scoreSamples analyses × the configured wave count each. Clamp
   // samples to the engine's 1-5 range so the charge matches actual work.
-  chargeTokens(text.length, body, waves * samples);
+  chargeTokens(composedInputChars, body, waves * samples);
   return { content: [{ type: 'text', text: body }] };
 }
 
