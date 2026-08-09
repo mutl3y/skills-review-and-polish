@@ -196,7 +196,15 @@ async function fetchWithRetry(
 /** Pull the assistant text from a chat-completions response payload. */
 function extractText(resp: Record<string, unknown>): string {
   const choices = resp['choices'] as Array<Record<string, unknown>> | undefined;
-  return ((choices?.[0]?.['message'] as Record<string, unknown> | undefined)?.['content'] as string) ?? '';
+  const content = (choices?.[0]?.['message'] as Record<string, unknown> | undefined)?.['content'];
+  // Type guard: if content is not a string, log a warning and return empty.
+  // This catches future API changes (e.g. structured content blocks as arrays)
+  // rather than silently dropping the entire response.
+  if (typeof content !== 'string') {
+    console.warn('[SkillsReview] extractText: expected string content, got', typeof content);
+    return '';
+  }
+  return content;
 }
 
 function extractFinishReason(resp: Record<string, unknown>): string | undefined {

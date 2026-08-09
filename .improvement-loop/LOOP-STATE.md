@@ -6,9 +6,9 @@
 
 ## Current Status
 
-**Iteration:** 02 (FINAL)
-**Next action:** Write FINAL-REPORT.md and STOP
-**In-progress work:** Independent verification pass complete — CONVERGED
+**Iteration:** 03 → 04 (looping)
+**Next action:** Independent verification pass (Step 1 of Iteration 04)
+**In-progress work:** None — all valid findings from Iteration 03 remediated
 
 ## Verification Baseline
 
@@ -27,6 +27,15 @@
 | F-005 | LOW | CONFIRMED | `src/core/analyzer.ts` | Limited JSON repair surface — only trailing commas handled | OPEN |
 | F-006 | INFO | HIGH | `src/modelCatalog.ts` | Model catalog disk cache paths deterministically derivable from API keys | OPEN |
 
+## New Findings (Iteration 03 independent review)
+
+| ID | Severity | Confidence | File | Description | Status |
+|----|----------|------------|------|-------------|--------|
+| F-007 | HIGH | HIGH | `src/core/analyzer.ts:202` | `MAX_COMPOSED_SIZE` hardcoded to 100K chars ignores per-model context budgets | REJECTED — Edge case with unsupported models |
+| F-008 | MEDIUM | HIGH | `src/mcp/server.ts` | No rate limiting on MCP tool calls — LLM agent can fire unlimited requests | REMEDIATED |
+| F-010 | MEDIUM | HIGH | `src/mcp/server.ts:747` | `createDefaultEngine` swallows config-file parse errors silently | REMEDIATED |
+| F-011 | LOW | MEDIUM | `src/providers/externalProvider.ts:148` | `extractText` has no null-safety on nested property access | REMEDIATED |
+
 ## Artifact Trail
 
 ### Iteration 01 Remediation
@@ -39,6 +48,16 @@
 | `src/modelCatalog.ts` | Added security rationale comment for deterministic cache filename design | F-006 |
 
 **Rejected findings:** F-001 (already fixed on activation), F-003 (charge formula correct — each wave receives full doc)
+
+### Iteration 03 Remediation
+
+| File | Change | Finding |
+|------|--------|---------|
+| `src/mcp/server.ts` | Added sliding-window rate limiter (`checkRateLimit()`) applied to all paid tool handlers (analyze, fix, score, verifyFix); max 30 calls/minute | F-008 |
+| `src/mcp/server.ts` | Fixed outer catch in `createDefaultEngine()` to distinguish "file not found" from "file exists but invalid"; logs warning instead of silent swallow | F-010 |
+| `src/providers/externalProvider.ts` | Added type guard in `extractText()` — logs warning when content is not a string instead of silently returning empty | F-011 |
+
+**Rejected findings:** F-007 (100K cap reasonable; composition-conflicts is one wave among six; smallest supported model is 128K-context)
 
 ## Lessons
 

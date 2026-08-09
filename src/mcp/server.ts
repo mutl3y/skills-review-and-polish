@@ -326,7 +326,37 @@ let _lastAnalyzeTimestamp = 0;
 /** Reset the rate-limit timestamp (for tests). */
 export function _resetAnalyzeCooldown(): void { _lastAnalyzeTimestamp = 0; }
 
+/** General rate limiter: sliding window to prevent burst abuse from LLM agents.
+ * Limits to maxCalls per windowMs across ALL tool types (analyze, fix, score, etc.).
+ * This prevents an agent stuck in a retry loop from hammering the provider with
+ * unlimited requests — the session budget catches cumulative spend, but this
+ * catches burst patterns that could exhaust a provider's per-minute quota before
+ * the cumulative budget is reached.
+ */
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute sliding window
+const RATE_LIMIT_MAX_CALLS = 30;     // max 30 tool calls per minute
+const _rateLimitTimestamps: number[] = [];
+
+/** Check if a new call is allowed under the rate limit. Returns true if allowed. */
+function checkRateLimit(): boolean {
+  const now = Date.now();
+  // Prune timestamps outside the sliding window
+  while (_rateLimitTimestamps.length > 0 && _rateLimitTimestamps[0] < now - RATE_LIMIT_WINDOW_MS) {
+    _rateLimitTimestamps.shift();
+  }
+  if (_rateLimitTimestamps.length >= RATE_LIMIT_MAX_CALLS) {
+    return false;
+  }
+  _rateLimitTimestamps.push(now);
+  return true;
+}
+
 async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
+  // Rate limit: prevent burst abuse from LLM agents (max 30 calls/minute across all tools).
+  if (!checkRateLimit()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: 'Rate limit exceeded: max 30 tool calls per minute. Please wait before making another request.' }, null, 2) }], isError: true };
+  }
+
   // Resolve the engine first so we can size the text limit to the provider's
   // context length (large-context models accept larger documents).
   const engine = await ctx.getEngine();
@@ -404,6 +434,11 @@ async function handleAnalyze(args: Record<string, unknown>, ctx: ToolHandlerCont
 }
 
 async function handleFix(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
+  // Rate limit: prevent burst abuse from LLM agents (max 30 calls/minute across all tools).
+  if (!checkRateLimit()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: 'Rate limit exceeded: max 30 tool calls per minute. Please wait before making another request.' }, null, 2) }], isError: true };
+  }
+
   const engine = await ctx.getEngine();
   const text = requireText(args, maxTextLengthForContext(providerContextLength(engine)));
   // Cost guard: fix invokes the LLM (and can loop), so it is a paid operation
@@ -572,6 +607,11 @@ async function handleHealth(_args: Record<string, unknown>, ctx: ToolHandlerCont
 }
 
 async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
+  // Rate limit: prevent burst abuse from LLM agents (max 30 calls/minute across all tools).
+  if (!checkRateLimit()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: 'Rate limit exceeded: max 30 tool calls per minute. Please wait before making another request.' }, null, 2) }], isError: true };
+  }
+
   const engine = await ctx.getEngine();
   const text = requireText(args, maxTextLengthForContext(providerContextLength(engine)));
   if (budgetExhausted()) {
@@ -599,6 +639,11 @@ async function handleScore(args: Record<string, unknown>, ctx: ToolHandlerContex
 }
 
 async function handleVerifyFix(args: Record<string, unknown>, ctx: ToolHandlerContext): Promise<McpToolCallResult> {
+  // Rate limit: prevent burst abuse from LLM agents (max 30 calls/minute across all tools).
+  if (!checkRateLimit()) {
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'error', error: 'Rate limit exceeded: max 30 tool calls per minute. Please wait before making another request.' }, null, 2) }], isError: true };
+  }
+
   const engine = await ctx.getEngine();
   const text = requireText(args, maxTextLengthForContext(providerContextLength(engine)));
   if (budgetExhausted()) {
@@ -818,8 +863,15 @@ export async function createDefaultEngine(): Promise<{ engine: Engine; config: M
         }
       }
     }
-  } catch {
-    // File doesn't exist or is malformed — fall through to env vars
+  } catch (err) {
+    // Distinguish "file not found" (silently fall through) from "file exists but invalid"
+    // (log a warning so users aren't left wondering why their config is ignored).
+    if (!fs.existsSync(configPath)) { /* genuinely missing — fall through to env vars */ }
+    else {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[SkillsReview] MCP config: ignoring malformed .skills-review.json at ${configPath}: ${msg}`);
+      // Fall through to env vars — the user's config was partially or fully ignored.
+    }
   }
 
   // Priority 2: env vars (existing logic)
