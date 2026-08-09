@@ -26,10 +26,13 @@ describe('redactSecrets', () => {
   });
 
   it('redacts Stripe-style underscore keys (sk_live_/rk_test_)', () => {
-    const live = redactSecrets('sk_live_51HabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP');
+    // Fixture keys are assembled at runtime so the contiguous secret-shaped
+    // literal never appears in source (keeps GitHub push protection happy
+    // while still exercising the redaction regex against a Stripe-style key).
+    const live = redactSecrets('sk_liv' + 'e_51HabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP');
     expect(live).toContain('[REDACTED]');
     expect(live).not.toContain('sk_live_');
-    const test = redactSecrets('rk_test_51HabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP');
+    const test = redactSecrets('rk_tes' + 't_51HabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP');
     expect(test).toContain('[REDACTED]');
     expect(test).not.toContain('rk_test_');
   });
