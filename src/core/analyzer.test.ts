@@ -986,7 +986,7 @@ describe('analysis history and resilience', () => {
   it('returns no loop when history is empty or overlap is too low', () => {
     const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
 
-    expect((analyzer as any).detectLoops('new.md', []).isLoop).toBe(false);
+    expect((analyzer as any).detectLoops('new.md', [], 'cur').isLoop).toBe(false);
 
     store.set('doc.md', {
       uri: 'doc.md',
@@ -995,7 +995,7 @@ describe('analysis history and resilience', () => {
       skillMetadata: { useCaseKeywords: [], isSkill: false },
     });
 
-    expect((analyzer as any).detectLoops('doc.md', [{ timestamp: 2, issueCode: 'hygiene-over-specification', relevantText: 'Never use this', issueHash: 'y', severity: 'info', suggestion: 'Remove it' }]).isLoop).toBe(false);
+    expect((analyzer as any).detectLoops('doc.md', [{ timestamp: 2, issueCode: 'hygiene-over-specification', relevantText: 'Never use this', issueHash: 'y', severity: 'info', suggestion: 'Remove it' }], 'cur').isLoop).toBe(false);
   });
 
   it('evicts oldest entries when the store is filled purely via set()', () => {
@@ -1147,7 +1147,7 @@ describe('analysis history and resilience', () => {
         severity: 'warning',
         suggestion: 'Tighten it',
       },
-    ]);
+    ], 'changed-fingerprint');
 
     expect(loop.isLoop).toBe(true);
     expect(loop.explanation).toContain('match');
@@ -1706,7 +1706,7 @@ describe('analyze — cancellation', () => {
 // ─── analyze — loop detection (end-to-end) ────────────────────────────────────
 
 describe('analyze — loop detection end-to-end', () => {
-  it('adds llm-loop-detected on second call with identical findings', async () => {
+  it('does NOT flag a loop on a second call with an UNCHANGED document', async () => {
     const store = new AnalysisHistoryStore();
     const analyzer = makeAnalyzer(async () => ({
       text: JSON.stringify({
@@ -1729,7 +1729,40 @@ describe('analyze — loop detection end-to-end', () => {
     const text = 'Be professional in all responses.';
 
     await analyzer.analyze({ text, filePath: docPath });
+    // Same byte-identical text re-analyzed (e.g. a re-review of stable code)
+    // must NOT be flagged as a loop — reproducing identical findings on an
+    // unchanged document is expected, not a pathological non-convergence.
     const second = await analyzer.analyze({ text, filePath: docPath });
+
+    expect(second.some(r => r.code === 'llm-loop-detected')).toBe(false);
+  });
+
+  it('flags a loop when findings recur after the document changed', async () => {
+    const store = new AnalysisHistoryStore();
+    const analyzer = makeAnalyzer(async () => ({
+      text: JSON.stringify({
+        contradictions: [],
+        ambiguity_issues: [{
+          text: 'be professional',
+          type: 'term',
+          severity: 'warning',
+          problem: 'Vague',
+          suggestion: 'Define it',
+        }],
+        persona_issues: [],
+        cognitive_load: { issues: [], overall_complexity: 'low' },
+        coverage_analysis: {},
+        hygiene_issues: [],
+      }),
+    }), store);
+
+    const docPath = '/tmp/loop-test.md';
+
+    // First analysis on version A.
+    await analyzer.analyze({ text: 'Be professional in all responses.', filePath: docPath });
+    // Remediation edits the document (changed fingerprint) but the SAME
+    // ambiguous finding recurs — that is a true non-convergence loop.
+    const second = await analyzer.analyze({ text: 'Be professional in all responses. But be friendly too.', filePath: docPath });
 
     expect(second.some(r => r.code === 'llm-loop-detected')).toBe(true);
   });
