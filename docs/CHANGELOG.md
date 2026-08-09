@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.51] — 2026-08-09
+
+### Changed
+
+- **Shared, selection-safe reference-file resolver (`src/core/referenceFiles.ts`).** The analyzer's linked-file reading and the fixer's reference grounding now defer to one shared, path-safe resolver. It recognizes **markdown links AND backtick/table paths** (`[x](./references/foo.md)` and `` `references/foo.md` ``), so meta-skills that reference their files via backtick tables are now correctly grounded in analysis — previously the analyzer only followed markdown links and silently missed table-referenced files, causing false-positive "undefined term" findings. Deduplicates equivalent spellings (`references/x.md` vs `./references/x.md`) and **excludes output artifacts** (e.g. a `FINAL-REPORT.md` the skill *writes*) from being treated as input references. Selection is restricted to files the document actually points to — a raw glob of the `references/` dir was rejected because a stray `README.md` would taint the prompt.
+
+### Fixed
+
+- **Fixer reference grounding was a glob of the whole `references/` directory**, sweeping in unlinked/stray files. `loadReferenceGrounding` now uses the shared selection-safe resolver.
+- **Fixer grounding silently mid-truncated reference files at a fixed 1800-char cap.** It now drops whole files that exceed the budget (no silent partial definitions), scales the budget with the provider context (`max(1800, ctx × chars/token × 0.05)`), and memoizes the resolve+read by directory mtime so a fix loop reads the reference dir once instead of once per fragment.
+- **vscode.lm stream timeout was a hard 90s wall-clock.** It now uses an **idle/progress-reset watchdog**: the timer re-arms on every streamed token, so a slow-but-streaming model is never killed by a total-elapsed cap — only a genuinely stalled stream times out. The timeout is configurable via `external.requestTimeoutMs`.
+- **OpenRouter models that are also available through `vscode.lm` now route to the streaming provider** (extension host only), giving them token streams + idle timeout instead of the buffered fetch path. Models/keys not reachable via `vscode.lm` fall back to the fetch `OpenRouterProvider`. The MCP server is headless (no `vscode.lm`) and is intentionally unchanged.
+
 ## [0.1.50] — 2026-07-19 (marketplace publish)
 
 ### Fixed

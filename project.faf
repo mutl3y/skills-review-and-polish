@@ -36,5 +36,5 @@ human_context:
   who: Developers
   where: https://github.com/mutl3y/skills-review-and-polish
   why: Improve AI prompt quality
-  when: Active dev, v0.1.50
+  when: Active dev, v0.1.51
   how: 6-wave LLM analyzer + surgical fixer

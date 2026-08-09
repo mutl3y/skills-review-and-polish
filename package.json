@@ -1,8 +1,8 @@
 {
   "name": "skills-review-and-polish",
   "displayName": "Skills Review and Polish",
-  "description": "Authoring-time linter and fixer for AI customization files. Catches contradictions, ambiguities, coverage gaps, and structural issues. VS Code extension provides AI-suggested fixes with diff preview for human review.",
-  "version": "0.1.50",
+  "description": "Authoring-time linter and fixer for AI customization files (SKILL.md, AGENTS.md, instructions, prompts). Catches contradictions, ambiguities, coverage gaps, and structural issues with a multi-wave LLM analyzer, grounding analysis in each skill's reference files. VS Code extension provides AI-suggested fixes with diff preview for human review.",
+  "version": "0.1.51",
   "publisher": "mutl3y",
   "repository": {
     "type": "git",

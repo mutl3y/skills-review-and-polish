@@ -4,7 +4,7 @@
 
 Uses your **GitHub Copilot subscription** via the VS Code Language Model API — **no API keys required**.
 
-## Status: v0.1.50 — released
+## Status: v0.1.51 — released
 
 A production-ready authoring-time linter for AI customization files. Current
 calibration evidence (clean-fixture, schema-mode, 5×3): **87.3% recall**,
@@ -14,6 +14,15 @@ solid; ongoing work is **precision hardening** (target ≥85% accepted findings)
 to reduce false positives, not a blocker on using it as a linter today. Treat
 production-skill counts as coverage evidence, not validated precision/recall.
 
+- **v0.1.51** — Reference-grounding + provider reliability: a shared,
+  selection-safe reference resolver grounds analysis in skill reference files
+  referenced via markdown links **or** backtick/table paths (fixing false-positive
+  "undefined term" findings on meta-skills), dedupes equivalent spellings, and
+  excludes output artifacts. The fixer's reference grounding uses the same
+  resolver (no more whole-dir glob), drops whole files instead of silently
+  truncating, and scales its budget with the provider. `vscode.lm` streams now
+  use an **idle/progress-reset timeout** instead of a hard 90s wall-clock, and
+  OpenRouter models exposed via `vscode.lm` route to the streaming provider.
 - **v0.1.50** — Grading + parsing hardening: `scoreSkill` no longer withholds the letter grade when only *legitimate* meta findings are present (`llm-loop-detected`, `high-complexity`, `limited-coverage`) — only true analysis failures (`llm-error`, `llm-parse-error`, `llm-disabled`, `llm-rate-limited`) force `Ungraded`. `extractJSON` now tolerates valid JSON followed by trailing prose (free models that append commentary after the JSON object/array).
 - **v0.1.49** — Withholds the letter grade (`Ungraded`) when ANY wave fails or is rate-limited, instead of reporting a misleading letter grade on partial analysis; failed waves now retry once (stream-iteration + same-tier error retry) and the UI warns about failed waves by name.
 - **v0.1.48** — Fixed extension activation failure (`Cannot find module 'picomatch'`) caused by a stale `--no-dependencies` publish flag; `verify:vsix` now uses the same vsce packager as publish.
