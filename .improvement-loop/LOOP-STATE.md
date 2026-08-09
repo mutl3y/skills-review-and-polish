@@ -6,9 +6,9 @@
 
 ## Current Status
 
-**Iteration:** 05 → 06 (looping)
-**Next action:** Independent verification pass (Step 1 of Iteration 06)
-**In-progress work:** None — all valid findings from Iteration 05 remediated
+**Iteration:** 06 (FINAL)
+**Next action:** Write FINAL-REPORT.md and STOP
+**In-progress work:** Independent verification pass complete — CONVERGED
 
 ## Verification Baseline
 
@@ -74,3 +74,9 @@
 6. **Outer catch blocks are silent killers.** A bare `catch {}` swallows everything including explicitly-thrown errors. Always distinguish "expected missing" from "unexpected failure" and log accordingly.
 
 7. **Type guards beat casts.** Double-casting through `as Record<string, unknown>` then accessing properties silently corrupts on malformed input. A `typeof` check with warning is safer than assuming the API contract holds.
+
+8. **Structured content is real.** OpenAI-compatible providers return `content: [{type:"text", text:"..."}]` arrays, not strings. Any extraction function must handle both formats or silently drop responses.
+
+9. **O(n³) is avoidable.** Triple loops for cycle detection can be replaced with two-phase set lookups. For N definitions, this goes from O(n³) to O(n × avg_degree) — same results, better performance.
+
+10. **Cache keys need uniqueness guarantees.** Truncating anchor text to 100 chars creates collision risk. A simple hash + prefix ensures uniqueness while keeping cache keys readable.
