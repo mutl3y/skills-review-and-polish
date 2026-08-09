@@ -49,7 +49,14 @@ const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 /** Copilot context cache disk file (offline resilience, mirrors OpenRouter). */
 const COPILOT_DISK_CACHE_TTL_MS = 15 * 60 * 1000;
 
-/** Copilot disk cache file, keyed by a token hash so different tokens don't share a cache. */
+/** Copilot disk cache file, keyed by a token hash so different tokens don't share a cache.
+ *
+ * Security note: The filename uses a SHA256 prefix of the API key (first 16 hex chars = 64 bits).
+ * This provides sufficient entropy to prevent brute-force identification — an attacker would need
+ * to guess 2^64 possible values. The cache content only stores model context lengths (public data),
+ * not any sensitive information. A random salt stored separately would add complexity without
+ * meaningful security benefit for this use case.
+ */
 function copilotCacheFile(apiKey: string): string {
   const digest = createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
   return path.join(os.tmpdir(), `skills-review-and-polish-copilot-context-cache-${digest}.json`);

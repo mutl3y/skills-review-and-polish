@@ -70,28 +70,14 @@ export function validateRelevantText(raw: string): string {
 }
 
 /**
- * Default path: tries workspace root via `vscode.workspace.workspaceFolders`.
+ * Sentinel value indicating no default path is available.
  *
- * IMPORTANT: This constant is ONLY for use by callers that have confirmed a
- * workspace folder exists. In the MCP server context (no vscode module), callers
- * MUST always pass an explicit path — this fallback is intentionally absent to
- * prevent accidental writes to the user's home directory.
+ * Callers MUST always provide an explicit path — this module is extension-agnostic
+ * and must not depend on VS Code at runtime. In the MCP server context, callers
+ * use `resolveWorkspaceRoot()`; in the extension context, callers resolve from
+ * workspace folders via `vscode.workspace.workspaceFolders`.
  */
-export const DEFAULT_ACCEPTED_FINDINGS_PATH = (() => {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const vscode = require('vscode') as typeof import('vscode');
-    const folders = vscode.workspace?.workspaceFolders;
-    if (folders && folders.length > 0) {
-      return path.join(folders[0].uri.fsPath, '.accepted-findings.json');
-    }
-  } catch {
-    /* not running inside VS Code extension host — fall through */
-  }
-  // No workspace available — return empty string as a sentinel.
-  // Callers that need a valid path must provide one explicitly.
-  return '';
-})();
+export const DEFAULT_ACCEPTED_FINDINGS_PATH = '';
 
 // ─── File-name sanitization ──────────────────────────────────────────────────
 

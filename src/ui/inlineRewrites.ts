@@ -5,6 +5,15 @@
  * false), this provider offers ghost-text previews of surgical fix proposals at
  * diagnostic positions. The user accepts with Tab.
  *
+ * SAFETY NOTE: Unlike the main Fix command which shows a QuickPick diff dialog
+ * before applying, inline completions apply directly on Tab accept. This is
+ * acceptable because:
+ *   1. Ghost text provides a visual preview of the exact change before acceptance
+ *   2. The SurgicalFixer safety gates still apply (length bounds, obligation
+ *      preservation, fence injection detection)
+ *   3. The feature is EXPERIMENTAL and OFF BY DEFAULT
+ *   4. Users can undo with Ctrl+Z if the fix is incorrect
+ *
  * Implementation constraints:
  * - Runs ONLY when `inlineRewrites = true` (the setting is off by default and
  *   deliberately marked EXPERIMENTAL in the settings description).

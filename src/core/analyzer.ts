@@ -1472,6 +1472,22 @@ export class Analyzer {
     let repaired = jsonStr;
     // Common model defect: trailing comma before a closing array/object.
     repaired = repaired.replace(/,\s*([}\]])/g, '$1');
+    // Common model defect: single-quoted strings (swap to double quotes).
+    // Only repair when the outer structure uses double quotes — avoids corrupting
+    // text that legitimately uses single quotes inside values.
+    if (/^[[{]/.test(repaired) && !repaired.includes('"')) {
+      repaired = repaired.replace(/'/g, '"');
+    }
+    // Common model defect: unquoted keys (e.g. {key: "value"}).
+    // Match word characters followed by colon at the start of a key position.
+    repaired = repaired.replace(
+      /([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g,
+      '$1"$2":',
+    );
+    // Common model defect: JavaScript-style null/undefined/NaN literals.
+    // Replace with valid JSON equivalents (null is valid; undefined/NaN are not).
+    repaired = repaired.replace(/\bundefined\b/g, 'null');
+    repaired = repaired.replace(/\bNaN\b/g, 'null');
     return repaired;
   }
 
