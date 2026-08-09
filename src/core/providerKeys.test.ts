@@ -53,12 +53,45 @@ describe('validateKeyForProvider', () => {
       expect(validateKeyForProvider('copilot', key)).toBeNull();
     });
 
+    it('accepts a fine-grained GitHub token (github_pat_)', () => {
+      const key = 'github_pat_abcDEF1234567890_abcdefghijklmnopqrstuvwxyzABCDEFGH';
+      expect(validateKeyForProvider('copilot', key)).toBeNull();
+    });
+
+    it('accepts other documented GitHub token shapes (ghu_/ghs_/gho_/ghr_)', () => {
+      expect(validateKeyForProvider('copilot', 'ghu_abcdefghijklmnopqrstuvwxyz1234567890')).toBeNull();
+      expect(validateKeyForProvider('copilot', 'ghs_abcdefghijklmnopqrstuvwxyz1234567890')).toBeNull();
+      expect(validateKeyForProvider('copilot', 'gho_abcdefghijklmnopqrstuvwxyz1234567890')).toBeNull();
+      expect(validateKeyForProvider('copilot', 'ghr_abcdefghijklmnopqrstuvwxyz1234567890')).toBeNull();
+    });
+
     it('rejects an OpenRouter key (sk-or-v1-) — would leak to the wrong provider', () => {
       const key = 'sk-or-v1-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
       const err = validateKeyForProvider('copilot', key);
       expect(err).toBeTruthy();
       expect(err).toMatch(/GitHub token/);
       expect(err).not.toContain(key);
+    });
+
+    it('rejects a private OpenAI sk- key (reject-list must not leak it)', () => {
+      const key = 'sk-abcdefghijklmnopqrstuvwxyz';
+      const err = validateKeyForProvider('copilot', key);
+      expect(err).toBeTruthy();
+      expect(err).toMatch(/GitHub token/);
+      expect(err).not.toContain(key);
+    });
+
+    it('rejects a Google AIza key (must not ship to api.githubcopilot.com)', () => {
+      const key = 'AIzaSyAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const err = validateKeyForProvider('copilot', key);
+      expect(err).toBeTruthy();
+      expect(err).toMatch(/GitHub token/);
+    });
+
+    it('rejects an arbitrary non-GitHub string (not a valid token shape)', () => {
+      const err = validateKeyForProvider('copilot', 'some-random-stale-key-value');
+      expect(err).toBeTruthy();
+      expect(err).toMatch(/GitHub token/);
     });
 
     it('rejects an undefined key for copilot', () => {

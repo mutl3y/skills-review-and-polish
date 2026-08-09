@@ -12,7 +12,7 @@ import { redactSecrets } from '../core/redact';
 import { acceptFinding, loadAcceptedFindings, isFindingAccepted, validateRelevantText } from '../core/acceptedFindings';
 import { validateKeyForProvider } from '../core/providerKeys';
 import { safeResolveFilePath as safeResolveFilePathShared } from '../core/pathSafety';
-import { DEFAULT_DOCUMENT_CHARS } from '../core/tokenBudget';
+import { DEFAULT_DOCUMENT_CHARS, MIN_DOCUMENT_CHARS } from '../core/tokenBudget';
 import {
   budgetExhausted,
   budgetExhaustedError,
@@ -50,8 +50,7 @@ export interface McpEngineConfig {
  */
 const MAX_TEXT_LENGTH = DEFAULT_DOCUMENT_CHARS; // ~50k tokens
 
-/** Minimum document chars the analyzer always accepts (mirrors Analyzer.MIN_DOCUMENT_CHARS). */
-const MIN_DOCUMENT_CHARS = 8_000;
+/** Minimum text length the analyzer always accepts (shared, see tokenBudget.ts). */
 
 // ---------------------------------------------------------------------------
 // Cost budget guard

@@ -16,7 +16,7 @@
 import * as crypto from 'crypto';
 import { stripCodeFences } from './llmText';
 import { readSkillsReferences } from './referenceFiles';
-import { DEFAULT_DOCUMENT_CHARS } from './tokenBudget';
+import { DEFAULT_DOCUMENT_CHARS, MIN_DOCUMENT_CHARS } from './tokenBudget';
 import {
   AnalysisResult,
   CancellationToken,
@@ -197,8 +197,8 @@ export class Analyzer {
   private static readonly FALLBACK_DOCUMENT_CHARS = DEFAULT_DOCUMENT_CHARS;
   /** Reserve a fraction of the model's context for system prompt + response. */
   private static readonly CONTEXT_FRACTION = 0.8;
-  /** Floor so very small models still get useful document text. */
-  private static readonly MIN_DOCUMENT_CHARS = 8_000;
+  /** Floor so very small models still get useful document text (shared constant). */
+  private static readonly MIN_DOCUMENT_CHARS = MIN_DOCUMENT_CHARS;
   private static readonly MAX_CONTRADICTION_ITEMS = 25;
   private static readonly MAX_AMBIGUITY_ITEMS = 25;
   private static readonly MAX_PERSONA_ITEMS = 10;
@@ -1618,6 +1618,16 @@ export class Analyzer {
   ): Promise<LlmResponse> {
     this.log.trace('callLLM: sending request', { tier, promptLen: prompt.length, systemLen: systemPrompt.length, disableStructuredOutput, maxTokensMultiplier });
     const response = await this.provider.complete({ prompt, systemPrompt, modelTier: tier, token, disableStructuredOutput, maxTokensMultiplier });
+    // Recompute the structured-output flag from the wave map AFTER the first
+    // request, so every downstream branch (finish-reason retry, deep→standard
+    // fallback, same-tier retry) sees the same, current value. A prior `error`
+    // finish reason on this wave may have just set waveDisableStructuredOutput,
+    // and reusing the pre-call parameter would re-issue schema mode on paths
+    // that expect it to be off — a latent trap if callers later change what
+    // sets the flag.
+    const effectiveDisableStructuredOutput = waveKey
+      ? this.waveDisableStructuredOutput.get(waveKey) === true
+      : disableStructuredOutput;
     this.log.trace('callLLM: response received', {
       tier,
       error: response.error,
@@ -1655,7 +1665,7 @@ export class Analyzer {
       // pre-call value (which would likely fail the same way).
       const retryDisableStructuredOutput = waveKey
         ? this.waveDisableStructuredOutput.get(waveKey) === true
-        : disableStructuredOutput;
+        : effectiveDisableStructuredOutput;
       const retry = await this.provider.complete({ prompt, systemPrompt, modelTier: tier, token, disableStructuredOutput: retryDisableStructuredOutput, maxTokensMultiplier });
       this.log.trace('callLLM: retry response received', {
         tier,
@@ -1686,7 +1696,7 @@ export class Analyzer {
       // Pass maxTokensMultiplier through the fallback so a wave that requested
       // extra output headroom doesn't lose it on the deep→standard path
       // (risking finish_reason: length truncation).
-      const fallback = await this.provider.complete({ prompt, systemPrompt, modelTier: 'standard', token, disableStructuredOutput, maxTokensMultiplier });
+      const fallback = await this.provider.complete({ prompt, systemPrompt, modelTier: 'standard', token, disableStructuredOutput: effectiveDisableStructuredOutput, maxTokensMultiplier });
       this.log.trace('callLLM: standard fallback response received', {
         error: fallback.error,
         finishReason: fallback.finishReason,
@@ -1708,7 +1718,7 @@ export class Analyzer {
     // limits are excluded (they follow the RateLimitError path).
     if (response.error && !response.isRateLimit && tier !== 'deep') {
       this.log.info('callLLM: retrying same tier after provider error', { tier, error: response.error });
-      const retry = await this.provider.complete({ prompt, systemPrompt, modelTier: tier, token, disableStructuredOutput, maxTokensMultiplier });
+      const retry = await this.provider.complete({ prompt, systemPrompt, modelTier: tier, token, disableStructuredOutput: effectiveDisableStructuredOutput, maxTokensMultiplier });
       if (!retry.error && retry.text) {
         this.log.info('callLLM: same-tier retry recovered', { tier, textLen: retry.text.length });
         return retry;

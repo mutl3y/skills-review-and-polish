@@ -32,10 +32,13 @@ export function validateKeyForProvider(
       }
       return null;
     case 'copilot':
-      // Copilot uses a GitHub token against api.githubcopilot.com — never send
-      // an OpenRouter key there.
-      if (/^sk-or-v1-/.test(trimmed)) {
-        return `provider "copilot" requires a GitHub token, not an OpenRouter key (sk-or-v1-...).`;
+      // Copilot uses a GitHub token against api.githubcopilot.com. This is a
+      // genuine ACCEPT list: only documented GitHub token shapes are sent.
+      // A private third-party credential (OpenAI sk-, Google AIza, AWS AKIA,
+      // or an arbitrary stale string) must never be shipped as a Bearer token
+      // to api.githubcopilot.com.
+      if (!/^(?:gh[pousr]_|github_pat_)/.test(trimmed)) {
+        return `provider "copilot" requires a GitHub token (ghp_/ghu_/ghs_/gho_/ghr_ or github_pat_...).`;
       }
       return null;
     default:

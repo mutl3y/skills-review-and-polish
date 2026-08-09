@@ -12,3 +12,6 @@ export const CHARS_PER_TOKEN = 4;
 
 /** Default maximum document size (chars) ≈ 50K tokens. */
 export const DEFAULT_DOCUMENT_CHARS = 200_000;
+
+/** Floor so very small models still get useful document text. */
+export const MIN_DOCUMENT_CHARS = 8_000;

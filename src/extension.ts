@@ -2150,6 +2150,8 @@ interface FixToolInput {
   filePath?: string;
   diagnosticCode: string;
   relevantText: string;
+  /** Optional 0-based line to disambiguate a duplicated relevantText occurrence. */
+  line?: number;
 }
 
 /**
@@ -2251,7 +2253,7 @@ export function registerLanguageModelTools(
   context.subscriptions.push(
     vscode.lm.registerTool<FixToolInput>('skills-review-and-polish_fix', {
       async invoke(options, _token) {
-        const { text, filePath = '', diagnosticCode, relevantText } = options.input;
+        const { text, filePath = '', diagnosticCode, relevantText, line } = options.input;
         try {
           const cfg = readConfigFn();
           // Apply the shared session budget guard (same as the MCP server).
@@ -2288,7 +2290,10 @@ export function registerLanguageModelTools(
           // bounds-check any provided line. Without this the fixer silently
           // targets the first occurrence of a duplicated fragment — an
           // attacker-controlled relevantText could fix the wrong span.
-          const anchorValidation = validateFixAnchor(text, relevantText, undefined);
+          // Accept an optional `line` (mirroring the MCP fix tool) so the
+          // agent can disambiguate a duplicated fragment instead of hitting
+          // a hard wall on the no-line branch.
+          const anchorValidation = validateFixAnchor(text, relevantText, line);
           if (anchorValidation.error) {
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify({ error: anchorValidation.error })),
@@ -2311,6 +2316,7 @@ export function registerLanguageModelTools(
             guardUpperBoundMultiplier: cfg.fixGuardUpperBoundMultiplier,
             guardLowerBoundMultiplier: cfg.fixGuardLowerBoundMultiplier,
             guardMaxAnchorChars: cfg.fixGuardMaxAnchorChars,
+            line: anchorValidation.validLine,
           });
           const body = JSON.stringify(result, null, 2);
           chargeTokens(text.length, body, fixWaves);

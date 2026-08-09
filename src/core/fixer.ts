@@ -280,8 +280,10 @@ export async function loadReferenceGrounding(
     return null; // no references dir
   }
 
-  // Memoize on the dir mtime; reading it once per fix-run is enough.
-  const cacheKey = `${filePath}\u0000${refDir}`;
+  // Memoize on the dir mtime AND budgetChars — the output depends on both.
+  // A later call with a larger budget would otherwise return earlier,
+  // budget-truncated content until the references/ dir mtime changes.
+  const cacheKey = `${filePath}\u0000${refDir}\u0000${budgetChars}`;
   let cached = groundingCache.get(cacheKey);
   if (!cached || cached.mtimeMs !== mtimeMs) {
     const selection = await readSkillsReferences(
