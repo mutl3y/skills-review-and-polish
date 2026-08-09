@@ -9,7 +9,9 @@ Scope: MCP server + VS Code extension reviewed together (shared security logic)
 ### Accepted & Remediated
 
 ### G1 — Medium, Medium confidence — root-resolution split in MCP server
+
 `src/mcp/server.ts`
+
 - `resolveAcceptedFindingsPath()` resolved the accepted-findings store path from
   `MCP_SERVER_WORKSPACE || process.cwd()`, while path safety
   (`resolveWorkspaceRoot()`) additionally honors the `workspaceRoot` pinned in
@@ -28,8 +30,10 @@ Scope: MCP server + VS Code extension reviewed together (shared security logic)
 
 ### Recorded, not remediated
 
-**G2 — Low, Medium confidence — TOCTOU window on linked-reference reads**
+### G2 — Low, Medium confidence — TOCTOU window on linked-reference reads
+
 `src/core/analyzer.ts:1365-1394` (`readLinkedPromptFiles`)
+
 - Real but theoretical: `safeResolveFilePath(target, docDir, false)` returns the
   lexical path, then lstat+realpath verify containment, then `readFile` runs on
   the same resolved path. A symlink dropped in between gate and read could
@@ -37,16 +41,20 @@ Scope: MCP server + VS Code extension reviewed together (shared security logic)
   adjacent lines, and the graceful-skip path depends on the `requireExists=false`
   semantics. Fixing risks regression for low real-world value. Carried forward.
 
-**G3 — Nit (rejected) — redact regex ordering**
+### G3 — Nit (rejected) — redact regex ordering
+
 `src/core/redact.ts`
+
 - The reviewer claimed the generic `\bsk-` rule runs before and consumes the
   dedicated `sk-or-v1-` rule, making the latter dead code. The actual code has
   the **opposite** order: the dedicated `sk-or-v1-` rule runs first, then the
   generic `\bsk-` catch-all. Both are needed for distinct key shapes. Claim is
   factually wrong — rejected with reason, not a defect.
 
-**G4 — Low/Nit (note) — extension has no `accept_finding` counterpart**
+### G4 — Low/Nit (note) — extension has no `accept_finding` counterpart
+
 `src/extension.ts:54`
+
 - Reviewer itself flagged this as "not a defect per se" — the extension has no
   accepted-findings store tool, so nothing diverges today. Recorded as a
   cross-file pattern to keep in mind if an agent-facing store tool is ever

@@ -2152,10 +2152,13 @@ export function registerLanguageModelTools(
       async invoke(options, _token) {
         const { text, filePath } = options.input;
         try {
+          const cfg = readConfigFn();
           // Apply the shared session budget guard (same as the MCP server) so
           // the agent-driven LM tools aren't an uncapped spend path. The cap
-          // is read from the same MCP_MAX_TOKENS / config source.
-          setSessionBudgetCap(resolveMaxTokensPerSession(undefined));
+          // is read from the SAME config source as the MCP door
+          // (`mcpMaxTokensPerSession`; env var takes precedence), not a
+          // hardcoded undefined that silently ignores the user's setting.
+          setSessionBudgetCap(resolveMaxTokensPerSession(cfg.mcpMaxTokensPerSession));
           if (budgetExhausted()) {
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),
@@ -2164,7 +2167,6 @@ export function registerLanguageModelTools(
           // Charge per actual wave (single=1, focused=2, multiWave=enabledWaves)
           // — not a flat 6 — so single-pass mode doesn't over-reserve the shared
           // budget. Mirrors the MCP server's estimateWaveCount.
-          const cfg = readConfigFn();
           const waves = estimateWaveCount(cfg, undefined);
           if (!reserveTokens(text.length, waves)) {
             return new vscode.LanguageModelToolResult([
@@ -2205,7 +2207,9 @@ export function registerLanguageModelTools(
         try {
           const cfg = readConfigFn();
           // Apply the shared session budget guard (same as the MCP server).
-          setSessionBudgetCap(resolveMaxTokensPerSession(undefined));
+          // Read the cap from the same config source as the MCP door, not a
+          // hardcoded undefined that ignores the user's mcpMaxTokensPerSession.
+          setSessionBudgetCap(resolveMaxTokensPerSession(cfg.mcpMaxTokensPerSession));
           if (budgetExhausted()) {
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify({ error: budgetExhaustedError().message })),

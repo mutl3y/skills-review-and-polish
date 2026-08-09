@@ -1,19 +1,19 @@
 # Loop State
 
-- **Current iteration:** 2 (completed 2026-08-09)
+- **Current iteration:** 3 (completed 2026-08-09)
 - **Target:** none (stop on the stop rule: no findings at Medium or above,
   after the independent verification pass — not a fixed iteration count)
-- **Last review scope:** broad whole-codebase scan (MCP server + extension
-  together) via gilfoyle-code-review-lean
-- **Last findings:** 1 Medium remediated (G1: MCP root-resolution split — the
-  previously-carried F5 accepted-findings root divergence is now genuinely
-  aligned through one resolveWorkspaceRoot), 0 High/Critical. Carried: 1 Low
-  (G2: analyzer TOCTOU on linked-ref reads), 1 note (G4: extension lacks
-  accept_finding). Rejected: G3 (redact regex order claim factually wrong).
-- **Next action:** run iteration 3 — independent verification pass
-  (different prompt) to confirm convergence before declaring done
-- **In-progress work:** None — working tree as committed
-- **Last commit:** `fix(iter2): unify MCP accepted-findings root resolution`
+- **Last review scope:** INDEPENDENT verification pass (flow-trace lens,
+  different prompt from the loop's module review) via gilfoyle-code-review-lean
+- **Last findings:** 1 Medium remediated (H1: extension agent LM tools ignored
+  the mcpMaxTokensPerSession budget cap — hardcoded undefined instead of the
+  config value). Carried: 2 Low (H2: interactive analyze path unbudgeted;
+  H3: accepted-findings concurrent lost-update). No High/Critical.
+- **Next action:** run iteration 4 — a FRESH independent verification pass to
+  confirm convergence (every convergence attempt needs a new independent pass); H1
+  was the first Medium the independent pass surfaced since the broad scans.
+- **In-progress work:** None — working tree clean after iter-3 commit
+- **Last commit:** `fix(iter3): extension LM tools honor mcpMaxTokensPerSession budget`
 
 ## Restart note
 
@@ -36,3 +36,4 @@ pass before declaring done) — not a fixed iteration-30 target. See
 |------|-------|---------------|------------|---------|
 | 1 | Broad whole-codebase (MCP+ext) | 0 | 3 remediated, 1 Low fixed, 1 Low carried | Fixed wave-count budget divergence (F1,F2), process.cwd fallback (F3), bare URL (F4). F5 (accepted-findings root) carried as by-design. |
 | 2 | Broad whole-codebase (MCP+ext) via lean reviewer | 0 | 1 Medium remediated, 1 Low carried, 1 note, 1 rejected | Unified accepted-findings root resolution through one resolveWorkspaceRoot (G1) — closes the F5 divergence. G2 TOCTOU + G4 note carried; G3 redact-order claim rejected as factually wrong. |
+| 3 | Independent flow-trace pass | 0 | 1 Medium remediated, 2 Low carried | Fixed extension agent LM tools ignoring the budget cap (H1). H2 (interactive path unbudgeted) + H3 (concurrent lost-update) carried as Low. |
