@@ -94,7 +94,12 @@ export function validateFixAnchor(
     }
   }
 
-  return { validLine: line ?? 0 };
+  // Distinguish "no line provided" (undefined) from "explicit line 0" so a
+  // caller can keep `resolveAnchorText`'s no-line branch (raw anchor /
+  // paragraph expansion) reachable. Forcing 0 here would collapse "no line"
+  // into "line 0" and make every no-line fix take the paragraph-at-line-0
+  // branch — a single-instruction anchor would explode to a whole paragraph.
+  return { validLine: line } as FixAnchorValidation;
 }
 
 /** Noise margin for median-of-N keep/revert decisions. */

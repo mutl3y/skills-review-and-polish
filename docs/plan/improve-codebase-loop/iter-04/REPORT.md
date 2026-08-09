@@ -23,7 +23,7 @@ Scope: untrusted input traced through both doors (MCP server + VS Code extension
   fragment while the MCP door refused.
 - **Fix:** Added a shared `validateFixAnchor(text, relevantText, rawLine)`
   helper in `src/core/fixer.ts` (single canonical form of the duplicate-anchor
-  + line-bounds precondition). Both `handleFix` (MCP) and the extension `fix`
+  and line-bounds precondition). Both `handleFix` (MCP) and the extension `fix`
   LM tool now call it; the extension passes the validated line into the
   synthetic diagnostic. Added 7 unit tests.
 - **Confidence:** High. Corroborated by reading both call-sites,

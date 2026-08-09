@@ -847,10 +847,10 @@ describe('validateFixAnchor — shared duplicate-anchor + line-bounds guard', ()
     expect(res.error).toContain('2 times');
   });
 
-  it('accepts a unique anchor', () => {
+  it('accepts a unique anchor and returns undefined (no) line', () => {
     const res = validateFixAnchor(text, 'Keep it brief.', undefined);
     expect(res.error).toBeUndefined();
-    expect(res.validLine).toBe(0);
+    expect(res.validLine).toBeUndefined();
   });
 
   it('disambiguates a duplicated anchor when a valid line is provided', () => {
@@ -881,5 +881,14 @@ describe('validateFixAnchor — shared duplicate-anchor + line-bounds guard', ()
     // A NaN-from('abc') line must NOT bypass the duplicate guard.
     const res = validateFixAnchor(text, 'Be concise.', Number('abc'));
     expect(res.error).toBeDefined();
+  });
+
+  it('returns undefined validLine for a no-line unique anchor (keeps raw-anchor branch reachable)', () => {
+    // "no line provided" must stay distinguishable from "explicit line 0"
+    // so resolveAnchorText's raw-anchor/expansion branch is reachable in a
+    // no-line fix (fixing line 0 wholesale would be a regression).
+    const res = validateFixAnchor('Be concise.\nDifferent paragraph.', 'Be concise.', undefined);
+    expect(res.error).toBeUndefined();
+    expect(res.validLine).toBeUndefined();
   });
 });
