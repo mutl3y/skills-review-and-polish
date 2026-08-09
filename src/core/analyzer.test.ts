@@ -1044,6 +1044,29 @@ describe('analysis history and resilience', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it('reads backtick-quoted reference files (meta-skill table convention)', async () => {
+    const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
+    const refDir = path.join(dir, 'references');
+    fs.mkdirSync(refDir);
+    fs.writeFileSync(path.join(refDir, 'practice.md'), 'Practice definition body', 'utf8');
+    fs.writeFileSync(path.join(refDir, 'setup.md'), 'Setup definition body', 'utf8');
+    // A stray, unlinked README must NOT be read (selection-safe).
+    fs.writeFileSync(path.join(refDir, 'README.md'), 'stray', 'utf8');
+
+    const linked = await (analyzer as any).readLinkedPromptFiles(
+      '| `references/setup.md` | Setup |\n| `references/practice.md` | Practice |',
+      path.join(dir, 'main.prompt.md'),
+    );
+
+    expect(linked.map((i: any) => i.target)).toEqual(['references/setup.md', 'references/practice.md']);
+    expect(linked.map((i: any) => i.content)).toContain('Practice definition body');
+    expect(linked.map((i: any) => i.content)).toContain('Setup definition body');
+    expect(linked.some((i: any) => i.content.includes('stray'))).toBe(false);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it('rejects linked prompt files with path traversal (..)', async () => {
     const analyzer = makeAnalyzer(async () => ({ text: '{}' }), store);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));

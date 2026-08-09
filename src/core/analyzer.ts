@@ -13,11 +13,9 @@
  * @module analyzer
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import * as crypto from 'crypto';
-import { isPathWithin, safeResolveFilePath } from './pathSafety';
 import { stripCodeFences } from './llmText';
+import { readSkillsReferences } from './referenceFiles';
 import { DEFAULT_DOCUMENT_CHARS } from './tokenBudget';
 import {
   AnalysisResult,
@@ -1346,61 +1344,16 @@ export class Analyzer {
   // ── Composition-conflicts helpers ────────────────────────────────────────
 
   private async readLinkedPromptFiles(text: string, filePath: string): Promise<Array<{ target: string; content: string }>> {
-    const docDir = path.dirname(filePath);
-    const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
-    // Match both customisation files (`.prompt.md` / `.agent.md` /
-    // `.instructions.md`) and any `.md` reference file the skill links to.
-    // Skills routinely ship `references/*.md`, `quality/*.md`, etc. as
-    // supplementary content the model needs to see to evaluate the skill.
-    const refExtensions = ['.prompt.md', '.agent.md', '.instructions.md', '.md'];
-    const results: Array<{ target: string; content: string }> = [];
-
-    let match;
-    while ((match = linkPattern.exec(text)) !== null) {
-      const target = match[2].trim().split('#')[0];
-      if (!target) continue;
-      if (/^(https?:|mailto:)/i.test(target)) continue;
-      if (!refExtensions.some(ext => target.toLowerCase().endsWith(ext))) continue;
-
-      // ── Path-safety validation (Gilfoyle Issue #1-2) ──────────────────
-      // Reject unsafe paths using the shared safeResolveFilePath helper.
-      const resolved = safeResolveFilePath(target, docDir, false);
-      if (!resolved) {
-        this.log.info('[WARN] readLinkedPromptFiles: rejected unsafe path', { target });
-        continue;
-      }
-
-      // Reject symlinks — a malicious skill could point a symlink at /etc/passwd etc.
-      // lstat only catches a symlink at the FINAL path; a symlinked parent
-      // directory in the chain (e.g. docDir/refs -> /etc) would slip through.
-      // realpath resolves the full chain, which we re-check against the
-      // realpath of docDir (canonical-to-canonical, so a symlinked skill dir
-      // doesn't false-reject legitimate references).
-      try {
-        const stat = await fs.promises.lstat(resolved);
-        if (stat.isSymbolicLink()) {
-          this.log.info('[WARN] readLinkedPromptFiles: rejected symlink', { target, resolved });
-          continue;
-        }
-        const realDocDir = await fs.promises.realpath(docDir);
-        const real = await fs.promises.realpath(resolved);
-        if (!isPathWithin(realDocDir, real)) {
-          this.log.info('[WARN] readLinkedPromptFiles: rejected symlink chain escaping skill directory', { target, resolved, real });
-          continue;
-        }
-      } catch {
-        // lstat/realpath throws when the file doesn't exist — skip gracefully.
-        continue;
-      }
-
-      try {
-        const content = await fs.promises.readFile(resolved, 'utf8');
-        results.push({ target, content });
-      } catch {
-        // File not readable — skip.
-      }
+    const selection = await readSkillsReferences(text, filePath);
+    // Surface unsafe/missing targets via the logger so the omission is never
+    // silent (the caller's `buildAnalysisDocument` marks overflow separately).
+    for (const t of selection.rejectedUnsafe) {
+      this.log.info('[WARN] readLinkedPromptFiles: rejected unsafe reference', { target: t });
     }
-    return results;
+    for (const t of selection.missing) {
+      this.log.info('[WARN] readLinkedPromptFiles: missing reference', { target: t });
+    }
+    return selection.items;
   }
 
   /**

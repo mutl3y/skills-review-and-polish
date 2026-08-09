@@ -34,6 +34,9 @@ function isRateLimitError(msg: string): boolean {
 /** Base max_tokens for vscode.lm requests. */
 const BASE_MAX_TOKENS = 16384;
 
+/** Default client-side stream timeout (ms). Configurable via `external.requestTimeoutMs`. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 90_000;
+
 /** Headroom (tokens) reserved for system prompt + framing when bounding output by context. */
 const CONTEXT_HEADROOM_TOKENS = 2048;
 
@@ -88,6 +91,7 @@ export class VsCodeLmProvider implements LlmProvider {
     private readonly standardModelId: string,
     private readonly deepModelId: string,
     private readonly fixModelId?: string,
+    private readonly requestTimeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
   ) {}
 
   invalidate(): void {
@@ -220,13 +224,38 @@ export class VsCodeLmProvider implements LlmProvider {
     return models.find((model) => model.vendor === 'copilot' || model.vendor === 'openrouter');
   }
 
-  private async collectStreamText(response: { stream: AsyncIterable<unknown>; text?: unknown }): Promise<{ text: string; error?: string; isRateLimit?: boolean }> {
+  /**
+   * Create an idle/progress watchdog that aborts a request via `cts.cancel()`
+   * only after `ms` of SILENCE (no streamed parts). Each `reset()` call re-arms
+   * the timer, so a model that keeps streaming for many minutes is never killed
+   * by a total wall-clock cap — only a genuinely stalled stream times out.
+   */
+  private createIdleWatchdog(cts: vscode.CancellationTokenSource, ms: number): { reset: () => void; clear: () => void } {
+    let timer: NodeJS.Timeout | undefined;
+    const arm = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => cts.cancel(), ms);
+    };
+    arm();
+    return {
+      reset: arm,
+      clear: () => { if (timer) clearTimeout(timer); },
+    };
+  }
+
+  private async collectStreamText(
+    response: { stream: AsyncIterable<unknown>; text?: unknown },
+    onProgress?: () => void,
+  ): Promise<{ text: string; error?: string; isRateLimit?: boolean }> {
     let text = '';
     let partNum = 0;
 
     try {
       for await (const part of response.stream) {
         partNum++;
+        // Re-arm the idle watchdog on every streamed part — progress means the
+        // request is alive, so only silence should be allowed to time it out.
+        onProgress?.();
         let partStr = '';
         if (typeof part === 'string') {
           partStr = part;
@@ -334,7 +363,9 @@ export class VsCodeLmProvider implements LlmProvider {
     if (request.token) {
       cancelListener = request.token.onCancellationRequested(() => cts.cancel());
     }
-    const timeout = setTimeout(() => cts.cancel(), 90_000);
+    // Idle watchdog, not a wall-clock cap: re-armed on every streamed token.
+    // A slow-but-streaming model is allowed to run as long as it makes progress.
+    const watchdog = this.createIdleWatchdog(cts, this.requestTimeoutMs);
 
     // vscode.lm doesn't support System message type, so combine into User message
     const combinedPrompt = `${request.systemPrompt}\n\n${request.prompt}`;
@@ -358,7 +389,7 @@ export class VsCodeLmProvider implements LlmProvider {
         return { text: '{}', error: 'Model returned empty response object', isRateLimit: false };
       }
 
-      const streamed = await this.collectStreamText(response as { stream: AsyncIterable<unknown>; text?: unknown });
+      const streamed = await this.collectStreamText(response as { stream: AsyncIterable<unknown>; text?: unknown }, watchdog.reset);
       if (streamed.error) {
         this.log.info('complete: stream error — retrying once with fresh stream', { error: streamed.error });
         // Stream-iteration failures (e.g. "network request aborted" mid-stream)
@@ -372,13 +403,13 @@ export class VsCodeLmProvider implements LlmProvider {
         if (request.token) {
           retryCancelListener = request.token.onCancellationRequested(() => retryCts.cancel());
         }
-        const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
+        const retryWatchdog = this.createIdleWatchdog(retryCts, this.requestTimeoutMs);
         try {
           const retryResponse = await model.sendRequest(messages, { modelOptions: { max_tokens: resolveMaxTokens(request.maxTokensMultiplier, model.maxInputTokens, combinedPrompt.length) } }, retryCts.token);
           if (!retryResponse.text) {
             return { text: streamed.text, error: streamed.error };
           }
-          const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
+          const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown }, retryWatchdog.reset);
           if (retryStreamed.error) {
             return { text: retryStreamed.text, error: `Stream failed twice: ${retryStreamed.error}` };
           }
@@ -389,7 +420,7 @@ export class VsCodeLmProvider implements LlmProvider {
           this.log.info('complete: stream retry also failed', { error: retryMsg });
           return { text: streamed.text, error: streamed.error, isRateLimit: isRateLimitError(retryMsg) };
         } finally {
-          clearTimeout(retryTimeout);
+          retryWatchdog.clear();
           retryCancelListener?.dispose();
           retryCts.dispose();
         }
@@ -435,7 +466,7 @@ export class VsCodeLmProvider implements LlmProvider {
 
         this.log.debug('complete: retrying with fresh model', { vendor: freshModel.vendor, name: freshModel.name });
         const retryCts = new vscode.CancellationTokenSource();
-        const retryTimeout = setTimeout(() => retryCts.cancel(), 90_000);
+        const retryWatchdog = this.createIdleWatchdog(retryCts, this.requestTimeoutMs);
         try {
           const retryResponse = await freshModel.sendRequest(
             messages,
@@ -445,14 +476,14 @@ export class VsCodeLmProvider implements LlmProvider {
           if (!retryResponse.text) {
             return { text: '{}', error: 'Retry: model returned empty response object', isRateLimit: false };
           }
-          const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown });
+          const retryStreamed = await this.collectStreamText(retryResponse as { stream: AsyncIterable<unknown>; text?: unknown }, retryWatchdog.reset);
           if (retryStreamed.error) {
             return { text: retryStreamed.text, error: `Retry failed: ${retryStreamed.error}` };
           }
           this.log.debug('complete: retry success', { textLen: retryStreamed.text.length });
           return { text: retryStreamed.text, finishReason: 'stop' };
         } finally {
-          clearTimeout(retryTimeout);
+          retryWatchdog.clear();
           retryCts.dispose();
         }
       } catch (retryErr) {
@@ -461,7 +492,7 @@ export class VsCodeLmProvider implements LlmProvider {
         return { text: '{}', error: `vscode.lm request failed (after retry): ${retryMsg}`, isRateLimit: isRateLimitError(retryMsg) };
       }
     } finally {
-      clearTimeout(timeout);
+      watchdog.clear();
       cancelListener?.dispose();
       cts.dispose();
     }
@@ -484,7 +515,7 @@ export class VsCodeLmProvider implements LlmProvider {
     this.log.debug('testSimplePrompt: starting', { modelId: model.id, vendor: model.vendor });
 
     const cts = new vscode.CancellationTokenSource();
-    const timeout = setTimeout(() => cts.cancel(), 30_000);
+    const timeout = setTimeout(() => cts.cancel(), this.requestTimeoutMs);
     
     try {
       const response = await model.sendRequest(

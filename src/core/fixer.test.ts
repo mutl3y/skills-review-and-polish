@@ -164,11 +164,43 @@ describe('loadReferenceGrounding', () => {
     const refDir = path.join(tempDir, 'references');
     fs.mkdirSync(refDir);
     fs.writeFileSync(path.join(refDir, 'notes.md'), 'Use version 1.2.3 for the API.');
+    // A skill file that points to its references/ dir so selection-safe
+    // resolution includes it (see [Notes](./references/notes.md)).
+    fs.writeFileSync(path.join(tempDir, 'SKILL.md'), 'See [Notes](./references/notes.md) for the API version.');
 
     const text = await loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use version 1.2.3 for the API.', true);
 
     expect(text).toContain('references/notes.md');
     expect(text).toContain('Use version 1.2.3');
+  });
+
+  it('does not include unlinked files in the references folder (selection-safe)', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fixer-grounding-'));
+    const refDir = path.join(tempDir, 'references');
+    fs.mkdirSync(refDir);
+    // A stray README that is NOT referenced must not taint the fix prompt.
+    fs.writeFileSync(path.join(refDir, 'README.md'), 'This is an internal note and must never enter the prompt.');
+    fs.writeFileSync(path.join(refDir, 'notes.md'), 'Use version 1.2.3 for the API.');
+    fs.writeFileSync(path.join(tempDir, 'SKILL.md'), 'See [Notes](./references/notes.md) for the API version.');
+
+    const text = await loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use version 1.2.3 for the API.', true);
+
+    expect(text).toContain('references/notes.md');
+    expect(text).not.toContain('internal note');
+  });
+
+  it('omits whole reference files that exceed the budget (no silent truncation)', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fixer-grounding-'));
+    const refDir = path.join(tempDir, 'references');
+    fs.mkdirSync(refDir);
+    const big = 'x'.repeat(20000);
+    fs.writeFileSync(path.join(refDir, 'big.md'), big);
+    fs.writeFileSync(path.join(tempDir, 'SKILL.md'), 'See [Big](./references/big.md).');
+
+    const text = await loadReferenceGrounding(path.join(tempDir, 'SKILL.md'), 'Use version 1.2.3', true, 1800);
+
+    // Whole file must be omitted, not silently truncated mid-content.
+    expect(text).toBeNull();
   });
 
   it('returns null for untitled documents (empty filePath)', async () => {

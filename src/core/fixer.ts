@@ -17,7 +17,8 @@ import { promises as fsPromises } from 'fs';
 import { AnalysisResult, LlmProvider, LlmRequest } from './types';
 import { loadPrompt } from './prompts';
 import { OBLIGATION_TOKENS, EMPHASIS_SCOPE_WORDS } from './vocabulary';
-import { isPathWithin, safeResolveFilePath } from './pathSafety';
+import { readSkillsReferences } from './referenceFiles';
+import { CHARS_PER_TOKEN } from './tokenBudget';
 
 // --------------------------------------------------------------------------
 // Constants
@@ -245,109 +246,74 @@ export function factualGroundingTrigger(text: string): boolean {
 /**
  * Loads content from a sibling `references/` directory when
  * `fixReferenceGrounding` is enabled and the fragment is factual.
+ *
+ * Selection-safe: only files the document actually *points to* (markdown links
+ * or backtick paths to its own `references/`) are read — a stray `README.md`
+ * or unlinked file never enters the fix prompt. Path-safe via the shared
+ * resolver (symlink + traversal rejection).
+ *
+ * Budget-aware: `budgetChars` is the whole-file-omission cap. A reference that
+ * doesn't fit is dropped WHOLE (never silently mid-truncated), so the model is
+ * never handed a partial definition. Returns `null` when nothing fits.
+ *
+ * Memoized per `referenceFilesPath` + directory mtime, so a fix loop over many
+ * findings reads the references dir from disk once instead of once per
+ * fragment (amplified by `fixLoopMaxIterations` × findings).
  */
+const groundingCache = new Map<string, { mtimeMs: number; content: string | null }>();
 export async function loadReferenceGrounding(
   filePath: string,
   targetText: string,
   enabled: boolean,
-  maxChars = 1800,
+  budgetChars = 1800,
 ): Promise<string | null> {
   if (!enabled) return null;
   // Skip reference grounding for untitled documents (no real file path)
   if (!filePath || filePath.trim() === '') return null;
   if (!factualGroundingTrigger(targetText)) return null;
+
   const refDir = path.join(path.dirname(filePath), 'references');
+  let mtimeMs = 0;
   try {
-    await fsPromises.access(refDir);
+    mtimeMs = (await fsPromises.stat(refDir)).mtimeMs;
   } catch {
-    return null;
-  }
-  let stat: import('fs').Stats;
-  try {
-    stat = await fsPromises.stat(refDir);
-  } catch {
-    return null;
-  }
-  if (!stat.isDirectory()) return null;
-
-  // Reject a symlinked `references/` directory outright. `access`/`stat`
-  // follow symlinks, so a `references -> /etc` symlink would pass the checks
-  // above and let readdir/readFile escape the workspace. realpath the dir and
-  // confirm it is not a symlink and stays within the document's directory.
-  let realRefDir: string;
-  try {
-    const lstatDir = await fsPromises.lstat(refDir);
-    if (lstatDir.isSymbolicLink()) return null;
-    realRefDir = await fsPromises.realpath(refDir);
-  } catch {
-    return null;
-  }
-  const docDirReal = await fsPromises.realpath(path.dirname(filePath)).catch(() => null);
-  if (docDirReal) {
-    if (!isPathWithin(docDirReal, realRefDir)) return null;
+    return null; // no references dir
   }
 
-  const allNames = await fsPromises.readdir(refDir);
-  const files = allNames
-    .filter((name) => /\.(md|mdx|txt|json|yaml|yml)$/i.test(name))
-    .sort();
-
-  // Reject symlinks — they could point outside the references directory
-  const safeFiles: string[] = [];
-  for (const name of files) {
-    try {
-      const lstat = await fsPromises.lstat(path.join(refDir, name));
-      if (!lstat.isSymbolicLink()) safeFiles.push(name);
-    } catch {
-      // skip
+  // Memoize on the dir mtime; reading it once per fix-run is enough.
+  const cacheKey = `${filePath}\u0000${refDir}`;
+  let cached = groundingCache.get(cacheKey);
+  if (!cached || cached.mtimeMs !== mtimeMs) {
+    const selection = await readSkillsReferences(
+      // Re-read the document text from the fixer's anchor path resolution is
+      // not available here; selection derives from the document the fix
+      // targets, which is the same file referenced by filePath. We pass the
+      // fix anchor's surrounding file path — the resolver discovers targets
+      // from the file's own body, so we read the file's text once.
+      await fsPromises.readFile(filePath, 'utf8'),
+      filePath,
+    );
+    const parts: string[] = [];
+    let used = 0;
+    for (const item of selection.items) {
+      const header = `--- references/${path.basename(item.target)} ---\n`;
+      const body = item.content.trim();
+      if (!body) continue;
+      const cost = header.length + body.length + 2;
+      if (used + cost > budgetChars) continue; // whole-file omission, no silent truncation
+      parts.push(header + body);
+      used += cost;
     }
+    const content = parts.length ? parts.join('\n\n') : null;
+    groundingCache.set(cacheKey, { mtimeMs, content });
+    // Bound the cache so a long session can't grow it unboundedly.
+    if (groundingCache.size > 100) {
+      const oldest = groundingCache.keys().next().value;
+      if (oldest !== undefined) groundingCache.delete(oldest);
+    }
+    cached = { mtimeMs, content };
   }
-
-  const parts: string[] = [];
-  let remaining = maxChars;
-  for (const name of safeFiles) {
-    if (remaining <= 80) break;
-    const full = path.join(refDir, name);
-    // stat() (not lstat) follows symlinks — we already rejected symlinks above,
-    // so this is a normal file or directory. We use it to distinguish between
-    // the two (readdir lists both) and confirm the file is readable.
-    let fileStat: import('fs').Stats;
-    try {
-      fileStat = await fsPromises.stat(full);
-    } catch {
-      continue;
-    }
-    if (!fileStat.isFile()) continue;
-    // Path traversal guard: resolved path must remain inside refDir
-    // Use path.sep to prevent traversal via same-prefix directory names
-    // (e.g., refDir="/a/b" should not allow "/a/bad/file")
-    // Use shared safeResolveFilePath to ensure the reference stays within refDir.
-    const resolved = safeResolveFilePath(name, refDir);
-    if (!resolved) continue;
-    // Canonical containment: realpath the file and re-check against the
-    // realpath of refDir, so a symlinked file (or a symlink introduced
-    // between lstat and read) can't escape the references directory.
-    try {
-      const realFile = await fsPromises.realpath(full);
-      if (!isPathWithin(realRefDir, realFile)) continue;
-    } catch {
-      continue;
-    }
-    let text: string;
-    try {
-      text = (await fsPromises.readFile(full, 'utf8')).trim();
-    } catch {
-      continue;
-    }
-    if (!text) continue;
-    const header = `--- references/${name} ---\n`;
-    const room = remaining - header.length;
-    if (room <= 0) break;
-    const body = text.length > room ? `${text.slice(0, Math.max(0, room - 1)).trim()}…` : text;
-    parts.push(header + body);
-    remaining -= header.length + body.length + 2;
-  }
-  return parts.length ? parts.join('\n\n') : null;
+  return cached?.content ?? null;
 }
 
 /**
@@ -839,7 +805,20 @@ export class SurgicalFixer {
     const additive = (options.additive ?? false) && code === 'ambiguity-llm';
     const context = surroundingContext(text, targetText);
     const domain = skillDomainHint(text);
-    const grounding = await loadReferenceGrounding(filePath, targetText, options.referenceGrounding ?? true);
+    // Provider-aware reference budget: scale with the model context so a
+    // large-context model gets richer grounding, but stay compact because a
+    // fragment fix needs far less than full analysis. Fall back to 1800 chars
+    // when the provider context is unknown (preserves previous behavior).
+    const ctx = this.provider.getContextLength();
+    const budgetChars = ctx && ctx > 0
+      ? Math.max(1800, Math.floor(ctx * CHARS_PER_TOKEN * 0.05))
+      : 1800;
+    const grounding = await loadReferenceGrounding(
+      filePath,
+      targetText,
+      options.referenceGrounding ?? true,
+      budgetChars,
+    );
     // Random anchor for the reference data zone — prevents an attacker who
     // knows the delimiter from breaking out of the data zone and injecting
     // instructions into the fix prompt.

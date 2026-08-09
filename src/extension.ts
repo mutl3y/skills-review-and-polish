@@ -78,6 +78,25 @@ async function detectProviderForModel(modelId: string): Promise<'vscode-lm' | 'o
   return readConfig().provider;
 }
 
+/**
+ * Whether a model is selectable through VS Code's Language Model API with a
+ * streaming-capable vendor (openrouter/copilot/copilotcli). Used to route
+ * OpenRouter models exposed via vscode.lm to the streaming provider.
+ *
+ * Returns false on any error or when vscode.lm is unavailable — callers fall
+ * back to the fetch-based provider, which is always a safe default.
+ */
+async function isModelSelectableViaVscodeLm(modelId: string): Promise<boolean> {
+  try {
+    const models = await vscode.lm.selectChatModels({ id: modelId });
+    if (models.length === 0) return false;
+    const vendor = models[0].vendor;
+    return vendor === 'openrouter' || vendor === 'copilot' || vendor === 'copilotcli';
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Extension-level state — encapsulated in a class for testability.
 // Each activate() call creates a fresh instance; deactivate() disposes it.
@@ -476,6 +495,35 @@ async function buildEngine(context?: vscode.ExtensionContext): Promise<Engine> {
     return state.cachedEngine;
   }
   log('info', `buildEngine: provider=${cfg.provider} standardModel=${cfg.model || '(auto)'} deepModel=${cfg.deepModel || '(none)'}`);
+
+  // OpenRouter routing (extension host only): OpenRouter models that are also
+  // exposed via vscode.lm (vendor `openrouter`/`copilot`) get streamed through
+  // the VsCodeLmProvider — which gives token streams + idle timeout — instead
+  // of the buffered fetch-based OpenRouterProvider. Models/keys NOT reachable
+  // via vscode.lm fall back to the fetch provider. The MCP server is a headless
+  // process with no vscode.lm API and always uses the fetch provider; it is
+  // intentionally untouched here.
+  if (cfg.provider === 'openrouter' && cfg.model) {
+    const selectable = await isModelSelectableViaVscodeLm(cfg.model);
+    if (selectable) {
+      log('info', `buildEngine: openrouter model ${cfg.model} selectable via vscode.lm — using streaming provider`);
+      const vscodeLmProvider = new VsCodeLmProvider(
+        cfg.model,
+        cfg.deepModel || cfg.model,
+        cfg.fixModel || undefined,
+        cfg.externalRequestTimeoutMs,
+      );
+      vscodeLmProvider.onModelSelected = (modelId: string) => {
+        log('info', `buildEngine: vscode-lm selected model: ${modelId}`);
+      };
+      await vscodeLmProvider.warmUp();
+      state!.currentVsCodeLmProvider = vscodeLmProvider;
+      state!.cachedEngine = new Engine(vscodeLmProvider, cfg);
+      state!.cachedEngineConfigHash = hash;
+      return state!.cachedEngine;
+    }
+    log('info', `buildEngine: openrouter model ${cfg.model} not selectable via vscode.lm — using fetch provider`);
+  }
 
   if (cfg.provider === 'openrouter') {
     const keyError = validateKeyForProvider('openrouter', apiKey);
