@@ -8,6 +8,8 @@ coverage/**
 test-results/**
 **/*.ts
 **/*.map
+**/*.test.js
+**/*.test.mjs
 .gitignore
 tsconfig.json
 vitest.config.ts
