@@ -82,9 +82,19 @@ export function sanitizeErrorMessage(error: unknown): string {
   return redactSecrets(msg);
 }
 
-/** Resolve the accepted-findings path from MCP_SERVER_WORKSPACE env var (or cwd fallback). */
+/**
+ * Resolve the accepted-findings path.
+ *
+ * Uses the SAME workspace-root resolution as path safety
+ * (`resolveWorkspaceRoot`) rather than re-deriving `MCP_SERVER_WORKSPACE ||
+ * cwd`. When a `.skills-review.json` pins a `workspaceRoot` different from
+ * cwd, both the accepted-findings store and every `safeResolveFilePath`
+ * containment check must agree on where the trust boundary is — otherwise
+ * store keys (validated against the pinned root) and store lookup files
+ * (rooted in cwd) silently diverge.
+ */
 function resolveAcceptedFindingsPath(): string {
-  const workspaceRoot = process.env['MCP_SERVER_WORKSPACE']?.trim() || process.cwd();
+  const workspaceRoot = resolveWorkspaceRoot();
   return path.join(workspaceRoot, '.accepted-findings.json');
 }
 

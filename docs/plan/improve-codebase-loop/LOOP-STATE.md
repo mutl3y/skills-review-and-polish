@@ -1,17 +1,19 @@
 # Loop State
 
-- **Current iteration:** 1 (completed 2026-08-08)
+- **Current iteration:** 2 (completed 2026-08-09)
 - **Target:** none (stop on the stop rule: no findings at Medium or above,
   after the independent verification pass — not a fixed iteration count)
 - **Last review scope:** broad whole-codebase scan (MCP server + extension
-  together) via gilfoyle-code-review
-- **Last findings:** 3 remediated (F1–F3: wave-count budget divergence ×2,
-  process.cwd fallback), 1 Low fixed (F4: bare URL), 1 Low carried forward
-  (F5: accepted-findings root divergence, by design)
-- **Next action:** run iteration 2 — check stop rule, then broad scan again
-  (read the lessons file at `/memories/repo/improve-codebase-loop.md` first)
+  together) via gilfoyle-code-review-lean
+- **Last findings:** 1 Medium remediated (G1: MCP root-resolution split — the
+  previously-carried F5 accepted-findings root divergence is now genuinely
+  aligned through one resolveWorkspaceRoot), 0 High/Critical. Carried: 1 Low
+  (G2: analyzer TOCTOU on linked-ref reads), 1 note (G4: extension lacks
+  accept_finding). Rejected: G3 (redact regex order claim factually wrong).
+- **Next action:** run iteration 3 — independent verification pass
+  (different prompt) to confirm convergence before declaring done
 - **In-progress work:** None — working tree as committed
-- **Last commit:** `fix(iter1): shared wave-count budget + fail-closed path resolution`
+- **Last commit:** `fix(iter2): unify MCP accepted-findings root resolution`
 
 ## Restart note
 
@@ -33,3 +35,4 @@ pass before declaring done) — not a fixed iteration-30 target. See
 | Iter | Scope | Critical/High | Medium/Low | Outcome |
 |------|-------|---------------|------------|---------|
 | 1 | Broad whole-codebase (MCP+ext) | 0 | 3 remediated, 1 Low fixed, 1 Low carried | Fixed wave-count budget divergence (F1,F2), process.cwd fallback (F3), bare URL (F4). F5 (accepted-findings root) carried as by-design. |
+| 2 | Broad whole-codebase (MCP+ext) via lean reviewer | 0 | 1 Medium remediated, 1 Low carried, 1 note, 1 rejected | Unified accepted-findings root resolution through one resolveWorkspaceRoot (G1) — closes the F5 divergence. G2 TOCTOU + G4 note carried; G3 redact-order claim rejected as factually wrong. |
