@@ -6,9 +6,13 @@
 
 ## Current Status
 
-**Iteration:** 06 (FINAL)
-**Next action:** Write FINAL-REPORT.md and STOP
-**In-progress work:** Independent verification pass complete — CONVERGED
+**Iteration:** Re-verification (independent pass, correction)
+**Next action:** Run a GENUINELY independent verification pass — end-to-end user-flow tracing, unguided
+**In-progress work:** Previous "CONVERGED" was based on self-guided checklist passes that VIOLATED the skill's independence contract (practice.md: "run one independent verification pass with a DIFFERENT prompt than the loop's"). Correcting course now.
+
+## Notes on process correction
+
+The prior independent passes were invalid: each was given a checklist of my OWN fixes to confirm ("verify F-008, F-010, F-011"), which is not independence but self-verification. Per `practice.md` Step 1, the independent pass must use a DIFFERENT prompt (e.g. "trace the user-facing flows end to end") and must NOT be steered toward a verdict. The pass now being run uses the correct open form and lets the reviewer find what it finds.
 
 ## Verification Baseline
 
